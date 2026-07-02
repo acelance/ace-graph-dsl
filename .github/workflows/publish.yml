@@ -1,0 +1,82 @@
+name: Publish Packages
+
+on:
+  push:
+    tags:
+      - "v*"
+      - "backend-v*"
+      - "ui-v*"
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  publish-maven:
+    if: startsWith(github.ref, 'refs/tags/v') || startsWith(github.ref, 'refs/tags/backend-v')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+          cache: maven
+          server-id: github
+          server-username: GITHUB_ACTOR
+          server-password: GITHUB_TOKEN
+
+      - name: Set Maven version from tag
+        working-directory: ace-graph-dsl-backend
+        shell: bash
+        run: |
+          if [[ "${GITHUB_REF_NAME}" == v* ]]; then
+            VERSION="${GITHUB_REF_NAME#v}"
+          else
+            VERSION="${GITHUB_REF_NAME#backend-v}"
+          fi
+          mvn -B versions:set -DnewVersion="${VERSION}" -DgenerateBackupPoms=false
+
+      - name: Deploy Maven packages
+        working-directory: ace-graph-dsl-backend
+        run: mvn -B clean deploy -DskipTests
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  publish-npm:
+    if: startsWith(github.ref, 'refs/tags/v') || startsWith(github.ref, 'refs/tags/ui-v')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          registry-url: "https://npm.pkg.github.com"
+          scope: "@acelance"
+
+      - name: Set npm version from tag
+        working-directory: ace-graph-dsl-ui
+        shell: bash
+        run: |
+          if [[ "${GITHUB_REF_NAME}" == v* ]]; then
+            VERSION="${GITHUB_REF_NAME#v}"
+          else
+            VERSION="${GITHUB_REF_NAME#ui-v}"
+          fi
+          npm version "${VERSION}" --no-git-tag-version --allow-same-version
+
+      - name: Install dependencies
+        working-directory: ace-graph-dsl-ui
+        run: npm ci
+
+      - name: Publish npm package
+        working-directory: ace-graph-dsl-ui
+        run: npm publish
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

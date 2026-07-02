@@ -10,7 +10,7 @@
 .vscode
 .codemate
 .codebuddy
-
+.npmrc
 # Maven
 **/target/
 
