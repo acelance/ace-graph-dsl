@@ -1,0 +1,110 @@
+<script setup>
+import { ref, computed } from 'vue'
+import { useNodeRegistryStore } from '../../stores/nodeRegistry'
+import { usePermissionStore, MENU } from '../../stores/permissions'
+import { useI18n } from '../../i18n'
+import ScriptNodeEditor from './ScriptNodeEditor.vue'
+
+const nodeStore = useNodeRegistryStore()
+const perm = usePermissionStore()
+const { t } = useI18n()
+
+const keyword = ref('')
+const activeTab = ref('ALL')
+const showScriptEditor = ref(false)
+const props = defineProps({ embedded: { type: Boolean, default: false } })
+const emit = defineEmits(['node-drag'])
+
+const filteredNodes = computed(() => {
+  let list = nodeStore.nodes.filter(n =>
+    (n.displayName || '').toLowerCase().includes(keyword.value.toLowerCase()) ||
+    n.nodeId.toLowerCase().includes(keyword.value.toLowerCase())
+  )
+  if (activeTab.value !== 'ALL') {
+    list = list.filter(n => (n.origin || 'BUILTIN') === activeTab.value)
+  }
+  return list
+})
+
+function onDragStart(e, n) {
+  e.dataTransfer.effectAllowed = 'copy'
+  e.dataTransfer.setData('application/node', JSON.stringify(n))
+  emit('node-drag', n)
+}
+
+function categoryTagType(c) {
+  return { NORMAL: 'info', ROUTER: 'warning', MERGE: 'success', HITL: 'danger' }[c] || 'info'
+}
+
+async function onScriptCreated() {
+  await nodeStore.fetchNodes()
+}
+</script>
+
+<template>
+  <div class="node-panel" :class="{ 'node-panel--embedded': props.embedded }">
+    <div class="panel-header">{{ t('nodePanel.title') }}</div>
+    <el-alert :title="t('nodePanel.canvasHint')" type="info" :closable="false" show-icon class="canvas-hint" />
+    <el-input v-model="keyword" :placeholder="t('nodePanel.search')" clearable size="small" style="margin-bottom: 8px;" />
+    <el-tabs v-model="activeTab" size="small" style="margin-bottom: 8px;">
+      <el-tab-pane :label="t('nodePanel.all')" name="ALL" />
+      <el-tab-pane :label="t('nodePanel.builtin')" name="BUILTIN" />
+      <el-tab-pane :label="t('nodePanel.script')" name="SCRIPT" />
+    </el-tabs>
+    <el-button v-if="perm.can(MENU.SCRIPT_NODE_CREATE)" type="primary" size="small" style="width: 100%; margin-bottom: 8px;" @click="showScriptEditor = true">
+      {{ t('nodePanel.createScript') }}
+    </el-button>
+    <div
+      v-for="n in filteredNodes"
+      :key="n.nodeId"
+      class="node-item"
+      draggable="true"
+      @dragstart="onDragStart($event, n)"
+      @click="emit('node-drag', n)"
+    >
+      <div class="node-info">
+        <span class="node-name">{{ n.displayName }}</span>
+        <el-tag v-if="n.origin === 'SCRIPT'" size="small" type="success" style="margin-left: 4px;">SCRIPT</el-tag>
+      </div>
+      <el-tag size="small" :type="categoryTagType(n.category)">{{ n.category }}</el-tag>
+    </div>
+    <el-empty v-if="filteredNodes.length === 0" :description="t('nodePanel.empty')" :image-size="40" />
+    <ScriptNodeEditor v-model:visible="showScriptEditor" @created="onScriptCreated" />
+  </div>
+</template>
+
+<style scoped>
+.node-panel { padding: 12px; }
+.node-panel--embedded {
+  padding: 10px;
+}
+.node-panel--embedded .panel-header {
+  font-size: 13px;
+  margin-bottom: 6px;
+}
+.node-panel--embedded .canvas-hint :deep(.el-alert__title) {
+  font-size: 12px;
+}
+.panel-header {
+  font-weight: 600;
+  font-size: 14px;
+  margin-bottom: 8px;
+  color: var(--agd-color-text, #303133);
+}
+.canvas-hint {
+  margin-bottom: 8px;
+}
+.node-item {
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 8px 10px; margin-bottom: 4px;
+  border: 1px solid var(--agd-color-border, #e4e7ed);
+  border-radius: 4px;
+  cursor: grab; transition: all 0.2s;
+}
+.node-item:hover {
+  border-color: var(--agd-color-primary, #409eff);
+  background: var(--agd-color-bg-active, #ecf5ff);
+}
+.node-name { font-size: 13px; }
+.node-info { display: flex; align-items: center; flex: 1; min-width: 0; }
+</style>

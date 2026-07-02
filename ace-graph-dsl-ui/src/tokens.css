@@ -1,0 +1,35 @@
+/**
+ * 设计器布局与主题 token（不含第三方 UI 框架样式）。
+ * 由 src/index.js 侧效引入；完整聚合样式见 style.css。
+ */
+.ace-graph-dsl-designer,
+.ace-graph-dsl-manager {
+  --agd-color-primary: var(--el-color-primary, #409eff);
+  --agd-color-border: var(--el-border-color, #e4e7ed);
+  --agd-color-text: var(--el-text-color-primary, #303133);
+  --agd-color-text-secondary: var(--el-text-color-secondary, #909399);
+  --agd-color-bg: var(--el-bg-color, #fff);
+  --agd-color-bg-toolbar: var(--el-bg-color, #fff);
+  --agd-color-bg-muted: var(--el-fill-color-light, #f5f7fa);
+  --agd-color-bg-hover: var(--el-fill-color-light, #f5f7fa);
+  --agd-color-bg-active: var(--el-color-primary-light-9, #ecf5ff);
+  --agd-color-success: var(--el-color-success, #67c23a);
+  --agd-color-warning: var(--el-color-warning, #e6a23c);
+  --agd-color-danger: var(--el-color-danger, #f56c6c);
+  --agd-spacing-toolbar: 8px 16px;
+  --agd-font-size-title: 14px;
+  --agd-panel-width-left: 240px;
+  --agd-panel-width-right: 360px;
+  --agd-panel-width-catalog: 360px;
+  --agd-panel-width-catalog-expanded: 360px;
+
+  box-sizing: border-box;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+}
+
+.ace-graph-dsl-designer *,
+.ace-graph-dsl-manager * {
+  box-sizing: border-box;
+}

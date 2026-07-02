@@ -1,0 +1,16 @@
+/**
+ * Ace Graph DSL UI 聚合样式入口。
+ *
+ * 该文件聚合设计器运行所需的第三方基础样式（Element Plus / LogicFlow），
+ * 宿主只需 `import '@acelance/graph-dsl-ui/style'` 一次即可，无需逐个引入。
+ *
+ * 注：以下为「裸包名」@import，由 Vite / webpack 等打包器解析；
+ * 浏览器直引 CSS 不支持裸包名，请通过打包器消费。
+ *
+ * 若宿主已自行引入 Element Plus 样式，可改为只引
+ * `@acelance/graph-dsl-ui/dist/style.css`（库构建产物，含组件样式 + token）。
+ */
+@import './tokens.css';
+@import 'element-plus/dist/index.css';
+@import '@logicflow/core/dist/index.css';
+@import '@logicflow/extension/lib/style/index.css';
