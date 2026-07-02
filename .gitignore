@@ -1,3 +1,40 @@
+.idea
+.setting*
+.setting.*
+*/.idea
+*/.setting*
+*/.setting.*
+**/.idea
+**/.setting*
+**/.setting.*
+.vscode
+.codemate
+.codebuddy
+
+# Maven
+**/target/
+
+# Node
+**/node_modules/
+ace-graph-dsl-ui/dist/
+
+# IDE / OS
+.idea/
+.vscode/
+*.iml
+.DS_Store
+Thumbs.db
+
+# 日志
+*.log
+logs/
+
+# 本地 / 密钥
+.env
+.env.*
+**/application-local.*
+**/application-local.yml
+
 # Logs
 logs
 *.log
