@@ -46,6 +46,7 @@ export function createGraphApi(options = '/') {
     listDispatchers: () => http.get(`${p}/dispatchers`).then(r => r.data),
     listScriptNodeDefinitions: () => http.get(`${p}/nodes/definitions`).then(r => r.data),
     getScriptNodeDefinition: (nodeId) => http.get(`${p}/nodes/definitions/${nodeId}`).then(r => r.data),
+    listScriptEngines: () => http.get(`${p}/nodes/engines`).then(r => r.data),
     createScriptNode: (body) => http.post(`${p}/nodes`, body).then(r => r.data),
     updateScriptNode: (nodeId, body) => http.put(`${p}/nodes/${nodeId}`, body).then(r => r.data),
     deleteScriptNode: (nodeId) => http.delete(`${p}/nodes/${nodeId}`).then(r => r.data),
@@ -104,6 +105,7 @@ export const testRunDraft = (...args) => defaultApi.testRunDraft(...args)
 export const testRunScriptNode = (...args) => defaultApi.testRunScriptNode(...args)
 export const getScriptNodeDefinition = (...args) => defaultApi.getScriptNodeDefinition(...args)
 export const listScriptNodeDefinitions = (...args) => defaultApi.listScriptNodeDefinitions(...args)
+export const listScriptEngines = (...args) => defaultApi.listScriptEngines(...args)
 export const listDefinitions = (...args) => defaultApi.listDefinitions(...args)
 export const listGraphIds = (...args) => defaultApi.listGraphIds(...args)
 export const listSummaries = (...args) => defaultApi.listSummaries(...args)

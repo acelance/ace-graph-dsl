@@ -4,6 +4,7 @@ import org.springframework.stereotype.Component;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
@@ -30,5 +31,10 @@ public class ScriptEngineRegistry {
 
     public boolean supports(String engineId) {
         return engines.containsKey(engineId);
+    }
+
+    /** 返回所有已注册引擎的 ID 集合，供前端引擎下拉选择 */
+    public Set<String> listEngineIds() {
+        return Set.copyOf(engines.keySet());
     }
 }

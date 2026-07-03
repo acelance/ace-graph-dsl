@@ -319,7 +319,12 @@ public class AceGraphDslProperties {
 
     public static class Script {
         private boolean enabled = true;
+        /** 默认脚本引擎（当 DSL 未指定 engine 时的回退值，如 aviator / spel） */
         private String defaultEngine = "aviator";
+        /** 是否启用 Aviator 脚本引擎 */
+        private boolean aviatorEnabled = true;
+        /** 是否启用 SpEL 脚本引擎（Spring 内置，零额外依赖） */
+        private boolean spelEnabled = true;
         private long executionTimeoutMs = 500;
         private int maxScriptSizeBytes = 65536;
         /** 脚本执行线程池最大线程数；<=0 时按 CPU 核数自动取值（下限 2） */
@@ -339,6 +344,22 @@ public class AceGraphDslProperties {
 
         public void setDefaultEngine(String defaultEngine) {
             this.defaultEngine = defaultEngine;
+        }
+
+        public boolean isAviatorEnabled() {
+            return aviatorEnabled;
+        }
+
+        public void setAviatorEnabled(boolean aviatorEnabled) {
+            this.aviatorEnabled = aviatorEnabled;
+        }
+
+        public boolean isSpelEnabled() {
+            return spelEnabled;
+        }
+
+        public void setSpelEnabled(boolean spelEnabled) {
+            this.spelEnabled = spelEnabled;
         }
 
         public long getExecutionTimeoutMs() {

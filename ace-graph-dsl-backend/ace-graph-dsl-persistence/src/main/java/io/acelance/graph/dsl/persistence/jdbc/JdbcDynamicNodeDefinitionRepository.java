@@ -17,14 +17,14 @@ public class JdbcDynamicNodeDefinitionRepository extends AbstractJdbcDynamicNode
     protected void initSchema() {
         jdbcTemplate.execute("""
                 CREATE TABLE IF NOT EXISTS %s (
-                    node_id TEXT PRIMARY KEY,
-                    display_name TEXT NOT NULL,
+                    node_id VARCHAR(128) PRIMARY KEY,
+                    display_name VARCHAR(256) NOT NULL,
                     content_json TEXT NOT NULL,
-                    script_hash TEXT NOT NULL,
+                    script_hash VARCHAR(64) NOT NULL,
                     enabled INTEGER NOT NULL DEFAULT 1,
-                    created_by TEXT,
-                    created_at TIMESTAMP NOT NULL,
-                    updated_at TIMESTAMP NOT NULL
+                    created_by VARCHAR(128),
+                    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
                 )
                 """.formatted(nodeDefTable()));
     }

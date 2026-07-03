@@ -1,7 +1,7 @@
 <script setup>
 import { ref, computed, watch } from 'vue'
 import { ElMessage } from 'element-plus'
-import { createScriptNode, validateScript, testRunDraft } from '../../api/graph'
+import { createScriptNode, validateScript, testRunDraft, listScriptEngines } from '../../api/graph'
 import { usePermissionStore, MENU } from '../../stores/permissions'
 import { useI18n } from '../../i18n'
 
@@ -14,6 +14,7 @@ const emit = defineEmits(['created'])
 const saving = ref(false)
 const testing = ref(false)
 const testOutput = ref(null)
+const engines = ref([])
 
 const form = ref({
   nodeId: '',
@@ -23,7 +24,7 @@ const form = ref({
   inputKeysText: 'query',
   outputKeysText: 'normalized_query',
   engine: 'aviator',
-  scriptBody: "seq.map('normalized_query', string.trim(string(state.query)))",
+  scriptBody: "seq.map('normalized_query', state.query)",
   mockStateJson: '{"query":"  hello  "}',
   permissionTagsText: 'public'
 })
@@ -31,8 +32,20 @@ const form = ref({
 watch(visible, (v) => {
   if (v) {
     form.value.nodeId = `script:${form.value.displayName ? form.value.displayName.replace(/\s+/g, '_').toLowerCase() : 'custom_' + Date.now()}`
+    fetchEngines()
   }
 })
+
+async function fetchEngines() {
+  try {
+    engines.value = await listScriptEngines()
+    if (engines.value.length === 0) {
+      engines.value = [{ id: 'aviator', label: 'Aviator 表达式' }]
+    }
+  } catch {
+    engines.value = [{ id: 'aviator', label: 'Aviator 表达式' }]
+  }
+}
 
 watch(() => form.value.displayName, (name) => {
   if (!form.value.nodeId || form.value.nodeId.startsWith('script:custom_')) {
@@ -144,6 +157,11 @@ async function onSubmit() {
       </el-form-item>
       <el-form-item :label="t('scriptEditor.permissionTags')">
         <el-input v-model="form.permissionTagsText" :placeholder="t('scriptEditor.permissionTagsPlaceholder')" />
+      </el-form-item>
+      <el-form-item :label="t('scriptEditor.engine')">
+        <el-select v-model="form.engine" style="width: 100%;">
+          <el-option v-for="e in engines" :key="e.id" :label="e.label" :value="e.id" />
+        </el-select>
       </el-form-item>
       <el-form-item :label="t('scriptEditor.scriptBody')" required>
         <el-input v-model="form.scriptBody" type="textarea" :rows="6" font-family="monospace" />

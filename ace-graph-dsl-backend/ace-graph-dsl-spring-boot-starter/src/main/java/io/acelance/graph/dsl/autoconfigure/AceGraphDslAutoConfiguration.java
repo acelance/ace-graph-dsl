@@ -23,6 +23,7 @@ import io.acelance.graph.dsl.persistence.sqlite.SqliteDynamicNodeDefinitionRepos
 import io.acelance.graph.dsl.persistence.sqlite.SqliteGraphDefinitionRepository;
 import io.acelance.graph.dsl.script.AviatorScriptEngine;
 import io.acelance.graph.dsl.script.ScriptEngine;
+import io.acelance.graph.dsl.script.SpelScriptEngine;
 import io.acelance.graph.dsl.security.GraphNodeAccessControl;
 import io.acelance.graph.dsl.security.PermissiveGraphNodeAccessControl;
 import io.acelance.graph.dsl.security.menu.DefaultGraphMenuCatalog;
@@ -39,6 +40,7 @@ import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnBean;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnClass;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnExpression;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.autoconfigure.jdbc.DataSourceProperties;
@@ -142,12 +144,19 @@ public class AceGraphDslAutoConfiguration {
     }
 
     @Bean
-    @ConditionalOnMissingBean(ScriptEngine.class)
+    @ConditionalOnProperty(prefix = "ace.graph.dsl.script", name = "aviator-enabled", havingValue = "true", matchIfMissing = true)
     @ConditionalOnProperty(prefix = "ace.graph.dsl.script", name = "enabled", havingValue = "true", matchIfMissing = true)
     public ScriptEngine aviatorScriptEngine(AceGraphDslProperties properties) {
         return new AviatorScriptEngine(
                 properties.getScript().getExecutionTimeoutMs(),
                 properties.getScript().getExecutionPoolSize());
+    }
+
+    @Bean
+    @ConditionalOnProperty(prefix = "ace.graph.dsl.script", name = "spel-enabled", havingValue = "true", matchIfMissing = true)
+    @ConditionalOnProperty(prefix = "ace.graph.dsl.script", name = "enabled", havingValue = "true", matchIfMissing = true)
+    public ScriptEngine spelScriptEngine() {
+        return new SpelScriptEngine();
     }
 
     @Bean
@@ -165,6 +174,7 @@ public class AceGraphDslAutoConfiguration {
                 scriptNodeFactory,
                 engineRegistry,
                 properties.getScript().getMaxScriptSizeBytes(),
+                properties.getScript().getDefaultEngine(),
                 auditLogger);
     }
 
@@ -203,6 +213,8 @@ public class AceGraphDslAutoConfiguration {
 
     @Bean(name = "aceGraphDslSqliteDataSource")
     @ConditionalOnMissingBean(name = "aceGraphDslSqliteDataSource")
+    @ConditionalOnExpression("'${ace.graph.dsl.persistence.type:auto}'.equals('auto')"
+            + " || '${ace.graph.dsl.persistence.type:auto}'.equals('sqlite')")
     public DataSource aceGraphDslSqliteDataSource(AceGraphDslProperties properties) throws Exception {
         Path dbPath = Path.of(properties.getPersistence().getSqlite().getPath());
         Files.createDirectories(dbPath.getParent() != null ? dbPath.getParent() : Path.of("."));

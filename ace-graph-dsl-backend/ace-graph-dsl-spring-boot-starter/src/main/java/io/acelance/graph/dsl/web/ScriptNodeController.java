@@ -6,6 +6,8 @@ import io.acelance.graph.dsl.security.GraphNodeAccessControl;
 import io.acelance.graph.dsl.security.menu.GraphMenuPermissionResolver;
 import io.acelance.graph.dsl.security.menu.GraphMenuPermissions;
 import io.acelance.graph.dsl.service.ScriptNodeService;
+import io.acelance.graph.dsl.script.ScriptEngine;
+import io.acelance.graph.dsl.script.ScriptEngineRegistry;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -32,12 +34,23 @@ public class ScriptNodeController {
     private final ScriptNodeService scriptNodeService;
     private final GraphNodeAccessControl accessControl;
     private final GraphMenuPermissionResolver menuPermissions;
+    private final ScriptEngineRegistry engineRegistry;
 
     public ScriptNodeController(ScriptNodeService scriptNodeService, GraphNodeAccessControl accessControl,
-                               GraphMenuPermissionResolver menuPermissions) {
+                               GraphMenuPermissionResolver menuPermissions,
+                               ScriptEngineRegistry engineRegistry) {
         this.scriptNodeService = scriptNodeService;
         this.accessControl = accessControl;
         this.menuPermissions = menuPermissions;
+        this.engineRegistry = engineRegistry;
+    }
+
+    /** 列出可用的脚本引擎 */
+    @GetMapping("/engines")
+    public List<EngineMeta> listEngines() {
+        return engineRegistry.listEngineIds().stream()
+                .map(EngineMeta::new)
+                .toList();
     }
 
     /** 列出所有脚本节点定义 */
@@ -170,4 +183,19 @@ public class ScriptNodeController {
 
     /** 已存节点试跑请求体 */
     public record TestRunRequest(Map<String, Object> mockState, Map<String, Object> config) {}
+
+    /** 引擎元数据（供前端下拉选择） */
+    public record EngineMeta(String id, String label) {
+        public EngineMeta(String id) {
+            this(id, toLabel(id));
+        }
+
+        private static String toLabel(String id) {
+            return switch (id) {
+                case "aviator" -> "Aviator 表达式";
+                case "spel" -> "SpEL 表达式";
+                default -> id;
+            };
+        }
+    }
 }

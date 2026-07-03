@@ -41,6 +41,7 @@ public class ScriptNodeService {
     private final ScriptNodeFactory scriptNodeFactory;
     private final ScriptEngineRegistry engineRegistry;
     private final int maxScriptSizeBytes;
+    private final String defaultEngine;
     private final GraphAuditLogger auditLogger;
 
     public ScriptNodeService(DynamicNodeDefinitionRepository repository,
@@ -48,7 +49,7 @@ public class ScriptNodeService {
                              ScriptNodeFactory scriptNodeFactory,
                              ScriptEngineRegistry engineRegistry,
                              int maxScriptSizeBytes) {
-        this(repository, nodeRegistry, scriptNodeFactory, engineRegistry, maxScriptSizeBytes, null);
+        this(repository, nodeRegistry, scriptNodeFactory, engineRegistry, maxScriptSizeBytes, "aviator", null);
     }
 
     public ScriptNodeService(DynamicNodeDefinitionRepository repository,
@@ -57,11 +58,22 @@ public class ScriptNodeService {
                              ScriptEngineRegistry engineRegistry,
                              int maxScriptSizeBytes,
                              GraphAuditLogger auditLogger) {
+        this(repository, nodeRegistry, scriptNodeFactory, engineRegistry, maxScriptSizeBytes, "aviator", auditLogger);
+    }
+
+    public ScriptNodeService(DynamicNodeDefinitionRepository repository,
+                             GraphNodeRegistry nodeRegistry,
+                             ScriptNodeFactory scriptNodeFactory,
+                             ScriptEngineRegistry engineRegistry,
+                             int maxScriptSizeBytes,
+                             String defaultEngine,
+                             GraphAuditLogger auditLogger) {
         this.repository = repository;
         this.nodeRegistry = nodeRegistry;
         this.scriptNodeFactory = scriptNodeFactory;
         this.engineRegistry = engineRegistry;
         this.maxScriptSizeBytes = maxScriptSizeBytes;
+        this.defaultEngine = defaultEngine;
         this.auditLogger = auditLogger;
     }
 
@@ -222,7 +234,7 @@ public class ScriptNodeService {
     }
 
     private String resolveEngine(String engine) {
-        return (engine == null || engine.isBlank()) ? "aviator" : engine;
+        return (engine == null || engine.isBlank()) ? this.defaultEngine : engine;
     }
 
     private static void requireScriptId(String nodeId) {

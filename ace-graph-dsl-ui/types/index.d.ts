@@ -53,6 +53,12 @@ export interface ValidateScriptBody {
   scriptBody: string
 }
 
+/** 引擎元数据（GET /script/engines 返回） */
+export interface EngineMeta {
+  id: string
+  label: string
+}
+
 /** 脚本试跑请求体 */
 export interface TestRunBody {
   engine: string
@@ -113,6 +119,8 @@ export interface GraphApi {
   listScriptNodeDefinitions: () => Promise<any[]>
   /** 获取单个脚本节点定义 */
   getScriptNodeDefinition: (nodeId: string) => Promise<any>
+  /** 列出可用脚本引擎 */
+  listScriptEngines: () => Promise<EngineMeta[]>
   /** 创建脚本节点 */
   createScriptNode: (body: CreateScriptNodeBody) => Promise<any>
   /** 更新脚本节点 */
@@ -197,6 +205,7 @@ export const testRunDraft: GraphApi['testRunDraft']
 export const testRunScriptNode: GraphApi['testRunScriptNode']
 export const getScriptNodeDefinition: GraphApi['getScriptNodeDefinition']
 export const listScriptNodeDefinitions: GraphApi['listScriptNodeDefinitions']
+export const listScriptEngines: GraphApi['listScriptEngines']
 export const listDefinitions: GraphApi['listDefinitions']
 export const listGraphIds: GraphApi['listGraphIds']
 export const listSummaries: GraphApi['listSummaries']
@@ -476,6 +485,7 @@ declare module '@acelance/graph-dsl-ui' {
     testRunScriptNode,
     getScriptNodeDefinition,
     listScriptNodeDefinitions,
+    listScriptEngines,
     listDefinitions,
     listGraphIds,
     listSummaries,
