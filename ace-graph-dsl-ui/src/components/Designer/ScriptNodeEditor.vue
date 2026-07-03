@@ -121,38 +121,38 @@ async function onSubmit() {
 <template>
   <el-dialog v-model="visible" :title="t('scriptEditor.title')" width="680px" destroy-on-close>
     <el-form label-width="110px" size="small">
-      <el-form-item label="Node ID" required>
-        <el-input v-model="form.nodeId" placeholder="script:my_node" />
+      <el-form-item :label="t('scriptEditor.nodeId')" required>
+        <el-input v-model="form.nodeId" :placeholder="t('scriptEditor.nodeIdPlaceholder')" />
       </el-form-item>
-      <el-form-item label="显示名" required>
-        <el-input v-model="form.displayName" placeholder="入参标准化" />
+      <el-form-item :label="t('scriptEditor.displayName')" required>
+        <el-input v-model="form.displayName" :placeholder="t('scriptEditor.displayNamePlaceholder')" />
       </el-form-item>
-      <el-form-item label="类别">
+      <el-form-item :label="t('scriptEditor.category')">
         <el-select v-model="form.category" style="width: 100%;">
           <el-option label="NORMAL" value="NORMAL" />
           <el-option label="ROUTER" value="ROUTER" />
         </el-select>
       </el-form-item>
-      <el-form-item label="描述">
+      <el-form-item :label="t('scriptEditor.description')">
         <el-input v-model="form.description" type="textarea" :rows="2" />
       </el-form-item>
-      <el-form-item label="Input Keys">
-        <el-input v-model="form.inputKeysText" placeholder="逗号分隔，如 query,score" />
+      <el-form-item :label="t('scriptEditor.inputKeys')">
+        <el-input v-model="form.inputKeysText" :placeholder="t('scriptEditor.inputKeysPlaceholder')" />
       </el-form-item>
-      <el-form-item label="Output Keys">
-        <el-input v-model="form.outputKeysText" placeholder="逗号分隔，如 normalized_query" />
+      <el-form-item :label="t('scriptEditor.outputKeys')">
+        <el-input v-model="form.outputKeysText" :placeholder="t('scriptEditor.outputKeysPlaceholder')" />
       </el-form-item>
-      <el-form-item label="权限标签">
-        <el-input v-model="form.permissionTagsText" placeholder="逗号分隔，如 public,cs" />
+      <el-form-item :label="t('scriptEditor.permissionTags')">
+        <el-input v-model="form.permissionTagsText" :placeholder="t('scriptEditor.permissionTagsPlaceholder')" />
       </el-form-item>
-      <el-form-item label="脚本 (Aviator)" required>
+      <el-form-item :label="t('scriptEditor.scriptBody')" required>
         <el-input v-model="form.scriptBody" type="textarea" :rows="6" font-family="monospace" />
-        <div class="hint">可用变量：<code>state</code>（输入）、<code>config</code>（节点配置）；返回 Map 或使用 seq.map(key, value)</div>
+        <div class="hint">{{ t('scriptEditor.scriptHint', { state: 'state', config: 'config' }) }}</div>
       </el-form-item>
-      <el-form-item label="Mock State">
+      <el-form-item :label="t('scriptEditor.mockState')">
         <el-input v-model="form.mockStateJson" type="textarea" :rows="2" />
       </el-form-item>
-      <el-form-item v-if="testOutput" label="试跑结果">
+      <el-form-item v-if="testOutput" :label="t('scriptEditor.testOutput')">
         <el-input :model-value="JSON.stringify(testOutput, null, 2)" type="textarea" :rows="3" readonly />
       </el-form-item>
     </el-form>

@@ -1,7 +1,7 @@
 # Ace Graph DSL — 后续优化与功能规划建议
 
-> 版本：v1.6  
-> 日期：2026-07-01  
+> 版本：v1.7  
+> 日期：2026-07-03  
 > 适用范围：`ace-graph-dsl-backend` / `ace-graph-dsl-ui` 作为第三方组件嵌入业务系统后的持续演进
 
 ---
@@ -21,7 +21,7 @@
 
 本文在 [LIBRARY_EMBEDDING_ROADMAP.md](./LIBRARY_EMBEDDING_ROADMAP.md) 基础上，按**价值 / 成本**重新梳理后续优化项，并给出建议落地顺序。
 
-> **实施进度（截至 v1.6）**：阶段一（P0）嵌入基线全部落地（3.2 npm 私服发布与 `.d.ts` 待收尾）；阶段二（P1）权限闭环、审计日志、ObjectMapper 隔离、checkpoint saver（SPI + Redis）、通用图执行 / SSE 端点全部收尾（4.4 Security 集成文档待补）；阶段三（P2）脚本引擎线程池（7.1）、脚本条件边 Dispatcher（7.3）、可观测 trace SPI（6.1）、**版本 diff / 回滚 UI（6.3）** 已落地；**主题 i18n（6.4）** 部分落地。阶段四（P3）单元测试已起步、配置元数据已落地；**CI 流水线**与 **SemVer 发布** 待办。剩余 **多租户（6.2）**、**多脚本引擎（7.2）** 待规划/实施。详见 [§2.1 实施进度总表](#21-实施进度总表) 与 [§11 变更记录](#11-变更记录)。
+> **实施进度（截至 v1.7）**：阶段一（P0）嵌入基线全部落地（3.2 `.d.ts` 已生成，仅余私服发布）；阶段二（P1）权限闭环（含 Security 集成文档 4.4）、审计日志、ObjectMapper 隔离、checkpoint saver（SPI + Redis）、通用图执行 / SSE 端点全部收尾；阶段三（P2）脚本引擎线程池（7.1）、脚本条件边 Dispatcher（7.3）、可观测 trace SPI（6.1）、**版本 diff / 回滚 UI（6.3）**、**主题 i18n（6.4）** 已落地。阶段四（P3）单元测试已起步、配置元数据已落地；CI 流水线（8.2）已入库；SemVer（8.3）1.0.0 已定版（`CHANGELOG.md` 已创建，私服发布待运维）。剩余 **多租户（6.2）**、**多脚本引擎（7.2）** 待规划/实施。详见 [§2.1 实施进度总表](#21-实施进度总表) 与 [§11 变更记录](#11-变更记录)。
 
 ### 1.1 权限模型边界（避免混淆）
 
@@ -50,26 +50,26 @@
 | 编号 | 项 | 优先级 | 状态 | 备注 |
 |------|-----|--------|------|------|
 | 3.1 | REST 基础路径可配置 | P0 | ✅ | `ace.graph.dsl.web.base-path` / `enabled` |
-| 3.2 | 前端 dist 构建 + npm 私服 | P0 | 🔶 | 构建链路 OK；`.d.ts`、私服 publish、demo 去 `file:` 待办 |
+| 3.2 | 前端 dist 构建 + npm 私服 | P0 | 🔶 | 构建链路 OK；`.d.ts` 已生成 + demo 已切版本坐标；私服 publish 待办 |
 | 3.3 | 补全 `style.css` 导出 | P0 | ✅ | `dist/style.css` + 源码导出 |
 | 3.4 | 前端 axios / 鉴权可注入 | P0 | ✅ | `createGraphApi` / `configureGraphApi` |
 | 4.1 | 写操作菜单权限兜底 | P1 | ✅ | `MenuPermissionGuard` |
 | 4.2 | 权限解析缓存 | P1 | ✅ | `CachingGraphMenuAccessControl` |
 | 4.3 | 操作审计日志 | P1 | ✅ | `GraphAuditLogger` SPI |
-| 4.4 | CORS 与 Spring Security 示例 | P1 | 🔶 | CORS 已内置；Security 集成文档待补 |
+| 4.4 | CORS 与 Spring Security 示例 | P1 | ✅ | CORS 已内置；`SECURITY_INTEGRATION.md` 已创建 |
 | 5.1 | JDBC / Redis checkpoint saver | P1 | ✅ | SPI + Redis 内置；JDBC 由宿主扩展 |
 | 5.2 | 通用图执行 / SSE 端点 | P1 | ✅ | 默认关闭，可选开启 |
 | 5.3 | ObjectMapper 注入隔离 | P1 | ✅ | 按名 `aceGraphDslObjectMapper` |
 | 6.1 | Langfuse / OpenTelemetry trace | P2 | ✅ | SPI + `Slf4jGraphExecutionListener` |
 | 6.2 | 多租户隔离 | P2 | ⏳ | 无 `tenantId`；后端未消费 `X-Tenant-Id` |
 | 6.3 | 版本 diff / 回滚 UI | P2 | ✅ | `VersionHistoryDrawer` + JSON/结构 diff |
-| 6.4 | 主题 token 与 i18n | P2 | 🔶 | `tokens.css` + i18n 框架；部分组件未外置 |
+| 6.4 | 主题 token 与 i18n | P2 | ✅ | `tokens.css` + i18n 框架 + `ScriptNodeEditor` 已外置 |
 | 7.1 | 脚本引擎线程池 | P2 | ✅ | 共享线程池 + 可配置 |
 | 7.2 | 多脚本引擎 | P2 | ⏳ | 仅 Aviator；SPI 可扩展 |
 | 7.3 | 脚本版条件边 Dispatcher | P2 | ✅ | `condition` + `ScriptEdgeActionFactory` |
 | 8.1 | 单元 / 集成测试 | P3 | 🔶 | 6 个测试类；集成测试待补 |
-| 8.2 | CI 流水线 | P3 | ⏳ | workflow 文件尚未入库 |
-| 8.3 | SemVer 发布 | P3 | ⏳ | 仍为 SNAPSHOT + `file:` 依赖 |
+| 8.2 | CI 流水线 | P3 | ✅ | `.github/workflows/ci.yml` + `publish.yml` |
+| 8.3 | SemVer 发布 | P3 | 🔶 | 版本 1.0.0；demo 已切版本坐标；`CHANGELOG.md` 已创建；私服发布待运维 |
 | 8.4 | 配置元数据 | P3 | ✅ | `spring-configuration-metadata` |
 
 ---
@@ -95,7 +95,7 @@
 | **问题** | 消费端需 `resolve.dedupe`、`optimizeDeps.exclude`、`resolve.alias` 等适配（cs-reply-web-m2-ace 曾遇 `axios` 解析失败） |
 | **改进** | ✅ `vite build`（lib 模式）产出 `dist/index.js`（ESM）+ `dist/style.css`，peer 依赖（vue/pinia/axios/element-plus/logicflow）全部 external |
 | **保留** | `./src` 子路径导出仍可源码直引；npm 私服发布为运维动作（非代码） |
-| **待办** | 类型声明 `.d.ts`（当前为 JS 工程，未生成）；正式 publish 到私服 |
+| **待办** | 正式 publish 到私服（类型声明 `types/index.d.ts` 已生成，`package.json` `types` 字段已配置） |
 | **价值** | 宿主 `npm install` 即可用，无需 Vite 特殊配置 |
 
 ### 3.3 补全 `style.css` 导出 ✅ 已实施
@@ -156,13 +156,13 @@
 | **扩展** | 宿主实现 `GraphAuditLogger` 即可落库 / 推送统一审计中心（`@ConditionalOnMissingBean`） |
 | **价值** | 生产环境合规与问题追溯 |
 
-### 4.4 CORS 与 Spring Security 打通示例 🔶 部分实施（CORS）
+### 4.4 CORS 与 Spring Security 打通示例 ✅ 已实施
 
 | 项 | 说明 |
 |----|------|
 | **现状** | ~~无内置 CORS~~；`AccessDeniedException` 已映射 403 |
 | **改进** | ✅ 可选内置 CORS：`ace.graph.dsl.web.cors.*`（默认关闭），仅作用于设计器 base-path 路径，支持 `allowed-origins`（origin patterns）/`methods`/`headers`/`exposed-headers`/`allow-credentials`/`max-age` |
-| **待办** | 宿主 Spring Security 集成示例（节点权限 + 菜单权限映射）文档 |
+| **改进** | ✅ `SECURITY_INTEGRATION.md` 已创建：Spring Security `GraphMenuAccessControl` 映射示例、Authority 命名约定（`ACE_*`）、CORS 协调配置、未登录只读设计器、自定义菜单项等 FAQ |
 | **价值** | 降低前后端分离部署时的联调成本 |
 
 ---
@@ -222,12 +222,12 @@
 | **改进** | ✅ `VersionHistoryDrawer`（已发布 / 草稿历史 Tab、结构对比、JSON 行级 diff、一键回滚）；`VersionDiffPanel` / `JsonLineDiffView`；`Toolbar`「版本历史」入口；对接 `listVersions` / `getVersion` / `getEnabled` / `rollback` |
 | **价值** | 降低运维与排错成本 |
 
-### 6.4 主题 token 与 i18n 🔶 部分实施
+### 6.4 主题 token 与 i18n ✅ 已实施
 
 | 项 | 说明 |
 |----|------|
-| **现状** | ~~配色与文案硬编码中文~~ → 主流程组件已外置；`ScriptNodeEditor` 等仍有硬编码 |
-| **改进** | ✅ `tokens.css`（`--agd-color-*`、`--agd-panel-width-*` 等）；`configureGraphDslI18n` + `zh-CN` / `en-US`；Toolbar / Manager / Canvas / Version 系列已用 `t()`。**待办**：`ScriptNodeEditor` 等剩余文案；`configureGraphDslTheme` 等主题 API |
+| **现状** | ~~配色与文案硬编码中文~~ → 全组件文案已外置 |
+| **改进** | ✅ `tokens.css`（`--agd-color-*`、`--agd-panel-width-*` 等）；`configureGraphDslI18n` + `zh-CN` / `en-US`；Toolbar / Manager / Canvas / Version / ScriptNodeEditor 全系列已用 `t()`。**待办**：`configureGraphDslTheme` 等主题 API |
 | **价值** | 嵌入宿主 UI 时风格与语言可统一 |
 
 ---
@@ -266,8 +266,8 @@
 | 项 | 状态 | 说明 |
 |----|------|------|
 | **单元 / 集成测试** | 🔶 部分实施 | ✅ 已起步 6 个测试类：`GraphValidatorTest`、`ScriptEdgeActionFactoryTest`、`AviatorScriptEngineTest`、`GraphEdgeJsonTest`、`GraphDefinitionContentComparatorTest`、`DraftSaveValidatorTest`；core 模块 surefire 3.2.5 + `skipTests=false`。**待办**：`DynamicGraphBuilder` / `ScriptNodeService` / 权限解析集成测试 |
-| **CI 流水线** | ⏳ 待办 | 计划 `.github/workflows/ace-graph-dsl-ci.yml`（backend `mvn -B verify` JDK 17 + frontend `npm ci && npm run build` Node 20），**尚未入库** |
-| **SemVer 发布** | ⏳ 待办 | 库与 UI 分版本发布；demo 用版本号替代 `file:` / `SNAPSHOT` |
+| **CI 流水线** | ✅ 已实施 | `.github/workflows/ci.yml`（backend `mvn -B verify` JDK 17 + frontend `npm ci && npm run build` Node 20）+ `publish.yml`（tag 触发 `mvn deploy` + `npm publish`）已入库 |
+| **SemVer 发布** | 🔶 部分实施 | 版本 1.0.0；demo 已切版本坐标（`package.json` `1.0.0` / `pom.xml` `1.0.0`）；`CHANGELOG.md` 已创建；正式发布到私服待运维执行 |
 | **配置元数据** | ✅ 已实施 | `spring-configuration-metadata.json` 自动生成，覆盖 `ace.graph.dsl.observability.*`、`ace.graph.dsl.web.execution.*` 等 |
 
 ---
@@ -329,6 +329,8 @@ flowchart LR
 
 ## 11. 变更记录
 
+> **v1.7**（2026-07-03）· 收尾多项未完成项：4.4 Security 集成文档（`SECURITY_INTEGRATION.md`）已创建；6.4 `ScriptNodeEditor` 全表单文案外置 → 6.4 完全落地标 ✅；8.2 CI 流水线已在仓库确认为已入库 → 标 ✅；8.3 SemVer 后端/前端/demo 均已完成去 SNAPSHOT + 去 `file:` → 标 🔶（待私服发布）；`CHANGELOG.md` 已创建；demo README 版本描述同步。待办项清单移除 6.4 / 4.4 / CI，SemVer 降级为部分实施。
+>
 > **v1.6**（2026-07-01）· 对照代码库刷新进度表：6.3 版本 diff UI 标为已实施；6.4 / 3.2 / 4.4 / P3 测试标为部分实施；CI 更正为待办（workflow 未入库）；新增 [§2.1 实施进度总表](#21-实施进度总表)。
 >
 > **v1.5** · 在 v1.4 基础上新增「脚本条件边 Dispatcher（7.3）+ 可观测 trace SPI（6.1）+ 单元测试起步（P3）」
@@ -570,12 +572,9 @@ public class OtelGraphExecutionListener implements GraphExecutionListener {
 | 项 | 状态 | 说明 |
 |----|------|------|
 | 6.2 多租户隔离 | ⏳ | 架构级跨切面改造，需独立设计评审 |
-| 6.4 主题 token / i18n | 🔶 | 主流程已外置；`ScriptNodeEditor` 等待收尾 |
 | 3.2 npm 私服 / `.d.ts` | 🔶 | 构建 OK；publish 与类型声明待办 |
-| 4.4 Spring Security 集成文档 | 🔶 | CORS 已有；Security 示例文档待补 |
 | 7.2 多脚本引擎 | ⏳ | 需沙箱依赖与安全评估；SPI 可扩展 |
-| P3 CI 流水线 | ⏳ | workflow 文件待创建 |
-| P3 SemVer 发布 | ⏳ | 版本号与 demo 依赖切换属团队决策 |
+| P3 SemVer 发布（私服） | 🔶 | 版本 1.0.0 已定版；`CHANGELOG.md` 已创建；正式 `mvn deploy` / `npm publish` 待运维 |
 | P3 集成测试 | 🔶 | `DynamicGraphBuilder` / `ScriptNodeService` / 权限待补 |
 
 ---
@@ -586,6 +585,9 @@ public class OtelGraphExecutionListener implements GraphExecutionListener {
 |------|------|
 | [LIBRARY_EMBEDDING_ROADMAP.md](./LIBRARY_EMBEDDING_ROADMAP.md) | 嵌入痛点与里程碑（与本文互补） |
 | [MENU_PERMISSION_INTEGRATION.md](./MENU_PERMISSION_INTEGRATION.md) | 菜单权限 SPI 与接入示例 |
+| [SECURITY_INTEGRATION.md](./SECURITY_INTEGRATION.md) | Spring Security 集成指南 |
 | [NODE_FLEXIBILITY_EXPLORATION.md](./NODE_FLEXIBILITY_EXPLORATION.md) | 脚本节点与 Dispatcher 扩展设计 |
+| [MULTI_SCRIPT_ENGINE_PLAN.md](./MULTI_SCRIPT_ENGINE_PLAN.md) | 多脚本引擎价值与改进方案（§7.2） |
 | [SCRIPT_NODE_EXAMPLES.md](./SCRIPT_NODE_EXAMPLES.md) | 脚本节点使用样例 |
 | [PROJECT_OVERVIEW.md](./PROJECT_OVERVIEW.md) | 架构总览 |
+| [REMAINING_ITEMS_PLAN.md](./REMAINING_ITEMS_PLAN.md) | 剩余规划项说明与落地方案 |

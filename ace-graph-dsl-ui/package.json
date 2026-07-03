@@ -19,9 +19,11 @@
   "type": "module",
   "main": "./dist/index.js",
   "module": "./dist/index.js",
+  "types": "./types/index.d.ts",
   "exports": {
     ".": {
       "import": "./dist/index.js",
+      "types": "./types/index.d.ts",
       "source": "./src/index.js"
     },
     "./style": "./dist/style.css",
@@ -34,7 +36,8 @@
   ],
   "files": [
     "dist",
-    "src"
+    "src",
+    "types"
   ],
   "scripts": {
     "dev": "vite",
