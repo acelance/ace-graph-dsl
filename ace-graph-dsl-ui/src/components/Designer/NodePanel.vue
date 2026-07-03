@@ -1,8 +1,10 @@
 <script setup>
 import { ref, computed } from 'vue'
+import { ElMessageBox, ElMessage } from 'element-plus'
 import { useNodeRegistryStore } from '../../stores/nodeRegistry'
 import { usePermissionStore, MENU } from '../../stores/permissions'
 import { useI18n } from '../../i18n'
+import { deleteScriptNode, listReferringGraphs } from '../../api/graph'
 import ScriptNodeEditor from './ScriptNodeEditor.vue'
 
 const nodeStore = useNodeRegistryStore()
@@ -12,6 +14,7 @@ const { t } = useI18n()
 const keyword = ref('')
 const activeTab = ref('ALL')
 const showScriptEditor = ref(false)
+const editingNode = ref(null)
 const props = defineProps({ embedded: { type: Boolean, default: false } })
 const emit = defineEmits(['node-drag'])
 
@@ -39,6 +42,32 @@ function categoryTagType(c) {
 async function onScriptCreated() {
   await nodeStore.fetchNodes()
 }
+
+function onEdit(node) {
+  editingNode.value = node
+  showScriptEditor.value = true
+}
+
+function onNew() {
+  editingNode.value = null
+  showScriptEditor.value = true
+}
+
+async function onDelete(node) {
+  try {
+    const refs = await listReferringGraphs(node.nodeId)
+    let message = t('nodePanel.deleteConfirm', { name: node.displayName || node.nodeId })
+    if (refs.length > 0) {
+      message = t('nodePanel.referenceWarning') + '\n' + refs.join(', ') + '\n\n' + message
+    }
+    await ElMessageBox.confirm(message, t('nodePanel.delete'), { type: 'warning', confirmButtonText: t('common.confirm'), cancelButtonText: t('common.cancel') })
+    await deleteScriptNode(node.nodeId)
+    ElMessage.success(t('common.confirm'))
+    await nodeStore.fetchNodes()
+  } catch (e) {
+    if (e !== 'cancel') ElMessage.error(e.response?.data?.error || e.message)
+  }
+}
 </script>
 
 <template>
@@ -51,7 +80,7 @@ async function onScriptCreated() {
       <el-tab-pane :label="t('nodePanel.builtin')" name="BUILTIN" />
       <el-tab-pane :label="t('nodePanel.script')" name="SCRIPT" />
     </el-tabs>
-    <el-button v-if="perm.can(MENU.SCRIPT_NODE_CREATE)" type="primary" size="small" style="width: 100%; margin-bottom: 8px;" @click="showScriptEditor = true">
+    <el-button v-if="perm.can(MENU.SCRIPT_NODE_CREATE)" type="primary" size="small" style="width: 100%; margin-bottom: 8px;" @click="onNew">
       {{ t('nodePanel.createScript') }}
     </el-button>
     <div
@@ -66,10 +95,14 @@ async function onScriptCreated() {
         <span class="node-name">{{ n.displayName }}</span>
         <el-tag v-if="n.origin === 'SCRIPT'" size="small" type="success" style="margin-left: 4px;">SCRIPT</el-tag>
       </div>
+      <div class="node-actions" v-if="n.origin === 'SCRIPT'">
+        <el-button link size="small" type="primary" @click.stop="onEdit(n)">{{ t('nodePanel.edit') }}</el-button>
+        <el-button link size="small" type="danger" @click.stop="onDelete(n)">{{ t('nodePanel.delete') }}</el-button>
+      </div>
       <el-tag size="small" :type="categoryTagType(n.category)">{{ n.category }}</el-tag>
     </div>
     <el-empty v-if="filteredNodes.length === 0" :description="t('nodePanel.empty')" :image-size="40" />
-    <ScriptNodeEditor v-model:visible="showScriptEditor" @created="onScriptCreated" />
+    <ScriptNodeEditor v-model:visible="showScriptEditor" :edit-node="editingNode" @created="onScriptCreated" />
   </div>
 </template>
 

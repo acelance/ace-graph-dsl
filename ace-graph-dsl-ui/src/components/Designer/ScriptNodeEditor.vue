@@ -1,13 +1,14 @@
 <script setup>
 import { ref, computed, watch } from 'vue'
 import { ElMessage } from 'element-plus'
-import { createScriptNode, validateScript, testRunDraft, listScriptEngines } from '../../api/graph'
+import { createScriptNode, updateScriptNode, validateScript, testRunDraft, listScriptEngines } from '../../api/graph'
 import { usePermissionStore, MENU } from '../../stores/permissions'
 import { useI18n } from '../../i18n'
 
 const perm = usePermissionStore()
 const { t } = useI18n()
 
+const props = defineProps({ editNode: { type: Object, default: null } })
 const visible = defineModel('visible', { type: Boolean, default: false })
 const emit = defineEmits(['created'])
 
@@ -31,8 +32,20 @@ const form = ref({
 
 watch(visible, (v) => {
   if (v) {
-    form.value.nodeId = `script:${form.value.displayName ? form.value.displayName.replace(/\s+/g, '_').toLowerCase() : 'custom_' + Date.now()}`
     fetchEngines()
+    if (props.editNode) {
+      form.value.nodeId = props.editNode.nodeId
+      form.value.displayName = props.editNode.displayName || ''
+      form.value.category = props.editNode.category || 'NORMAL'
+      form.value.description = props.editNode.description || ''
+      form.value.inputKeysText = (props.editNode.inputKeys || []).join(',')
+      form.value.outputKeysText = (props.editNode.outputKeys || []).join(',')
+      form.value.engine = props.editNode.engine || 'aviator'
+      form.value.scriptBody = props.editNode.scriptBody || ''
+      form.value.permissionTagsText = (props.editNode.permissionTags || []).join(',')
+    } else {
+      form.value.nodeId = `script:${form.value.displayName ? form.value.displayName.replace(/\s+/g, '_').toLowerCase() : 'custom_' + Date.now()}`
+    }
   }
 })
 
@@ -106,7 +119,7 @@ async function onSubmit() {
   saving.value = true
   try {
     await validateScript({ engine: form.value.engine, scriptBody: form.value.scriptBody })
-    const created = await createScriptNode({
+    const body = {
       nodeId: form.value.nodeId,
       displayName: form.value.displayName,
       category: form.value.category,
@@ -119,9 +132,12 @@ async function onSubmit() {
       supportsParallel: false,
       version: '1.0.0',
       operator: 'designer'
-    })
-    ElMessage.success(t('scriptEditor.createOk'))
-    emit('created', created)
+    }
+    const result = props.editNode
+      ? await updateScriptNode(form.value.nodeId, body)
+      : await createScriptNode(body)
+    ElMessage.success(props.editNode ? t('scriptEditor.updateOk') : t('scriptEditor.createOk'))
+    emit('created', result)
     visible.value = false
   } catch (e) {
     ElMessage.error(e.response?.data?.error || e.message)
@@ -132,7 +148,7 @@ async function onSubmit() {
 </script>
 
 <template>
-  <el-dialog v-model="visible" :title="t('scriptEditor.title')" width="680px" destroy-on-close>
+  <el-dialog v-model="visible" :title="props.editNode ? t('scriptEditor.editTitle') : t('scriptEditor.title')" width="680px" destroy-on-close>
     <el-form label-width="110px" size="small">
       <el-form-item :label="t('scriptEditor.nodeId')" required>
         <el-input v-model="form.nodeId" :placeholder="t('scriptEditor.nodeIdPlaceholder')" />
@@ -177,7 +193,9 @@ async function onSubmit() {
     <template #footer>
       <el-button v-if="perm.can(MENU.SCRIPT_NODE_TEST)" @click="onValidate">{{ t('scriptEditor.validate') }}</el-button>
       <el-button v-if="perm.can(MENU.SCRIPT_NODE_TEST)" :loading="testing" @click="onTestRun">{{ t('scriptEditor.testRun') }}</el-button>
-      <el-button v-if="perm.can(MENU.SCRIPT_NODE_CREATE)" type="primary" :loading="saving" @click="onSubmit">{{ t('scriptEditor.create') }}</el-button>
+      <el-button v-if="perm.can(MENU.SCRIPT_NODE_CREATE)" type="primary" :loading="saving" @click="onSubmit">
+        {{ props.editNode ? t('scriptEditor.update') : t('scriptEditor.create') }}
+      </el-button>
     </template>
   </el-dialog>
 </template>

@@ -1,6 +1,6 @@
 # Ace Graph DSL — 后续优化与功能规划建议
 
-> 版本：v1.7  
+> 版本：v1.8  
 > 日期：2026-07-03  
 > 适用范围：`ace-graph-dsl-backend` / `ace-graph-dsl-ui` 作为第三方组件嵌入业务系统后的持续演进
 
@@ -21,7 +21,7 @@
 
 本文在 [LIBRARY_EMBEDDING_ROADMAP.md](./LIBRARY_EMBEDDING_ROADMAP.md) 基础上，按**价值 / 成本**重新梳理后续优化项，并给出建议落地顺序。
 
-> **实施进度（截至 v1.7）**：阶段一（P0）嵌入基线全部落地（3.2 `.d.ts` 已生成，仅余私服发布）；阶段二（P1）权限闭环（含 Security 集成文档 4.4）、审计日志、ObjectMapper 隔离、checkpoint saver（SPI + Redis）、通用图执行 / SSE 端点全部收尾；阶段三（P2）脚本引擎线程池（7.1）、脚本条件边 Dispatcher（7.3）、可观测 trace SPI（6.1）、**版本 diff / 回滚 UI（6.3）**、**主题 i18n（6.4）** 已落地。阶段四（P3）单元测试已起步、配置元数据已落地；CI 流水线（8.2）已入库；SemVer（8.3）1.0.0 已定版（`CHANGELOG.md` 已创建，私服发布待运维）。剩余 **多租户（6.2）**、**多脚本引擎（7.2）** 待规划/实施。详见 [§2.1 实施进度总表](#21-实施进度总表) 与 [§11 变更记录](#11-变更记录)。
+> **实施进度（截至 v1.8）**：阶段一（P0）嵌入基线全部落地（3.2 `.d.ts` 已生成，仅余私服发布）；阶段二（P1）权限闭环（含 Security 集成文档 4.4）、审计日志、ObjectMapper 隔离、checkpoint saver（SPI + Redis）、通用图执行 / SSE 端点全部收尾；阶段三（P2）脚本引擎线程池（7.1）、脚本条件边 Dispatcher（7.3）、可观测 trace SPI（6.1）、**版本 diff / 回滚 UI（6.3）**、**主题 i18n（6.4）** 已落地。阶段四（P3）单元测试已起步、配置元数据已落地；CI 流水线（8.2）已入库；SemVer（8.3）1.0.0 已定版（`CHANGELOG.md` 已创建，私服发布待运维）。剩余 **多租户（6.2）**、**多脚本引擎（7.2）** 待规划/实施。详见 [§2.1 实施进度总表](#21-实施进度总表) 与 [§11 变更记录](#11-变更记录)。
 
 ### 1.1 权限模型边界（避免混淆）
 
@@ -329,6 +329,8 @@ flowchart LR
 
 ## 11. 变更记录
 
+> **v1.8**（2026-07-03）· 实施四类生产部署优化：多实例图懒加载（`GraphRuntime.get()` DB 版本检查 + TTL）；多实例脚本节点同步（`ensureScriptNodesLoaded()` 编译前从 DB 重新加载）；脚本节点管理 UI（NodePanel 编辑/删除 + ScriptNodeEditor 编辑模式 + 引用检查）；孤儿节点检测 API（`GET /nodes/orphans` + `GET /nodes/references`）；MySQL JDBC DDL 兼容性修复。详见 [PRODUCTION_DEPLOYMENT_ISSUES.md](./PRODUCTION_DEPLOYMENT_ISSUES.md)。
+>
 > **v1.7**（2026-07-03）· 收尾多项未完成项：4.4 Security 集成文档（`SECURITY_INTEGRATION.md`）已创建；6.4 `ScriptNodeEditor` 全表单文案外置 → 6.4 完全落地标 ✅；8.2 CI 流水线已在仓库确认为已入库 → 标 ✅；8.3 SemVer 后端/前端/demo 均已完成去 SNAPSHOT + 去 `file:` → 标 🔶（待私服发布）；`CHANGELOG.md` 已创建；demo README 版本描述同步。待办项清单移除 6.4 / 4.4 / CI，SemVer 降级为部分实施。
 >
 > **v1.6**（2026-07-01）· 对照代码库刷新进度表：6.3 版本 diff UI 标为已实施；6.4 / 3.2 / 4.4 / P3 测试标为部分实施；CI 更正为待办（workflow 未入库）；新增 [§2.1 实施进度总表](#21-实施进度总表)。
@@ -591,3 +593,4 @@ public class OtelGraphExecutionListener implements GraphExecutionListener {
 | [SCRIPT_NODE_EXAMPLES.md](./SCRIPT_NODE_EXAMPLES.md) | 脚本节点使用样例 |
 | [PROJECT_OVERVIEW.md](./PROJECT_OVERVIEW.md) | 架构总览 |
 | [REMAINING_ITEMS_PLAN.md](./REMAINING_ITEMS_PLAN.md) | 剩余规划项说明与落地方案 |
+| [PRODUCTION_DEPLOYMENT_ISSUES.md](./PRODUCTION_DEPLOYMENT_ISSUES.md) | 生产部署问题分析与解决方案（四类问题） |

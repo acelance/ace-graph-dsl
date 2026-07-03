@@ -15,6 +15,7 @@ public class AceGraphDslProperties {
     private final Checkpoint checkpoint = new Checkpoint();
     private final Persistence persistence = new Persistence();
     private final Bootstrap bootstrap = new Bootstrap();
+    private final Runtime runtime = new Runtime();
     private final Script script = new Script();
     private final DynamicNodes dynamicNodes = new DynamicNodes();
     private final AccessControl accessControl = new AccessControl();
@@ -42,6 +43,10 @@ public class AceGraphDslProperties {
 
     public Bootstrap getBootstrap() {
         return bootstrap;
+    }
+
+    public Runtime getRuntime() {
+        return runtime;
     }
 
     public Script getScript() {
@@ -314,6 +319,20 @@ public class AceGraphDslProperties {
 
         public void setGoldenDefinitions(List<String> goldenDefinitions) {
             this.goldenDefinitions = goldenDefinitions;
+        }
+    }
+
+    public static class Runtime {
+        /** 图运行时缓存版本检查 TTL 秒数。0 表示每次 get() 都检查 DB 版本变化，适合开发环境；
+         * 生产环境建议 5-10 秒。多实例部署时，此值决定其他实例感知发布/回滚的延迟上限。 */
+        private int cacheTtlSeconds = 0;
+
+        public int getCacheTtlSeconds() {
+            return cacheTtlSeconds;
+        }
+
+        public void setCacheTtlSeconds(int cacheTtlSeconds) {
+            this.cacheTtlSeconds = cacheTtlSeconds;
         }
     }
 

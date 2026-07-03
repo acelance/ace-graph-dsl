@@ -89,6 +89,10 @@ export default {
     builtin: 'Built-in',
     script: 'Script',
     createScript: '+ New script node',
+    edit: 'Edit',
+    delete: 'Delete',
+    deleteConfirm: 'Delete script node "{name}"?',
+    referenceWarning: 'The following graphs reference this node and will fail to compile after deletion:',
     empty: 'No nodes'
   },
   propertyPanel: {
@@ -120,6 +124,7 @@ export default {
   },
   scriptEditor: {
     title: 'New script node',
+    editTitle: 'Edit script node',
     nodeId: 'Node ID',
     nodeIdPlaceholder: 'script:my_node',
     displayName: 'Display name',
@@ -142,8 +147,10 @@ export default {
     mockError: 'Invalid mockState JSON',
     nodeIdError: 'nodeId must start with script:',
     createOk: 'Script node created',
+    updateOk: 'Script node updated',
     validate: 'Validate',
     testRun: 'Test run',
-    create: 'Create'
+    create: 'Create',
+    update: 'Update'
   }
 }

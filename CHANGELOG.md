@@ -5,6 +5,23 @@ All notable changes to the Ace Graph DSL project are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.2] — 2026-07-03
+
+### Added
+
+- **多实例图懒加载**：`GraphRuntime.get()` 新增 DB 版本检查 + TTL 机制（`ace.graph.dsl.runtime.cache-ttl-seconds`），多实例部署时自动感知发布/回滚变更。
+- **多实例脚本节点同步**：`DynamicGraphBuilder.ensureScriptNodesLoaded()` 编译前从 DB 重新加载所有 `script:*` 节点，解决其他实例创建/修改节点后本地注册中心过时问题。
+- **脚本节点管理 UI**：`NodePanel` 新增编辑/删除按钮；`ScriptNodeEditor` 支持编辑模式（预填 + 更新 API）；删除前自动调用引用检查 API。
+- **孤儿节点检测**：`GET /api/graph/nodes/orphans` + `GET /api/graph/nodes/references?nodeId=`。
+- **生产部署问题文档**：`docs/PRODUCTION_DEPLOYMENT_ISSUES.md`，含四类问题分析、多实例节点传递流程、Lambda 闭包引用链分析。
+
+### Fixed
+
+- **MySQL JDBC DDL 兼容性**：`JdbcGraphDefinitionRepository` (`AUTO_INCREMENT` / `TEXT` / `DEFAULT CURRENT_TIMESTAMP`)；`JdbcDynamicNodeDefinitionRepository` (`VARCHAR` PK / `DEFAULT CURRENT_TIMESTAMP`)。
+- **启动顺序**：`GraphRuntime` 加 `@DependsOn("dynamicNodeBootstrapLoader")` 确保脚本节点先注册。
+- **SQLite DataSource 冲突**：`type=jdbc` 时不再创建 SQLite DataSource Bean。
+- **Aviator 默认示例脚本**：移除无效的 `string.trim()` 调用，改为 `seq.map` + 纯 `state` 变量。
+
 ## [1.0.1] — 2026-07-03
 
 ### Added

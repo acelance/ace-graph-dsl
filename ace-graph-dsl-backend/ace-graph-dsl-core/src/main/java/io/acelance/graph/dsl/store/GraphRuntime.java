@@ -1,5 +1,6 @@
 package io.acelance.graph.dsl.store;
 
+import com.alibaba.cloud.ai.graph.exception.GraphStateException;
 import io.acelance.graph.dsl.audit.GraphAuditActions;
 import io.acelance.graph.dsl.audit.GraphAuditEvent;
 import io.acelance.graph.dsl.audit.GraphAuditLogger;
@@ -11,6 +12,8 @@ import com.alibaba.cloud.ai.graph.CompiledGraph;
 import jakarta.annotation.PostConstruct;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.context.annotation.DependsOn;
 import org.springframework.stereotype.Component;
 
 import java.util.List;
@@ -19,16 +22,28 @@ import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * 图运行时：维护已启用的 CompiledGraph 池，支持发布与回滚。
+ *
+ * <p>多实例部署时，通过 {@link #get(String)} 的 DB 版本检查实现懒加载同步：
+ * 实例 A 发布后，实例 B 在下次请求时自动感知版本变化并重编译图。</p>
+ *
+ * <p>{@code dynamicNodeBootstrapLoader} 负责启动时把持久化的脚本节点加载到注册中心，
+ * 必须在 {@link #init()} 编译图之前完成，否则引用脚本节点的图会编译失败。</p>
  */
 @Component
+@DependsOn("dynamicNodeBootstrapLoader")
 public class GraphRuntime {
 
     private static final Logger log = LoggerFactory.getLogger(GraphRuntime.class);
 
     private final Map<String, CompiledGraph> enabledGraphs = new ConcurrentHashMap<>();
+    private final Map<String, String> versionCache = new ConcurrentHashMap<>();
+    private final Map<String, Long> lastCheckTimes = new ConcurrentHashMap<>();
     private final GraphDefinitionRepository repository;
     private final DynamicGraphBuilder builder;
     private final GraphAuditLogger auditLogger;
+
+    @Value("${ace.graph.dsl.runtime.cache-ttl-seconds:0}")
+    private long cacheTtlSeconds;
 
     public GraphRuntime(GraphDefinitionRepository repository, DynamicGraphBuilder builder,
                         GraphAuditLogger auditLogger) {
@@ -46,6 +61,7 @@ public class GraphRuntime {
             try {
                 CompiledGraph compiled = builder.build(def);
                 enabledGraphs.put(def.graphId(), compiled);
+                versionCache.put(def.graphId(), def.version());
                 log.info("启动加载图定义成功, graphId={}, version={}", def.graphId(), def.version());
             } catch (Exception e) {
                 log.error("启动加载图定义失败, graphId={}, version={}", def.graphId(), def.version(), e);
@@ -54,14 +70,54 @@ public class GraphRuntime {
     }
 
     /**
-     * 获取已启用的 CompiledGraph。
+     * 获取已启用的 CompiledGraph，支持多实例懒加载版本同步。
+     *
+     * <p>每次调用时，若超过缓存 TTL 且 DB 中 enabled 版本与缓存不一致，
+     * 则自动重新编译并替换本地缓存。开发环境 TTL=0 表示每次检查。</p>
      */
     public CompiledGraph get(String graphId) {
         CompiledGraph g = enabledGraphs.get(graphId);
         if (g == null) {
             throw new IllegalStateException("Graph 未启用或不存在: " + graphId);
         }
+        if (isStale(graphId)) {
+            try {
+                g = refresh(graphId);
+            } catch (Exception e) {
+                log.warn("图版本刷新失败, 继续使用缓存版本, graphId={}", graphId, e);
+            }
+        }
         return g;
+    }
+
+    /**
+     * 从 DB 加载最新启用版本并重新编译替换本地缓存。
+     */
+    public CompiledGraph refresh(String graphId) throws GraphStateException {
+        GraphDefinition latest = repository.getEnabled(graphId);
+        if (latest == null) {
+            throw new IllegalStateException("Graph 未启用或不存在: " + graphId);
+        }
+        CompiledGraph compiled = builder.build(latest);
+        enabledGraphs.put(graphId, compiled);
+        versionCache.put(graphId, latest.version());
+        lastCheckTimes.put(graphId, System.currentTimeMillis());
+        log.info("图版本懒加载刷新成功, graphId={}, version={}", graphId, latest.version());
+        return compiled;
+    }
+
+    private boolean isStale(String graphId) {
+        long now = System.currentTimeMillis();
+        Long lastCheck = lastCheckTimes.get(graphId);
+        if (cacheTtlSeconds > 0 && lastCheck != null
+                && now - lastCheck < cacheTtlSeconds * 1000) {
+            return false; // 未到 TTL，跳过 DB 检查
+        }
+        lastCheckTimes.put(graphId, now);
+        String cached = versionCache.get(graphId);
+        if (cached == null) return true;
+        GraphDefinition latest = repository.getEnabled(graphId);
+        return latest != null && !latest.version().equals(cached);
     }
 
     /**
@@ -83,6 +139,7 @@ public class GraphRuntime {
             repository.disableCurrentEnabled(graphId);
             repository.markEnabled(graphId, version);
             enabledGraphs.put(graphId, compiled);
+            versionCache.put(graphId, version);
             log.info("发布成功, graphId={}, version={}, operator={}", graphId, version, operator);
             audit(GraphAuditEvent.graph(GraphAuditActions.PUBLISH, graphId, version, operator, true, "发布成功"));
             return PublishResult.ok(version);
@@ -110,6 +167,7 @@ public class GraphRuntime {
             repository.disableCurrentEnabled(graphId);
             repository.markEnabled(graphId, toVersion);
             enabledGraphs.put(graphId, compiled);
+            versionCache.put(graphId, toVersion);
             log.info("回滚成功, graphId={}, toVersion={}, operator={}", graphId, toVersion, operator);
             audit(GraphAuditEvent.graph(GraphAuditActions.ROLLBACK, graphId, toVersion, operator, true, "回滚成功"));
             return PublishResult.ok(toVersion);
