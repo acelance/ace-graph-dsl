@@ -26,6 +26,7 @@ export default {
     publishSuccess: '发布成功，版本 {version}',
     publishFailed: '发布失败: {msg}',
     saveUnchanged: '相对基线版本无内容变更，未生成新版本',
+    readOnly: '内置图 · 只读',
     statusRunning: '运行中 v{version}',
     statusDraft: '目标 v{version}',
     statusBaseline: '基线 v{version}',

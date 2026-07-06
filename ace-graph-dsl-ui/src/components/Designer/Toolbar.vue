@@ -18,7 +18,8 @@ const props = defineProps({
   /** 操作按钮悬浮在画布底部中央 */
   floatingActions: { type: Boolean, default: false },
   showMeta: { type: Boolean, default: true },
-  showActions: { type: Boolean, default: true }
+  showActions: { type: Boolean, default: true },
+  readOnly: { type: Boolean, default: false }
 })
 const emit = defineEmits(['save', 'validate', 'preview', 'publish'])
 
@@ -206,7 +207,7 @@ async function onPublish() {
 
     <div v-if="showActions" class="toolbar-actions" :class="{ 'toolbar-actions--floating': floatingActions }">
       <el-button-group>
-        <el-button v-if="perm.can(MENU.GRAPH_SAVE)" @click="onSave" :loading="editor.saving" size="small">
+        <el-button v-if="!readOnly && perm.can(MENU.GRAPH_SAVE)" @click="onSave" :loading="editor.saving" size="small">
           {{ t('toolbar.save') }}
         </el-button>
         <el-button v-if="perm.can(MENU.GRAPH_VALIDATE)" @click="onValidate" size="small">
@@ -215,13 +216,14 @@ async function onPublish() {
         <el-button v-if="perm.can(MENU.GRAPH_PREVIEW)" @click="onPreview" size="small">
           {{ t('toolbar.preview') }}
         </el-button>
-        <el-button v-if="perm.can(MENU.GRAPH_PUBLISH)" type="primary" @click="onPublish" :loading="editor.publishing" size="small">
+        <el-button v-if="!readOnly && perm.can(MENU.GRAPH_PUBLISH)" type="primary" @click="onPublish" :loading="editor.publishing" size="small">
           {{ t('toolbar.publish') }}
         </el-button>
         <el-button v-if="perm.can(MENU.GRAPH_VIEW)" size="small" @click="showVersionHistory = true">
           {{ t('toolbar.versionHistory') }}
         </el-button>
       </el-button-group>
+      <el-tag v-if="readOnly" type="warning" effect="plain" size="small">{{ t('toolbar.readOnly') || '只读' }}</el-tag>
     </div>
 
     <VersionHistoryDrawer v-model:visible="showVersionHistory" :canvas-ref="canvasRef" />

@@ -26,6 +26,7 @@ export default {
     publishSuccess: 'Published version {version}',
     publishFailed: 'Publish failed: {msg}',
     saveUnchanged: 'No changes vs baseline — no new version created',
+    readOnly: 'Built-in · Read Only',
     statusRunning: 'Running v{version}',
     statusDraft: 'Target v{version}',
     statusBaseline: 'Baseline v{version}',

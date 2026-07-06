@@ -1,13 +1,14 @@
 package io.acelance.graph.dsl.web;
 
+import io.acelance.graph.dsl.autoconfigure.BuiltinGraphRegistry;
 import io.acelance.graph.dsl.builder.ValidationResult;
 import io.acelance.graph.dsl.definition.GraphDefinition;
-import io.acelance.graph.dsl.security.menu.GraphMenuPermissionResolver;
-import io.acelance.graph.dsl.security.menu.GraphMenuPermissions;
-import io.acelance.graph.dsl.service.GraphPreviewService;
 import io.acelance.graph.dsl.persistence.GraphDefinitionRepository;
 import io.acelance.graph.dsl.persistence.SaveDraftRequest;
 import io.acelance.graph.dsl.persistence.SaveDraftResult;
+import io.acelance.graph.dsl.security.menu.GraphMenuPermissionResolver;
+import io.acelance.graph.dsl.security.menu.GraphMenuPermissions;
+import io.acelance.graph.dsl.service.GraphPreviewService;
 import io.acelance.graph.dsl.store.GraphRuntime;
 import com.alibaba.cloud.ai.graph.exception.GraphStateException;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -17,11 +18,14 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
 /**
  * 图定义 REST API：保存草稿、校验、预览、版本管理。
+ *
+ * <p>查询接口会自动回退到 {@link BuiltinGraphRegistry} 中的内存内置图。</p>
  */
 @RestController
 @RequestMapping("/definitions")
@@ -31,24 +35,35 @@ public class GraphDefinitionController {
     private final GraphRuntime runtime;
     private final GraphPreviewService previewService;
     private final GraphMenuPermissionResolver menuPermissions;
+    private final BuiltinGraphRegistry builtinRegistry;
 
     public GraphDefinitionController(GraphDefinitionRepository store, GraphRuntime runtime,
-                                     GraphPreviewService previewService, GraphMenuPermissionResolver menuPermissions) {
+                                     GraphPreviewService previewService, GraphMenuPermissionResolver menuPermissions,
+                                     BuiltinGraphRegistry builtinRegistry) {
         this.store = store;
         this.runtime = runtime;
         this.previewService = previewService;
         this.menuPermissions = menuPermissions;
+        this.builtinRegistry = builtinRegistry;
     }
 
-    /** 列出所有图定义（最新版本） */
+    /** 列出所有图定义（最新版本），合并内置图 */
     @GetMapping
     public List<GraphDefinition> listAll() {
-        return store.listAll();
+        List<GraphDefinition> all = new ArrayList<>(builtinRegistry.listAll());
+        for (GraphDefinition def : store.listAll()) {
+            if (!builtinRegistry.contains(def.graphId())) {
+                all.add(def);
+            }
+        }
+        return all;
     }
 
-    /** 获取最新版本 */
+    /** 获取最新版本，内置图回退到内存 */
     @GetMapping("/{graphId}")
     public GraphDefinition getLatest(@PathVariable String graphId) {
+        GraphDefinition builtin = builtinRegistry.get(graphId);
+        if (builtin != null) return builtin;
         GraphDefinition def = store.loadLatest(graphId);
         if (def == null) {
             throw new IllegalArgumentException("图定义不存在: " + graphId);
@@ -56,9 +71,14 @@ public class GraphDefinitionController {
         return def;
     }
 
-    /** 获取指定版本 */
+    /** 获取指定版本，内置图回退到内存（仅 1.0.0） */
     @GetMapping("/{graphId}/versions/{version}")
     public GraphDefinition getVersion(@PathVariable String graphId, @PathVariable String version) {
+        GraphDefinition builtin = builtinRegistry.get(graphId);
+        if (builtin != null) {
+            if (builtin.version().equals(version)) return builtin;
+            throw new IllegalArgumentException("版本不存在: " + graphId + "@" + version);
+        }
         GraphDefinition def = store.loadVersion(graphId, version);
         if (def == null) {
             throw new IllegalArgumentException("版本不存在: " + graphId + "@" + version);
@@ -66,15 +86,20 @@ public class GraphDefinitionController {
         return def;
     }
 
-    /** 列出所有版本 */
+    /** 列出所有版本，内置图仅返回当前版本 */
     @GetMapping("/{graphId}/versions")
     public List<GraphDefinition> listVersions(@PathVariable String graphId) {
+        GraphDefinition builtin = builtinRegistry.get(graphId);
+        if (builtin != null) return List.of(builtin);
         return store.listVersions(graphId);
     }
 
-    /** 保存草稿（相对 baseVersion 比对内容；有变更则必须新版本号且不可覆盖历史） */
+    /** 保存草稿 — 内置图拒绝写入 */
     @PostMapping("/{graphId}/draft")
     public SaveDraftResult saveDraft(@PathVariable String graphId, @RequestBody SaveDraftRequest body) {
+        if (builtinRegistry.contains(graphId)) {
+            throw new IllegalArgumentException("内置图不允许编辑: " + graphId);
+        }
         MenuPermissionGuard.require(menuPermissions, GraphMenuPermissions.GRAPH_SAVE, "无权保存 Graph 草稿");
         GraphDefinition def = body.definition();
         if (def == null) {
@@ -107,9 +132,11 @@ public class GraphDefinitionController {
         return Map.of("content", previewService.toMermaid(def));
     }
 
-    /** 当前启用版本 */
+    /** 当前启用版本，内置图回退到内存 */
     @GetMapping("/{graphId}/enabled")
     public GraphDefinition getEnabled(@PathVariable String graphId) {
+        GraphDefinition builtin = builtinRegistry.get(graphId);
+        if (builtin != null) return builtin;
         GraphDefinition def = store.getEnabled(graphId);
         if (def == null) {
             throw new IllegalStateException("图定义未启用: " + graphId);

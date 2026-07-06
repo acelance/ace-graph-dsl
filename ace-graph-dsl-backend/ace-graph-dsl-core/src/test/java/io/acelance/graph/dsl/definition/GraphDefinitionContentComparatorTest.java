@@ -30,7 +30,7 @@ class GraphDefinitionContentComparatorTest {
                 Map.of(),
                 nodes,
                 List.of(),
-                CompileConfigDto.defaultConfig());
+                CompileConfigDto.defaultConfig(), null);
     }
 
     private static NodeRef node(String id) {

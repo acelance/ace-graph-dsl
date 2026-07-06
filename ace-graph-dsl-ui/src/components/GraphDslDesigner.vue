@@ -11,7 +11,8 @@ const props = defineProps({
   graphId: { type: String, required: true },
   apiBaseUrl: { type: String, default: '/' },
   title: { type: String, default: '' },
-  locale: { type: String, default: 'zh-CN' }
+  locale: { type: String, default: 'zh-CN' },
+  readOnly: { type: Boolean, default: false }
 })
 
 const emit = defineEmits(['saved', 'published'])
@@ -80,6 +81,7 @@ defineExpose({ onNodeDrag, canvasRef })
         floating-actions
         :title="title || graphId"
         :canvas-ref="canvasRef"
+        :read-only="readOnly"
         @save="onSave"
         @validate="editor.validate()"
         @preview="editor.loadPlantUml()"

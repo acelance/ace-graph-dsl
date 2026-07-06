@@ -61,6 +61,7 @@ import java.nio.file.Path;
 @EnableConfigurationProperties(AceGraphDslProperties.class)
 @ConditionalOnProperty(prefix = "ace.graph.dsl", name = "enabled", havingValue = "true", matchIfMissing = true)
 @ComponentScan(basePackages = {
+        "io.acelance.graph.dsl.autoconfigure",
         "io.acelance.graph.dsl.builder",
         "io.acelance.graph.dsl.registry",
         "io.acelance.graph.dsl.script",

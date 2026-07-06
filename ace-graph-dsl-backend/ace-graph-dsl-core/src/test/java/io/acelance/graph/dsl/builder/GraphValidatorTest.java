@@ -85,7 +85,7 @@ class GraphValidatorTest {
                         conditional,
                         new GraphEdge("b", GraphDefinition.END, GraphEdge.TYPE_NORMAL, null, null, null, null),
                         new GraphEdge("c", GraphDefinition.END, GraphEdge.TYPE_NORMAL, null, null, null, null)),
-                null);
+                null, null);
     }
 
     private static GraphEdge scriptEdge(String from, String condition, Map<String, String> mapping) {

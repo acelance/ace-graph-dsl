@@ -50,7 +50,10 @@ public class GraphDslBootstrapLoader implements ApplicationListener<ApplicationR
                 log.warn("Golden DSL 资源不存在: {}", location);
                 return;
             }
-            GraphDefinition def = objectMapper.readValue(resource.getInputStream(), GraphDefinition.class);
+            GraphDefinition raw = objectMapper.readValue(resource.getInputStream(), GraphDefinition.class);
+            // 标记为 golden DSL，前端只读渲染
+            GraphDefinition def = new GraphDefinition(raw.graphId(), raw.displayName(), raw.version(), raw.description(),
+                    raw.keyStrategies(), raw.nodes(), raw.edges(), raw.compile(), true);
             repository.saveDraft(def);
             GraphRuntime.PublishResult result = runtime.publish(def.graphId(), def.version(), "ace-graph-dsl-bootstrap");
             if (result.success()) {
