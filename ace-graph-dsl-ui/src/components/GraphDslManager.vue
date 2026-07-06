@@ -141,9 +141,11 @@ onMounted(async () => {
           :locale="locale"
           @saved="refreshCatalog"
         />
-        <NodePanel class="node-panel-right" @node-drag="onNodeDrag" />
       </template>
-      <el-empty v-else :description="t('manager.selectOrCreate')" />
+      <div v-else class="empty-center">
+        <el-empty :description="t('manager.selectOrCreate')" />
+      </div>
+      <NodePanel class="node-panel-right" @node-drag="onNodeDrag" />
     </main>
 
     <el-dialog v-model="showCreate" :title="t('manager.createDialogTitle')" width="420px">
@@ -280,6 +282,13 @@ onMounted(async () => {
 .designer-panel > :first-child:not(.el-empty) {
   flex: 1;
   min-width: 0;
+  min-height: 0;
+}
+.empty-center {
+  flex: 1;
+  display: flex;
+  justify-content: center;
+  align-items: center;
   min-height: 0;
 }
 </style>

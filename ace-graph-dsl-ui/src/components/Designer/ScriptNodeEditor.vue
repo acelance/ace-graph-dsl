@@ -60,13 +60,6 @@ async function fetchEngines() {
   }
 }
 
-watch(() => form.value.displayName, (name) => {
-  if (!form.value.nodeId || form.value.nodeId.startsWith('script:custom_')) {
-    const slug = (name || '').trim().replace(/\s+/g, '_').toLowerCase()
-    if (slug) form.value.nodeId = `script:${slug}`
-  }
-})
-
 const inputKeys = computed(() => parseKeys(form.value.inputKeysText))
 const outputKeys = computed(() => parseKeys(form.value.outputKeysText))
 

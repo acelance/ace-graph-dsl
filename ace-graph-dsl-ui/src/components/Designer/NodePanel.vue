@@ -91,15 +91,19 @@ async function onDelete(node) {
       @dragstart="onDragStart($event, n)"
       @click="emit('node-drag', n)"
     >
-      <div class="node-info">
-        <span class="node-name">{{ n.displayName }}</span>
-        <el-tag v-if="n.origin === 'SCRIPT'" size="small" type="success" style="margin-left: 4px;">SCRIPT</el-tag>
+      <div class="node-row node-row--top">
+        <div class="node-info">
+          <span class="node-name">{{ n.displayName }}</span>
+          <el-tag v-if="n.origin === 'SCRIPT'" size="small" type="success" style="margin-left: 4px;">SCRIPT</el-tag>
+          <el-tag size="small" :type="categoryTagType(n.category)" style="margin-left: 4px;">{{ n.category }}</el-tag>
+        </div>
       </div>
-      <div class="node-actions" v-if="n.origin === 'SCRIPT'">
-        <el-button link size="small" type="primary" @click.stop="onEdit(n)">{{ t('nodePanel.edit') }}</el-button>
-        <el-button link size="small" type="danger" @click.stop="onDelete(n)">{{ t('nodePanel.delete') }}</el-button>
+      <div class="node-row node-row--bottom" v-if="n.origin === 'SCRIPT'">
+        <div class="node-actions">
+          <el-button link size="small" type="primary" @click.stop="onEdit(n)">{{ t('nodePanel.edit') }}</el-button>
+          <el-button link size="small" type="danger" @click.stop="onDelete(n)">{{ t('nodePanel.delete') }}</el-button>
+        </div>
       </div>
-      <el-tag size="small" :type="categoryTagType(n.category)">{{ n.category }}</el-tag>
     </div>
     <el-empty v-if="filteredNodes.length === 0" :description="t('nodePanel.empty')" :image-size="40" />
     <ScriptNodeEditor v-model:visible="showScriptEditor" :edit-node="editingNode" @created="onScriptCreated" />
@@ -128,7 +132,7 @@ async function onDelete(node) {
   margin-bottom: 8px;
 }
 .node-item {
-  display: flex; justify-content: space-between; align-items: center;
+  display: flex; flex-direction: column;
   padding: 8px 10px; margin-bottom: 4px;
   border: 1px solid var(--agd-color-border, #e4e7ed);
   border-radius: 4px;
@@ -138,6 +142,9 @@ async function onDelete(node) {
   border-color: var(--agd-color-primary, #409eff);
   background: var(--agd-color-bg-active, #ecf5ff);
 }
+.node-row { display: flex; align-items: center; justify-content: space-between; }
+.node-row--bottom { margin-top: 6px; }
 .node-name { font-size: 13px; }
 .node-info { display: flex; align-items: center; flex: 1; min-width: 0; }
+.node-actions { display: flex; gap: 4px; }
 </style>
