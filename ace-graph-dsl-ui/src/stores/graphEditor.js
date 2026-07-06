@@ -280,15 +280,25 @@ export const useGraphEditorStore = defineStore('aceGraphEditor', () => {
 
   async function loadLatest() {
     if (!graphId.value) return null
+    let def
     try {
-      const def = await getLatestDefinition(graphId.value)
-      await fetchVersions()
-      return applyDefinition(def)
-    } catch {
+      def = await getLatestDefinition(graphId.value)
+    } catch (e) {
+      console.warn('[graphEditor] getLatestDefinition failed:', graphId.value, e)
       versions.value = []
       enabledVersion.value = ''
       return null
     }
+    const normalized = applyDefinition(def)
+    try {
+      await fetchVersions()
+    } catch (e) {
+      console.warn('[graphEditor] fetchVersions failed:', graphId.value, e)
+      versions.value = normalized?.version
+        ? [{ version: normalized.version, graphId: graphId.value }]
+        : []
+    }
+    return normalized
   }
 
   function selectGraph(id) {

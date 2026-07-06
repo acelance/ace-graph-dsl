@@ -148,9 +148,9 @@ function removeKey(k) {
         <el-form label-width="100px" size="small">
           <el-form-item :label="t('propertyPanel.saver')">
             <el-radio-group v-model="editor.saver">
-              <el-radio label="memory">Memory</el-radio>
-              <el-radio label="jdbc">JDBC</el-radio>
-              <el-radio label="redis">Redis</el-radio>
+              <el-radio value="memory">Memory</el-radio>
+              <el-radio value="jdbc">JDBC</el-radio>
+              <el-radio value="redis">Redis</el-radio>
             </el-radio-group>
           </el-form-item>
           <el-form-item :label="t('propertyPanel.interruptBefore')">
