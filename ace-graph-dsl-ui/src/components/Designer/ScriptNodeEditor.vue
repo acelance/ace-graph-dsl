@@ -1,7 +1,7 @@
 <script setup>
 import { ref, computed, watch } from 'vue'
 import { ElMessage } from 'element-plus'
-import { createScriptNode, updateScriptNode, validateScript, testRunDraft, listScriptEngines } from '../../api/graph'
+import { createScriptNode, updateScriptNode, validateScript, testRunDraft, listScriptEngines, getScriptNodeDefinition } from '../../api/graph'
 import { usePermissionStore, MENU } from '../../stores/permissions'
 import { useI18n } from '../../i18n'
 
@@ -14,10 +14,11 @@ const emit = defineEmits(['created'])
 
 const saving = ref(false)
 const testing = ref(false)
+const loading = ref(false)
 const testOutput = ref(null)
 const engines = ref([])
 
-const form = ref({
+const defaultForm = () => ({
   nodeId: '',
   displayName: '',
   category: 'NORMAL',
@@ -30,22 +31,44 @@ const form = ref({
   permissionTagsText: 'public'
 })
 
-watch(visible, (v) => {
-  if (v) {
-    fetchEngines()
-    if (props.editNode) {
-      form.value.nodeId = props.editNode.nodeId
-      form.value.displayName = props.editNode.displayName || ''
-      form.value.category = props.editNode.category || 'NORMAL'
-      form.value.description = props.editNode.description || ''
-      form.value.inputKeysText = (props.editNode.inputKeys || []).join(',')
-      form.value.outputKeysText = (props.editNode.outputKeys || []).join(',')
-      form.value.engine = props.editNode.engine || 'aviator'
-      form.value.scriptBody = props.editNode.scriptBody || ''
-      form.value.permissionTagsText = (props.editNode.permissionTags || []).join(',')
-    } else {
-      form.value.nodeId = `script:${form.value.displayName ? form.value.displayName.replace(/\s+/g, '_').toLowerCase() : 'custom_' + Date.now()}`
-    }
+const form = ref(defaultForm())
+
+function applyDefinition(def) {
+  form.value.nodeId = def.nodeId || ''
+  form.value.displayName = def.displayName || ''
+  form.value.category = def.category || 'NORMAL'
+  form.value.description = def.description || ''
+  form.value.inputKeysText = (def.inputKeys || []).join(',')
+  form.value.outputKeysText = (def.outputKeys || []).join(',')
+  form.value.engine = def.engine || 'aviator'
+  form.value.scriptBody = def.scriptBody || ''
+  form.value.permissionTagsText = (def.permissionTags || []).join(',')
+}
+
+async function loadEditNode() {
+  if (!props.editNode?.nodeId) return
+  loading.value = true
+  testOutput.value = null
+  try {
+    const def = await getScriptNodeDefinition(props.editNode.nodeId)
+    applyDefinition(def)
+  } catch (e) {
+    applyDefinition(props.editNode)
+    ElMessage.warning(e.response?.data?.error || e.message || '脚本详情加载失败，部分字段可能不完整')
+  } finally {
+    loading.value = false
+  }
+}
+
+watch(visible, async (v) => {
+  if (!v) return
+  testOutput.value = null
+  await fetchEngines()
+  if (props.editNode) {
+    await loadEditNode()
+  } else {
+    form.value = defaultForm()
+    form.value.nodeId = `script:custom_${Date.now()}`
   }
 })
 
@@ -142,6 +165,7 @@ async function onSubmit() {
 
 <template>
   <el-dialog v-model="visible" :title="props.editNode ? t('scriptEditor.editTitle') : t('scriptEditor.title')" width="680px" destroy-on-close>
+    <div v-loading="loading">
     <el-form label-width="110px" size="small">
       <el-form-item :label="t('scriptEditor.nodeId')" required>
         <el-input v-model="form.nodeId" :placeholder="t('scriptEditor.nodeIdPlaceholder')" />
@@ -183,6 +207,7 @@ async function onSubmit() {
         <el-input :model-value="JSON.stringify(testOutput, null, 2)" type="textarea" :rows="3" readonly />
       </el-form-item>
     </el-form>
+    </div>
     <template #footer>
       <el-button v-if="perm.can(MENU.SCRIPT_NODE_TEST)" @click="onValidate">{{ t('scriptEditor.validate') }}</el-button>
       <el-button v-if="perm.can(MENU.SCRIPT_NODE_TEST)" :loading="testing" @click="onTestRun">{{ t('scriptEditor.testRun') }}</el-button>
