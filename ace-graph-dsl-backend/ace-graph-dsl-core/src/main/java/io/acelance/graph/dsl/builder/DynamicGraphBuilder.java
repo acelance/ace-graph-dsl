@@ -1,17 +1,20 @@
 package io.acelance.graph.dsl.builder;
 
 import io.acelance.graph.dsl.checkpoint.CheckpointSaverRegistry;
-import io.acelance.graph.dsl.observability.GraphExecutionListener;
-import io.acelance.graph.dsl.observability.GraphLifecycleListenerBridge;
 import io.acelance.graph.dsl.definition.CompileConfigDto;
+import io.acelance.graph.dsl.definition.DynamicNodeDefinition;
 import io.acelance.graph.dsl.definition.GraphDefinition;
 import io.acelance.graph.dsl.definition.GraphEdge;
 import io.acelance.graph.dsl.definition.NodeRef;
+import io.acelance.graph.dsl.observability.GraphExecutionListener;
+import io.acelance.graph.dsl.observability.GraphLifecycleListenerBridge;
+import io.acelance.graph.dsl.persistence.DynamicNodeDefinitionRepository;
 import io.acelance.graph.dsl.registry.EdgeDispatcherRegistry;
 import io.acelance.graph.dsl.registry.GraphNodeRegistry;
 import io.acelance.graph.dsl.registry.NodeRuntimeContext;
 import io.acelance.graph.dsl.registry.RegisteredGraphNode;
 import io.acelance.graph.dsl.script.ScriptEdgeActionFactory;
+import io.acelance.graph.dsl.script.ScriptNodeFactory;
 import com.alibaba.cloud.ai.graph.CompileConfig;
 import com.alibaba.cloud.ai.graph.CompiledGraph;
 import com.alibaba.cloud.ai.graph.KeyStrategy;
@@ -49,6 +52,8 @@ public class DynamicGraphBuilder {
     private final CheckpointSaverRegistry saverRegistry;
     private final ScriptEdgeActionFactory scriptEdgeActionFactory;
     private final List<GraphExecutionListener> executionListeners;
+    private final DynamicNodeDefinitionRepository nodeDefRepository;
+    private final ScriptNodeFactory scriptNodeFactory;
 
     public DynamicGraphBuilder(GraphNodeRegistry nodeRegistry,
                                EdgeDispatcherRegistry dispatcherRegistry,
@@ -56,7 +61,9 @@ public class DynamicGraphBuilder {
                                ApplicationContext applicationContext,
                                CheckpointSaverRegistry saverRegistry,
                                ScriptEdgeActionFactory scriptEdgeActionFactory,
-                               List<GraphExecutionListener> executionListeners) {
+                               List<GraphExecutionListener> executionListeners,
+                               DynamicNodeDefinitionRepository nodeDefRepository,
+                               ScriptNodeFactory scriptNodeFactory) {
         this.nodeRegistry = nodeRegistry;
         this.dispatcherRegistry = dispatcherRegistry;
         this.validator = validator;
@@ -64,6 +71,8 @@ public class DynamicGraphBuilder {
         this.saverRegistry = saverRegistry != null ? saverRegistry : CheckpointSaverRegistry.defaults();
         this.scriptEdgeActionFactory = scriptEdgeActionFactory;
         this.executionListeners = executionListeners != null ? executionListeners : List.of();
+        this.nodeDefRepository = nodeDefRepository;
+        this.scriptNodeFactory = scriptNodeFactory;
     }
 
     /**
@@ -115,6 +124,8 @@ public class DynamicGraphBuilder {
     }
 
     private StateGraph doBuildStateGraph(GraphDefinition def) throws GraphStateException {
+        // 编译前：按需加载缺失的脚本节点（多实例懒加载）
+        ensureScriptNodesLoaded(def);
         KeyStrategyFactory keyStrategyFactory = createKeyStrategyFactory(def);
         StateGraph stateGraph = new StateGraph(keyStrategyFactory);
         NodeRuntimeContext ctx = NodeRuntimeContext.empty(applicationContext);
@@ -203,5 +214,29 @@ public class DynamicGraphBuilder {
 
     private SaverConfig buildSaverConfig(String saver) {
         return SaverConfig.builder().register(saverRegistry.resolve(saver)).build();
+    }
+
+    /**
+     * 编译前检查图引用的脚本节点，从 DB 重新加载以确保多实例部署下获得最新定义。
+     *
+     * <p>每次编译都会从 DB 加载脚本节点定义并覆盖注册中心中的实例。
+     * 编译操作本身频率低（启动、发布、回滚、多实例懒刷新），因此无性能顾虑。</p>
+     */
+    private void ensureScriptNodesLoaded(GraphDefinition def) {
+        for (NodeRef ref : def.nodes()) {
+            String nodeId = ref.nodeId();
+            if (!nodeId.startsWith("script:")) continue;
+
+            try {
+                DynamicNodeDefinition nodeDef = nodeDefRepository.findById(nodeId).orElse(null);
+                if (nodeDef != null) {
+                    RegisteredGraphNode rn = scriptNodeFactory.create(nodeDef);
+                    nodeRegistry.registerDynamic(rn);
+                    log.debug("编译前刷新脚本节点, nodeId={}", nodeId);
+                }
+            } catch (Exception e) {
+                log.warn("脚本节点加载失败, nodeId={}, error={}", nodeId, e.getMessage());
+            }
+        }
     }
 }

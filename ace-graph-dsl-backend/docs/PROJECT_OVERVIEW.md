@@ -62,6 +62,22 @@ GraphDefinition (DSL 模型)
   - `keyStrategies` 映射为 `ReplaceStrategy`（覆盖）/ `AppendStrategy`（追加）。
   - 编译配置支持 `interruptBefore`（HITL 中断点）与 `saver`（当前统一落到 `MemorySaver`）。
 
+- **`GraphValidator`**（`builder/GraphValidator.java`）校验项：
+
+  | 序号 | 校验项 | 说明 |
+  |------|--------|------|
+  | 1 | 节点存在性 | `nodeId` 须在 `GraphNodeRegistry` 注册 |
+  | 2 | 边引用合法性 | `from` / `to`（含条件边 mapping 目标）须存在 |
+  | 3 | 条件边 | dispatcher 或脚本路由、mapping 覆盖、表达式语法 |
+  | 4 | KeyStrategy 覆盖 | 所有节点 `outputKeys` 须在 `keyStrategies` 声明 |
+  | 5 | interruptBefore | 中断点节点须存在 |
+  | 6 | 环检测 | HITL resume 外不允许成环 |
+  | 7 | 连线参数可达性 | `EdgeParamReachabilityValidator`：沿图路径累积上游 `outputKeys`，检查目标节点 `inputKeys` 是否可达 |
+
+  **豁免**（避免误报）：`__START__` 出边（入参来自图调用初始 state）；目标为 `HITL` 的入边（入参来自 interrupt/resume）。
+
+  **触发时机**：`POST .../validate`、`publish` / `rollback` 编译前会执行全部校验；`POST .../draft` **不**执行校验。
+
 - **`GraphRuntime`**（`store/GraphRuntime.java`）
   - 使用 `ConcurrentHashMap` 维护已启用的 `CompiledGraph` 池。
   - 启动时 `@PostConstruct` 加载所有 enabled 版本并编译。
@@ -136,10 +152,22 @@ GraphDefinition (DSL 模型)
   - `buildDefinition()`：产出标准 `GraphDefinition`。
   - 封装 `save` / `validate` / `loadPlantUml` / `publishCurrent` / `loadLatest` 等动作。
   - 会基于节点 `outputKeys` 自动补全 `keyStrategies`（默认 `REPLACE`）。
+  - `refreshEdgeParamValidation()` / `edgeParamIssues`：连线参数可达性校验（与后端 `EdgeParamReachabilityValidator` 规则一致）。
 - **`stores/nodeRegistry.js`**：节点 / Dispatcher 注册表缓存。
 - **`api/graph.js`**：`createGraphApi(baseURL)` 工厂封装全部 `/api/graph/**` 接口（含脚本节点 CRUD、`validate-script`、`test-run`）。
 
-### 3.4 本地联调
+### 3.4 画布渲染（LogicFlow v2 自定义元素）
+
+| 模块 | 说明 |
+|------|------|
+| `Designer/DspNode.js` | 分类配色 SVG 节点：矩形（NORMAL/MERGE/HITL）、六边形（ROUTER）、圆形（START/END） |
+| `Designer/DspEdge.js` | 贝塞尔连线；`paramInvalid` 时标红 |
+| `Designer/EdgeParamValidationPanel.vue` | 左下角悬浮校验提示（内部组件，未单独 export） |
+| `utils/edgeParamValidation.js` | 前端连线参数可达性算法（含 START / HITL 豁免） |
+
+节点配色：NORMAL 蓝、ROUTER 橙、MERGE 绿、HITL 紫、START/END 青。
+
+### 3.5 本地联调
 
 - 开发时通过 Vite 代理 `/api` → 后端（默认 `http://127.0.0.1:8087`）。
 - Demo 入口 `demo/main.js` 挂载 `GraphDslManager`。
@@ -151,9 +179,10 @@ GraphDefinition (DSL 模型)
 ```
 [UI 拖拽设计]
    → buildDefinition() 生成 JSON DSL
-   → POST /api/graph/definitions/{graphId}/draft     (保存草稿)
-   → POST /api/graph/definitions/{graphId}/validate  (校验节点引用、边连通性)
-   → POST /api/graph/definitions/{graphId}/publish   (发布)
+   → POST /api/graph/definitions/{graphId}/draft     (保存草稿，不校验连线参数)
+   → 前端实时：连线参数校验 + 失败边标红 + 左下角提示
+   → POST /api/graph/definitions/{graphId}/validate  (全量校验，含连线参数可达性)
+   → POST /api/graph/definitions/{graphId}/publish   (发布前强制校验)
         ↓ 后端 GraphRuntime
         校验 → 编译 CompiledGraph → 切换 enabled 版本 → 热更新内存池
    → 业务方 GraphRuntime.get(graphId) 获取最新可执行图
@@ -193,7 +222,7 @@ GraphDefinition (DSL 模型)
 | `__START__` | 图起点 | | `NORMAL` | 普通处理节点 |
 | `__END__` | 图终点 | | `ROUTER` | 路由节点 |
 | | | | `MERGE` | 并行分支合并节点 |
-| | | | `HITL` | Human-in-the-Loop 人工介入节点 |
+| | | | `HITL` | Human-in-the-Loop 人工介入节点（设计器紫色） |
 
 ---
 

@@ -8,6 +8,8 @@ import '@logicflow/extension/lib/style/index.css'
 import { useNodeRegistryStore } from '../../stores/nodeRegistry'
 import { useGraphEditorStore } from '../../stores/graphEditor'
 import { useI18n } from '../../i18n'
+import { DspRectNode, DspDiamondNode, DspCircleNode, resolveNodeType } from './DspNode.js'
+import { DspBezierEdge } from './DspEdge.js'
 
 const nodeStore = useNodeRegistryStore()
 const editor = useGraphEditorStore()
@@ -17,13 +19,8 @@ const containerRef = ref(null)
 const canDeleteSelection = ref(false)
 let lf = null
 let suppressSync = false
-
-const CATEGORY_COLORS = {
-  NORMAL: { stroke: '#409eff', fill: '#ecf5ff' },
-  ROUTER: { stroke: '#e6a23c', fill: '#fdf6ec' },
-  MERGE: { stroke: '#67c23a', fill: '#f0f9eb' },
-  HITL: { stroke: '#f56c6c', fill: '#fef0f0' }
-}
+let lfReadyResolve
+const lfReady = new Promise(resolve => { lfReadyResolve = resolve })
 
 onMounted(() => { initLf() })
 onBeforeUnmount(() => {
@@ -44,6 +41,22 @@ watch(() => editor.selectedNode?.config, (config) => {
     suppressSync = false
   }
 }, { deep: true })
+
+watch(() => editor.edgeParamIssues, () => {
+  applyEdgeValidationStyles()
+}, { deep: true })
+
+function detectCanvasTheme() {
+  const root = containerRef.value?.closest('.ace-graph-dsl-designer, .ace-graph-dsl-manager')
+  if (root?.classList.contains('dark') || document.documentElement.classList.contains('dark')) {
+    return 'dark'
+  }
+  return 'light'
+}
+
+function baseProperties(extra = {}) {
+  return { theme: detectCanvasTheme(), ...extra }
+}
 
 function isReservedLfNodeId(id) {
   return id === 'lf_start' || id === 'lf_end'
@@ -89,6 +102,55 @@ function registerDeleteShortcut() {
   })
 }
 
+function applyLfTheme() {
+  const isDark = detectCanvasTheme() === 'dark'
+  const text = isDark ? '#e5eaf3' : '#303133'
+  const edgeStroke = isDark ? '#6b7d93' : '#8b9cb3'
+
+  if (containerRef.value) {
+    containerRef.value.style.backgroundColor = isDark ? '#141414' : '#fafafa'
+  }
+
+  lf.setTheme({
+    baseNode: { fill: '#FFFFFF', stroke: '#dcdfe6', strokeWidth: 1 },
+    circle: { stroke: '#06b6d4', strokeWidth: 2 },
+    rect: { fill: '#FFFFFF', stroke: '#dcdfe6', strokeWidth: 1 },
+    polygon: { strokeWidth: 2 },
+    polyline: {
+      stroke: edgeStroke,
+      hoverStroke: '#409eff',
+      selectedStroke: '#409eff',
+      strokeWidth: 1.5,
+    },
+    bezier: {
+      stroke: edgeStroke,
+      hoverStroke: '#409eff',
+      selectedStroke: '#409eff',
+      strokeWidth: 1.5,
+    },
+    nodeText: {
+      color: text,
+      overflowMode: 'ellipsis',
+      fontSize: 13,
+      background: { fill: 'transparent' },
+    },
+    edgeText: {
+      color: text,
+      fontSize: 12,
+      background: { fill: isDark ? '#1d1e1f' : '#ffffff', stroke: '#e4e7ed', radius: 4 },
+    },
+  })
+}
+
+function registerCustomElements() {
+  lf.register(DspRectNode)
+  lf.register(DspDiamondNode)
+  lf.register(DspCircleNode)
+  lf.register(DspBezierEdge)
+  lf.setDefaultEdgeType('dsp-bezier')
+  applyLfTheme()
+}
+
 function initLf() {
   lf = new LogicFlow({
     container: containerRef.value,
@@ -97,10 +159,13 @@ function initLf() {
     keyboard: { enabled: true },
     edgeTextDraggable: false,
     adjustEdge: true,
+    hoverOutline: true,
+    edgeSelectedOutline: true,
     guards: {
       beforeDelete: (data) => !isReservedNodeData(data)
     }
   })
+  registerCustomElements()
   lf.render({ nodes: [], edges: [] })
   ensureStartEndNodes()
   registerDeleteShortcut()
@@ -123,6 +188,25 @@ function initLf() {
     refreshSelectionState()
   })
   lf.on('element:click', () => refreshSelectionState())
+  lfReadyResolve?.()
+}
+
+function resolveLfTarget(token, idMap) {
+  if (!token) return ''
+  if (token === '__START__' || token === 'lf_start') return 'lf_start'
+  if (token === '__END__' || token === 'lf_end') return 'lf_end'
+  return idMap[token] || token
+}
+
+function renderLfGraph(lfNodes, lfEdges) {
+  applyLfTheme()
+  try {
+    lf.render({ nodes: lfNodes, edges: lfEdges })
+  } catch (err) {
+    console.error('[Canvas] dsp-bezier render failed, fallback to polyline:', err)
+    const fallbackEdges = lfEdges.map(edge => ({ ...edge, type: 'polyline' }))
+    lf.render({ nodes: lfNodes, edges: fallbackEdges })
+  }
 }
 
 function syncToStore() {
@@ -138,6 +222,32 @@ function syncToStore() {
     }
   }
   refreshSelectionState()
+  applyEdgeValidationStyles()
+}
+
+function lfNodeToDslId(node) {
+  if (!node) return ''
+  if (node.id === 'lf_start' || node.properties?.kind === 'START') return '__START__'
+  if (node.id === 'lf_end' || node.properties?.kind === 'END') return '__END__'
+  return node.properties?.nodeId || node.id.replace(/^lf_/, '')
+}
+
+/** 仅对状态变化的边 setProperties，避免全量重绘 */
+function applyEdgeValidationStyles() {
+  if (!lf) return
+  const invalidKeys = new Set((editor.edgeParamIssues || []).map(i => i.edgeKey))
+  const { nodes, edges } = lf.getGraphData()
+  const nodeById = new Map(nodes.map(n => [n.id, n]))
+
+  for (const edge of edges) {
+    const fromDsl = lfNodeToDslId(nodeById.get(edge.sourceNodeId))
+    const toDsl = lfNodeToDslId(nodeById.get(edge.targetNodeId))
+    const edgeKey = `${fromDsl}->${toDsl}`
+    const shouldInvalid = invalidKeys.has(edgeKey)
+    const currentInvalid = edge.properties?.paramInvalid === true
+    if (shouldInvalid === currentInvalid) continue
+    lf.setProperties(edge.id, { ...edge.properties, paramInvalid: shouldInvalid })
+  }
 }
 
 function isStartNode(n) {
@@ -153,96 +263,137 @@ function ensureStartEndNodes() {
   const data = lf.getGraphData()
   if (!data.nodes.some(isStartNode)) {
     lf.addNode({
-      id: 'lf_start', type: 'circle', x: 120, y: 200, text: 'START',
-      properties: { kind: 'START' }
+      id: 'lf_start', type: 'dsp-circle', x: 120, y: 200, text: 'START',
+      properties: baseProperties({ kind: 'START' })
     })
-    const m = lf.getNodeModelById('lf_start')
-    if (m) { m.r = 28 }
   }
   if (!data.nodes.some(isEndNode)) {
     lf.addNode({
-      id: 'lf_end', type: 'circle', x: 680, y: 200, text: 'END',
-      properties: { kind: 'END' }
+      id: 'lf_end', type: 'dsp-circle', x: 680, y: 200, text: 'END',
+      properties: baseProperties({ kind: 'END' })
     })
-    const m = lf.getNodeModelById('lf_end')
-    if (m) { m.r = 28 }
   }
 }
 
 function onNodeDrag(descriptor) {
   const category = descriptor.category || 'NORMAL'
-  const colors = CATEGORY_COLORS[category] || CATEGORY_COLORS.NORMAL
   const id = `${descriptor.nodeId}_${Date.now()}`
   lf.addNode({
-    id, type: 'rect', x: 300, y: 200, text: descriptor.displayName,
-    properties: {
-      nodeId: descriptor.nodeId, displayName: descriptor.displayName, category,
-      inputKeys: descriptor.inputKeys, outputKeys: descriptor.outputKeys, config: {}
-    }
+    id,
+    type: resolveNodeType(category),
+    x: 300,
+    y: 200,
+    text: descriptor.displayName,
+    properties: baseProperties({
+      nodeId: descriptor.nodeId,
+      displayName: descriptor.displayName,
+      category,
+      inputKeys: descriptor.inputKeys,
+      outputKeys: descriptor.outputKeys,
+      config: {}
+    })
   })
-  const model = lf.getNodeModel(id)
-  if (model) {
-    model.width = 160; model.height = 56; model.radius = 8
-    model.stroke = colors.stroke; model.fill = colors.fill
-  }
 }
 
 const RESERVED_NODE_IDS = new Set(['__START__', '__END__', 'lf_start', 'lf_end'])
 
 function renderFromDefinition(def) {
-  if (!def) return
+  if (!def || !lf) return
   const businessNodes = (def.nodes || []).filter(n => !RESERVED_NODE_IDS.has(n.nodeId))
   const lfNodes = []
   const lfEdges = []
 
-  lfNodes.push({ id: 'lf_start', type: 'circle', x: 50, y: 200, text: 'START', properties: { kind: 'START' } })
+  lfNodes.push({
+    id: 'lf_start', type: 'dsp-circle', x: 50, y: 200, text: 'START',
+    properties: baseProperties({ kind: 'START' })
+  })
 
   businessNodes.forEach((n, i) => {
     const desc = nodeStore.nodes.find(d => d.nodeId === n.nodeId)
     const category = desc?.category || 'NORMAL'
     const id = `lf_${n.nodeId}`
     lfNodes.push({
-      id, type: 'rect', x: 200 + 200 * (i + 1), y: 150 + (i % 3) * 100,
+      id,
+      type: resolveNodeType(category),
+      x: 200 + 200 * (i + 1),
+      y: 150 + (i % 3) * 100,
       text: desc?.displayName || n.nodeId,
-      properties: { nodeId: n.nodeId, displayName: desc?.displayName, category, config: n.config || {},
-                    inputKeys: desc?.inputKeys || [], outputKeys: desc?.outputKeys || [] }
+      properties: baseProperties({
+        nodeId: n.nodeId,
+        displayName: desc?.displayName,
+        category,
+        config: n.config || {},
+        inputKeys: desc?.inputKeys || [],
+        outputKeys: desc?.outputKeys || []
+      })
     })
   })
 
-  lfNodes.push({ id: 'lf_end', type: 'circle', x: 900, y: 200, text: 'END', properties: { kind: 'END' } })
+  lfNodes.push({
+    id: 'lf_end', type: 'dsp-circle', x: 900, y: 200, text: 'END',
+    properties: baseProperties({ kind: 'END' })
+  })
 
+  const lfNodeIds = new Set(lfNodes.map(n => n.id))
   const idMap = { '__START__': 'lf_start', '__END__': 'lf_end', lf_start: 'lf_start', lf_end: 'lf_end' }
   businessNodes.forEach(n => { idMap[n.nodeId] = `lf_${n.nodeId}` })
 
-  def.edges.forEach((e, i) => {
-    const source = idMap[e.from] || e.from
+  ;(def.edges || []).forEach((e, i) => {
+    const source = resolveLfTarget(e.from, idMap)
+    if (!lfNodeIds.has(source)) return
+
     if (e.type === 'conditional') {
+      const dispatcher = e.dispatcher || e.condition || 'route'
       Object.entries(e.mapping || {}).forEach(([key, target], j) => {
+        const targetNodeId = resolveLfTarget(target, idMap)
+        if (!lfNodeIds.has(targetNodeId)) return
         lfEdges.push({
-          id: `lf_edge_${i}_${j}`, sourceNodeId: source, targetNodeId: idMap[target] || target,
-          type: 'polyline', text: `${e.dispatcher}:${key}`,
-          properties: { type: 'conditional', dispatcher: e.dispatcher, mapping: e.mapping }
+          id: `lf_edge_${i}_${j}`,
+          sourceNodeId: source,
+          targetNodeId,
+          type: 'dsp-bezier',
+          text: `${dispatcher}:${key}`,
+          properties: baseProperties({
+            type: 'conditional',
+            dispatcher: e.dispatcher || e.condition,
+            mapping: e.mapping
+          })
         })
       })
-    } else {
-      lfEdges.push({
-        id: `lf_edge_${i}`, sourceNodeId: source, targetNodeId: idMap[e.to] || e.to,
-        type: 'polyline', properties: { type: 'normal' }
-      })
+      return
     }
+
+    const targetNodeId = resolveLfTarget(e.to, idMap)
+    if (!lfNodeIds.has(targetNodeId)) return
+    lfEdges.push({
+      id: `lf_edge_${i}`,
+      sourceNodeId: source,
+      targetNodeId,
+      type: 'dsp-bezier',
+      properties: baseProperties({ type: 'normal' })
+    })
   })
 
   suppressSync = true
   try {
-    lf.render({ nodes: lfNodes, edges: lfEdges })
+    renderLfGraph(lfNodes, lfEdges)
     editor.clearSelectedNode()
     refreshSelectionState()
+  } catch (err) {
+    console.error('[Canvas] renderFromDefinition failed:', err)
   } finally {
     suppressSync = false
+    syncToStore()
   }
 }
 
-defineExpose({ onNodeDrag, renderFromDefinition, ensureStartEndNodes, deleteSelectedElements })
+defineExpose({
+  onNodeDrag,
+  renderFromDefinition,
+  ensureStartEndNodes,
+  deleteSelectedElements,
+  whenReady: () => lfReady
+})
 </script>
 
 <template>
@@ -279,5 +430,31 @@ defineExpose({ onNodeDrag, renderFromDefinition, ensureStartEndNodes, deleteSele
   left: 10px;
   z-index: 10;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12);
+}
+
+.designer-canvas-wrap :deep(.lf-node-dsp-rect .lf-node-text-ellipsis-content) {
+  padding: 0 10px 0 32px !important;
+}
+
+.designer-canvas-wrap :deep(.lf-node-dsp-diamond .lf-node-text-ellipsis-content) {
+  padding-top: 6px !important;
+}
+
+.designer-canvas-wrap :deep(.lf-node-dsp-circle .lf-node-text-ellipsis-content) {
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.designer-canvas-wrap :deep(.lf-mini-map) {
+  border-radius: 6px;
+  border: none !important;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+}
+.designer-canvas-wrap :deep(.lf-mini-map-header) {
+  border: none !important;
+  font-size: 12px;
+  height: 24px !important;
+  line-height: 24px !important;
+  background-color: var(--agd-color-bg-active, #ecf5ff) !important;
 }
 </style>

@@ -4,7 +4,8 @@
 
 ## 功能特性
 
-- **可视化编排**：拖拽节点、连线，支持普通边与条件分发边（Dispatcher）
+- **可视化编排**：拖拽节点、连线，支持普通边与条件分发边（Dispatcher）；自定义 SVG 节点（分类配色）与贝塞尔连线
+- **连线参数校验**：连线后实时校验入参可达性，失败连线标红，左下角悬浮提示；发布时后端同步校验（保存草稿不校验）
 - **Graph 管理**：目录列表、新建 / 切换 Graph DSL、版本摘要展示
 - **草稿与发布**：保存草稿、服务端校验、发布并切换运行时 Graph
 - **编译配置**：Key Strategy、Saver（Memory / JDBC / Redis）、HITL 中断点
@@ -20,6 +21,7 @@
 | [脚本节点填写与使用样例](../ace-graph-dsl-backend/docs/SCRIPT_NODE_EXAMPLES.md) | 字段说明、9 类场景样例、cs-reply 集成、REST API |
 | [菜单/功能权限抽象与接入指南](../ace-graph-dsl-backend/docs/MENU_PERMISSION_INTEGRATION.md) | 菜单权限 SPI、REST API 与前端 `usePermissionStore` 用法 |
 | [后续优化与功能规划建议](../ace-graph-dsl-backend/docs/FUTURE_OPTIMIZATION_PLAN.md) | 按 P0–P3 优先级的后续优化项与落地顺序 |
+| [架构总览](../ace-graph-dsl-backend/docs/PROJECT_OVERVIEW.md) | 前后端架构、校验与数据流 |
 
 ## 技术栈
 
@@ -155,6 +157,7 @@ const nodeStore = useNodeRegistryStore() // 节点 / Dispatcher 注册表
 - `loadLatest()` / `save()` / `validate()` / `publishCurrent()`
 - `buildDefinition()` / `applyDefinition()` — DSL 对象读写
 - `setFromLfData()` — 从 LogicFlow 画布同步到 store
+- `refreshEdgeParamValidation()` / `edgeParamIssues` — 连线参数可达性校验（画布连线变更后自动刷新）
 
 ### API 客户端
 
@@ -180,11 +183,11 @@ await api.saveDraft('order-flow', definition)
 | GET | `/catalog/summaries` | Graph 摘要列表 |
 | GET | `/definitions/{graphId}` | 获取最新定义 |
 | GET | `/definitions/{graphId}/versions` | 版本历史 |
-| POST | `/definitions/{graphId}/draft` | 保存草稿 |
-| POST | `/definitions/{graphId}/validate` | 校验定义 |
+| POST | `/definitions/{graphId}/draft` | 保存草稿（**不**做连线参数可达性校验） |
+| POST | `/definitions/{graphId}/validate` | 校验定义（含连线参数可达性等） |
 | POST | `/definitions/{graphId}/preview/plantuml` | PlantUML 预览 |
 | POST | `/definitions/{graphId}/preview/mermaid` | Mermaid 预览 |
-| POST | `/definitions/{graphId}/publish` | 发布版本 |
+| POST | `/definitions/{graphId}/publish` | 发布版本（发布前强制校验，含连线参数可达性） |
 | POST | `/definitions/{graphId}/rollback` | 回滚版本 |
 | GET | `/definitions/{graphId}/enabled` | 当前启用版本 |
 
@@ -219,7 +222,9 @@ ace-graph-dsl-ui/
 │   ├── components/
 │   │   ├── GraphDslManager.vue    # 管理页（目录 + 设计器）
 │   │   ├── GraphDslDesigner.vue   # 单 Graph 设计器
-│   │   └── Designer/              # 设计器子组件
+│   │   └── Designer/              # 设计器子组件（含 EdgeParamValidationPanel）
+│   ├── utils/
+│   │   └── edgeParamValidation.js # 连线参数可达性校验
 │   └── index.js             # 库导出入口
 ├── index.html
 ├── vite.config.js
@@ -253,14 +258,68 @@ ace-graph-dsl-ui/
 
 画布中的 `START` / `END` 节点会自动映射为保留字 `__START__` / `__END__`。
 
-## 节点分类
+## 画布视觉与交互
+
+### 自定义节点与连线（LogicFlow v2）
+
+| 文件 | 说明 |
+|------|------|
+| `Designer/DspNode.js` | 自定义 SVG 节点：`dsp-rect`（普通/MERGE/HITL）、`dsp-diamond`（ROUTER 六边形）、`dsp-circle`（START/END） |
+| `Designer/DspEdge.js` | 自定义贝塞尔连线 `dsp-bezier`；普通边 / 条件边分色；校验失败边标红（`paramInvalid`） |
+
+### 节点分类配色
 
 | 分类 | 说明 | 画布配色 |
 |------|------|----------|
 | `NORMAL` | 普通业务节点 | 蓝色 |
-| `ROUTER` | 路由 / 分支节点 | 橙色 |
+| `ROUTER` | 路由 / 分支节点 | 橙色（六边形） |
 | `MERGE` | 合并节点 | 绿色 |
-| `HITL` | 人机协同节点 | 红色 |
+| `HITL` | 人机协同节点 | 紫色 |
+| START / END | 保留起止节点 | 青色圆形 |
+
+### 连线参数校验 UI
+
+- **触发时机**：连线增删、节点变更、图加载后画布同步到 store 时自动校验
+- **提示面板**：`EdgeParamValidationPanel`，悬浮于画布**左下角**（红底半透明磨砂，固定高度，内容可滚动）
+- **失败连线标红**：通过 `lf.setProperties` 增量更新 `paramInvalid`，不触发全图重绘
+- **切换 Graph**：`selectGraph` 清空并重新计算当前图的 `edgeParamIssues`
+
+> `EdgeParamValidationPanel` 为设计器内部组件，随 `GraphDslDesigner` 挂载，**未**在 `index.js` 单独导出。
+
+## 快问快答
+
+### 连线参数校验如何工作？
+
+设计器在**连线增删**或**画布同步到 store** 后，根据节点元数据的 `inputKeys` / `outputKeys` 沿图路径累积上游产出 key，判断目标节点入参是否可达：
+
+- **前端**：`edgeParamIssues` 驱动左下角红色半透明提示面板；失败连线在画布上**标红**（`properties.paramInvalid`，增量 `setProperties`，不重绘全图）
+- **后端**：`GraphValidator` 第 6 步调用 `EdgeParamReachabilityValidator`；**发布**与工具栏「校验」会拦截；**保存草稿**不经过此校验
+
+**豁免规则**（避免误报）：
+
+| 连线类型 | 是否校验 | 原因 |
+|----------|----------|------|
+| `__START__` → 业务节点 | 否 | 入参来自图调用初始 state |
+| 普通节点 → `HITL` | 否 | 入参来自 interrupt / resume 注入 |
+| 普通节点 → 普通节点 | 是 | 须由上游节点产出所需 key |
+
+### 是否支持 Vue 2 + JS 项目集成？
+
+**不支持直接在 Vue 2 项目中作为组件库集成。** 本库面向 **Vue 3** 生态设计与构建：
+
+| 项 | 说明 |
+|----|------|
+| `peerDependencies` | 要求 `vue ^3.5.0` |
+| 组件写法 | 全部使用 `<script setup>`（Vue 3 特性） |
+| UI 库 | Element Plus（仅支持 Vue 3） |
+| 状态管理 | Pinia 2.x |
+| 构建产物 | ESM（`dist/index.js`），运行时依赖 Vue 3 API |
+
+**Vue 3 + JS 项目**可直接按上文「快速开始」集成；**Vue 2 项目**若需使用设计器，可采用以下方式：
+
+1. **独立 Vue 3 子应用**（推荐）：通过 iframe、微前端（如 qiankun）或独立路由页挂载设计器，主应用保持 Vue 2。
+2. **宿主升级到 Vue 3**：与官方集成方式一致，长期维护成本最低。
+3. **源码直引**（`@acelance/graph-dsl-ui/src`）：宿主仍须为 Vue 3 + Element Plus + Pinia，无法绕过 Vue 2 限制。
 
 ## 许可证
 

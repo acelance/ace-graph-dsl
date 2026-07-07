@@ -1,6 +1,8 @@
 package io.acelance.graph.dsl.web;
 
 import io.acelance.graph.dsl.definition.DynamicNodeDefinition;
+import io.acelance.graph.dsl.definition.GraphDefinition;
+import io.acelance.graph.dsl.persistence.GraphDefinitionRepository;
 import io.acelance.graph.dsl.security.AccessDeniedException;
 import io.acelance.graph.dsl.security.GraphNodeAccessControl;
 import io.acelance.graph.dsl.security.menu.GraphMenuPermissionResolver;
@@ -15,11 +17,13 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 /**
  * 脚本（动态）节点 REST API：CRUD、语法校验、试跑。
@@ -35,14 +39,17 @@ public class ScriptNodeController {
     private final GraphNodeAccessControl accessControl;
     private final GraphMenuPermissionResolver menuPermissions;
     private final ScriptEngineRegistry engineRegistry;
+    private final GraphDefinitionRepository graphDefRepository;
 
     public ScriptNodeController(ScriptNodeService scriptNodeService, GraphNodeAccessControl accessControl,
                                GraphMenuPermissionResolver menuPermissions,
-                               ScriptEngineRegistry engineRegistry) {
+                               ScriptEngineRegistry engineRegistry,
+                               GraphDefinitionRepository graphDefRepository) {
         this.scriptNodeService = scriptNodeService;
         this.accessControl = accessControl;
         this.menuPermissions = menuPermissions;
         this.engineRegistry = engineRegistry;
+        this.graphDefRepository = graphDefRepository;
     }
 
     /** 列出可用的脚本引擎 */
@@ -50,6 +57,27 @@ public class ScriptNodeController {
     public List<EngineMeta> listEngines() {
         return engineRegistry.listEngineIds().stream()
                 .map(EngineMeta::new)
+                .toList();
+    }
+
+    /** 查询引用指定脚本节点的图 ID 列表（节点删除前的引用检查） */
+    @GetMapping("/references")
+    public List<String> listReferencingGraphs(@RequestParam("nodeId") String nodeId) {
+        return graphDefRepository.listAll().stream()
+                .filter(def -> def.nodes().stream().anyMatch(n -> nodeId.equals(n.nodeId())))
+                .map(GraphDefinition::graphId)
+                .collect(Collectors.toList());
+    }
+
+    /** 列出孤儿脚本节点（未被任何图定义引用） */
+    @GetMapping("/orphans")
+    public List<DynamicNodeDefinition> listOrphans() {
+        Set<String> referencedNodeIds = graphDefRepository.listAll().stream()
+                .flatMap(def -> def.nodes().stream())
+                .map(n -> n.nodeId())
+                .collect(Collectors.toSet());
+        return scriptNodeService.listDefinitions().stream()
+                .filter(def -> !referencedNodeIds.contains(def.nodeId()))
                 .toList();
     }
 

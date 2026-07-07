@@ -1,22 +1,24 @@
 <script setup>
 import { ref, computed, watch } from 'vue'
 import { ElMessage } from 'element-plus'
-import { createScriptNode, validateScript, testRunDraft, listScriptEngines } from '../../api/graph'
+import { createScriptNode, updateScriptNode, validateScript, testRunDraft, listScriptEngines, getScriptNodeDefinition } from '../../api/graph'
 import { usePermissionStore, MENU } from '../../stores/permissions'
 import { useI18n } from '../../i18n'
 
 const perm = usePermissionStore()
 const { t } = useI18n()
 
+const props = defineProps({ editNode: { type: Object, default: null } })
 const visible = defineModel('visible', { type: Boolean, default: false })
 const emit = defineEmits(['created'])
 
 const saving = ref(false)
 const testing = ref(false)
+const loading = ref(false)
 const testOutput = ref(null)
 const engines = ref([])
 
-const form = ref({
+const defaultForm = () => ({
   nodeId: '',
   displayName: '',
   category: 'NORMAL',
@@ -29,10 +31,44 @@ const form = ref({
   permissionTagsText: 'public'
 })
 
-watch(visible, (v) => {
-  if (v) {
-    form.value.nodeId = `script:${form.value.displayName ? form.value.displayName.replace(/\s+/g, '_').toLowerCase() : 'custom_' + Date.now()}`
-    fetchEngines()
+const form = ref(defaultForm())
+
+function applyDefinition(def) {
+  form.value.nodeId = def.nodeId || ''
+  form.value.displayName = def.displayName || ''
+  form.value.category = def.category || 'NORMAL'
+  form.value.description = def.description || ''
+  form.value.inputKeysText = (def.inputKeys || []).join(',')
+  form.value.outputKeysText = (def.outputKeys || []).join(',')
+  form.value.engine = def.engine || 'aviator'
+  form.value.scriptBody = def.scriptBody || ''
+  form.value.permissionTagsText = (def.permissionTags || []).join(',')
+}
+
+async function loadEditNode() {
+  if (!props.editNode?.nodeId) return
+  loading.value = true
+  testOutput.value = null
+  try {
+    const def = await getScriptNodeDefinition(props.editNode.nodeId)
+    applyDefinition(def)
+  } catch (e) {
+    applyDefinition(props.editNode)
+    ElMessage.warning(e.response?.data?.error || e.message || '脚本详情加载失败，部分字段可能不完整')
+  } finally {
+    loading.value = false
+  }
+}
+
+watch(visible, async (v) => {
+  if (!v) return
+  testOutput.value = null
+  await fetchEngines()
+  if (props.editNode) {
+    await loadEditNode()
+  } else {
+    form.value = defaultForm()
+    form.value.nodeId = `script:custom_${Date.now()}`
   }
 })
 
@@ -46,13 +82,6 @@ async function fetchEngines() {
     engines.value = [{ id: 'aviator', label: 'Aviator 表达式' }]
   }
 }
-
-watch(() => form.value.displayName, (name) => {
-  if (!form.value.nodeId || form.value.nodeId.startsWith('script:custom_')) {
-    const slug = (name || '').trim().replace(/\s+/g, '_').toLowerCase()
-    if (slug) form.value.nodeId = `script:${slug}`
-  }
-})
 
 const inputKeys = computed(() => parseKeys(form.value.inputKeysText))
 const outputKeys = computed(() => parseKeys(form.value.outputKeysText))
@@ -106,7 +135,7 @@ async function onSubmit() {
   saving.value = true
   try {
     await validateScript({ engine: form.value.engine, scriptBody: form.value.scriptBody })
-    const created = await createScriptNode({
+    const body = {
       nodeId: form.value.nodeId,
       displayName: form.value.displayName,
       category: form.value.category,
@@ -119,9 +148,12 @@ async function onSubmit() {
       supportsParallel: false,
       version: '1.0.0',
       operator: 'designer'
-    })
-    ElMessage.success(t('scriptEditor.createOk'))
-    emit('created', created)
+    }
+    const result = props.editNode
+      ? await updateScriptNode(form.value.nodeId, body)
+      : await createScriptNode(body)
+    ElMessage.success(props.editNode ? t('scriptEditor.updateOk') : t('scriptEditor.createOk'))
+    emit('created', result)
     visible.value = false
   } catch (e) {
     ElMessage.error(e.response?.data?.error || e.message)
@@ -132,7 +164,8 @@ async function onSubmit() {
 </script>
 
 <template>
-  <el-dialog v-model="visible" :title="t('scriptEditor.title')" width="680px" destroy-on-close>
+  <el-dialog v-model="visible" :title="props.editNode ? t('scriptEditor.editTitle') : t('scriptEditor.title')" width="680px" destroy-on-close>
+    <div v-loading="loading">
     <el-form label-width="110px" size="small">
       <el-form-item :label="t('scriptEditor.nodeId')" required>
         <el-input v-model="form.nodeId" :placeholder="t('scriptEditor.nodeIdPlaceholder')" />
@@ -174,10 +207,13 @@ async function onSubmit() {
         <el-input :model-value="JSON.stringify(testOutput, null, 2)" type="textarea" :rows="3" readonly />
       </el-form-item>
     </el-form>
+    </div>
     <template #footer>
       <el-button v-if="perm.can(MENU.SCRIPT_NODE_TEST)" @click="onValidate">{{ t('scriptEditor.validate') }}</el-button>
       <el-button v-if="perm.can(MENU.SCRIPT_NODE_TEST)" :loading="testing" @click="onTestRun">{{ t('scriptEditor.testRun') }}</el-button>
-      <el-button v-if="perm.can(MENU.SCRIPT_NODE_CREATE)" type="primary" :loading="saving" @click="onSubmit">{{ t('scriptEditor.create') }}</el-button>
+      <el-button v-if="perm.can(MENU.SCRIPT_NODE_CREATE)" type="primary" :loading="saving" @click="onSubmit">
+        {{ props.editNode ? t('scriptEditor.update') : t('scriptEditor.create') }}
+      </el-button>
     </template>
   </el-dialog>
 </template>

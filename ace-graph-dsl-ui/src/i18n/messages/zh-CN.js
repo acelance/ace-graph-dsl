@@ -26,6 +26,7 @@ export default {
     publishSuccess: '发布成功，版本 {version}',
     publishFailed: '发布失败: {msg}',
     saveUnchanged: '相对基线版本无内容变更，未生成新版本',
+    readOnly: '内置图 · 只读',
     statusRunning: '运行中 v{version}',
     statusDraft: '目标 v{version}',
     statusBaseline: '基线 v{version}',
@@ -89,7 +90,15 @@ export default {
     builtin: '内置',
     script: '脚本',
     createScript: '+ 新建脚本节点',
+    edit: '编辑',
+    delete: '删除',
+    deleteConfirm: '确认删除脚本节点 "{name}"？',
+    referenceWarning: '以下图引用了此节点，删除后将无法编译:',
     empty: '无节点'
+  },
+  edgeValidation: {
+    title: '连线参数校验',
+    issue: '{from} → {to}：目标节点 {target} 缺少入参 [{keys}]'
   },
   propertyPanel: {
     title: '属性面板',
@@ -120,6 +129,7 @@ export default {
   },
   scriptEditor: {
     title: '新建脚本节点',
+    editTitle: '编辑脚本节点',
     nodeId: 'Node ID',
     nodeIdPlaceholder: 'script:my_node',
     displayName: '显示名',
@@ -142,8 +152,10 @@ export default {
     mockError: 'mockState JSON 格式错误',
     nodeIdError: 'nodeId 必须以 script: 开头',
     createOk: '脚本节点已创建',
+    updateOk: '脚本节点已更新',
     validate: '校验语法',
     testRun: '试跑',
-    create: '创建'
+    create: '创建',
+    update: '更新'
   }
 }

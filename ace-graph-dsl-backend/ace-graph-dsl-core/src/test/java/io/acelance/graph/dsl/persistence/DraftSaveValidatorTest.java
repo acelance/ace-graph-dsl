@@ -24,7 +24,7 @@ class DraftSaveValidatorTest {
                 Map.of(),
                 List.of(new NodeRef(nodeId, Map.of())),
                 List.of(),
-                CompileConfigDto.defaultConfig());
+                CompileConfigDto.defaultConfig(), null);
     }
 
     @Test

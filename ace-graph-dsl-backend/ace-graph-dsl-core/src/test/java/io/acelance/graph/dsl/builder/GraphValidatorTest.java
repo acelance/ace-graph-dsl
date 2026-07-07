@@ -23,10 +23,13 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class GraphValidatorTest {
 
+    private final GraphNodeRegistry nodeRegistry = new GraphNodeRegistry(List.of(node("a"), node("b"), node("c")));
+    private final EdgeParamReachabilityValidator reachabilityValidator = new EdgeParamReachabilityValidator(nodeRegistry);
     private final GraphValidator validator = new GraphValidator(
-            new GraphNodeRegistry(List.of(node("a"), node("b"), node("c"))),
+            nodeRegistry,
             new EdgeDispatcherRegistry(List.of()),
-            new ScriptEdgeActionFactory(new ScriptEngineRegistry(List.of(new AviatorScriptEngine(1000)))));
+            new ScriptEdgeActionFactory(new ScriptEngineRegistry(List.of(new AviatorScriptEngine(1000)))),
+            reachabilityValidator);
 
     @Test
     void scriptConditionalEdgePasses() {
@@ -85,7 +88,7 @@ class GraphValidatorTest {
                         conditional,
                         new GraphEdge("b", GraphDefinition.END, GraphEdge.TYPE_NORMAL, null, null, null, null),
                         new GraphEdge("c", GraphDefinition.END, GraphEdge.TYPE_NORMAL, null, null, null, null)),
-                null);
+                null, null);
     }
 
     private static GraphEdge scriptEdge(String from, String condition, Map<String, String> mapping) {

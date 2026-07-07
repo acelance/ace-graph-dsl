@@ -1,7 +1,8 @@
 <script setup>
-import { ref, watch, onMounted } from 'vue'
+import { ref, watch, onMounted, nextTick } from 'vue'
 import Toolbar from './Designer/Toolbar.vue'
 import Canvas from './Designer/Canvas.vue'
+import EdgeParamValidationPanel from './Designer/EdgeParamValidationPanel.vue'
 import { useGraphEditorStore } from '../stores/graphEditor'
 import { useNodeRegistryStore } from '../stores/nodeRegistry'
 import { usePermissionStore } from '../stores/permissions'
@@ -11,7 +12,8 @@ const props = defineProps({
   graphId: { type: String, required: true },
   apiBaseUrl: { type: String, default: '/' },
   title: { type: String, default: '' },
-  locale: { type: String, default: 'zh-CN' }
+  locale: { type: String, default: 'zh-CN' },
+  readOnly: { type: Boolean, default: false }
 })
 
 const emit = defineEmits(['saved', 'published'])
@@ -25,21 +27,43 @@ watch(() => props.locale, (loc) => {
   if (loc) configureGraphDslI18n({ locale: loc })
 }, { immediate: true })
 
+async function paintCanvas(def) {
+  await nextTick()
+  const canvas = canvasRef.value
+  if (!canvas || !def) return
+  if (typeof canvas.whenReady === 'function') {
+    await canvas.whenReady()
+  }
+  await canvas.renderFromDefinition(def)
+}
+
 async function loadGraph() {
   editor.selectGraph(props.graphId)
+  let def
   try {
-    const def = await editor.loadLatest()
-    if (def) {
-      canvasRef.value?.renderFromDefinition(def)
-    } else {
-      editor.initNewGraph(props.graphId, { displayName: props.title || props.graphId })
-      canvasRef.value?.ensureStartEndNodes?.()
-    }
-  } catch {
+    def = await editor.loadLatest()
+  } catch (e) {
+    console.warn('[GraphDslDesigner] loadLatest failed:', e)
     editor.initNewGraph(props.graphId, { displayName: props.title || props.graphId })
+    await nextTick()
+    canvasRef.value?.ensureStartEndNodes?.()
+    await editor.loadEnabledVersion()
+    return
+  }
+
+  if (def) {
+    try {
+      await paintCanvas(def)
+    } catch (e) {
+      console.error('[GraphDslDesigner] paintCanvas failed:', e)
+    }
+  } else {
+    editor.initNewGraph(props.graphId, { displayName: props.title || props.graphId })
+    await nextTick()
     canvasRef.value?.ensureStartEndNodes?.()
   }
   await editor.loadEnabledVersion()
+  editor.refreshEdgeParamValidation(nodeStore.nodes)
 }
 
 watch(() => props.graphId, loadGraph)
@@ -80,11 +104,13 @@ defineExpose({ onNodeDrag, canvasRef })
         floating-actions
         :title="title || graphId"
         :canvas-ref="canvasRef"
+        :read-only="readOnly"
         @save="onSave"
         @validate="editor.validate()"
         @preview="editor.loadPlantUml()"
         @publish="onPublish()"
       />
+      <EdgeParamValidationPanel />
     </div>
   </div>
 </template>

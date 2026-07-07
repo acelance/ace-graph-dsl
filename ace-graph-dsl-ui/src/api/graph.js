@@ -47,6 +47,7 @@ export function createGraphApi(options = '/') {
     listScriptNodeDefinitions: () => http.get(`${p}/nodes/definitions`).then(r => r.data),
     getScriptNodeDefinition: (nodeId) => http.get(`${p}/nodes/definitions/${nodeId}`).then(r => r.data),
     listScriptEngines: () => http.get(`${p}/nodes/engines`).then(r => r.data),
+    listReferringGraphs: (nodeId) => http.get(`${p}/nodes/references`, { params: { nodeId } }).then(r => r.data),
     createScriptNode: (body) => http.post(`${p}/nodes`, body).then(r => r.data),
     updateScriptNode: (nodeId, body) => http.put(`${p}/nodes/${nodeId}`, body).then(r => r.data),
     deleteScriptNode: (nodeId) => http.delete(`${p}/nodes/${nodeId}`).then(r => r.data),
@@ -100,6 +101,7 @@ export const listDispatchers = (...args) => defaultApi.listDispatchers(...args)
 export const createScriptNode = (...args) => defaultApi.createScriptNode(...args)
 export const updateScriptNode = (...args) => defaultApi.updateScriptNode(...args)
 export const deleteScriptNode = (...args) => defaultApi.deleteScriptNode(...args)
+export const listReferringGraphs = (...args) => defaultApi.listReferringGraphs(...args)
 export const validateScript = (...args) => defaultApi.validateScript(...args)
 export const testRunDraft = (...args) => defaultApi.testRunDraft(...args)
 export const testRunScriptNode = (...args) => defaultApi.testRunScriptNode(...args)

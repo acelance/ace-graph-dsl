@@ -2,6 +2,7 @@ import { defineStore } from 'pinia'
 import { ref, reactive } from 'vue'
 import { saveDraft, validateDefinition, previewPlantUml, publish, getLatestDefinition, listVersions, getEnabled } from '../api/graph'
 import { canonicalContent, bumpPatchVersion, maxSemver, compareSemver } from '../utils/graphContent'
+import { validateEdgeParamReachability } from '../utils/edgeParamValidation'
 
 export const useGraphEditorStore = defineStore('aceGraphEditor', () => {
   const graphId = ref('')
@@ -14,6 +15,7 @@ export const useGraphEditorStore = defineStore('aceGraphEditor', () => {
   const interruptBefore = ref([])
   const saver = ref('memory')
   const validationErrors = ref([])
+  const edgeParamIssues = ref([])
   const plantUmlContent = ref('')
   const versions = ref([])
   const enabledVersion = ref('')
@@ -168,6 +170,15 @@ export const useGraphEditorStore = defineStore('aceGraphEditor', () => {
     for (const k of allOutputKeys) {
       if (!keyStrategies[k]) keyStrategies[k] = 'REPLACE'
     }
+    refreshEdgeParamValidation(nodeDescriptors)
+  }
+
+  function refreshEdgeParamValidation(nodeDescriptors) {
+    if (!graphId.value) {
+      edgeParamIssues.value = []
+      return
+    }
+    edgeParamIssues.value = validateEdgeParamReachability(buildDefinition(), nodeDescriptors || [])
   }
 
   /** 构建完整的 GraphDefinition 对象 */
@@ -273,6 +284,7 @@ export const useGraphEditorStore = defineStore('aceGraphEditor', () => {
     baselineVersion.value = ''
     baselineCanonical.value = ''
     validationErrors.value = []
+    edgeParamIssues.value = []
     plantUmlContent.value = ''
     selectedNode.value = null
     selectedLfNodeId.value = null
@@ -280,15 +292,25 @@ export const useGraphEditorStore = defineStore('aceGraphEditor', () => {
 
   async function loadLatest() {
     if (!graphId.value) return null
+    let def
     try {
-      const def = await getLatestDefinition(graphId.value)
-      await fetchVersions()
-      return applyDefinition(def)
-    } catch {
+      def = await getLatestDefinition(graphId.value)
+    } catch (e) {
+      console.warn('[graphEditor] getLatestDefinition failed:', graphId.value, e)
       versions.value = []
       enabledVersion.value = ''
       return null
     }
+    const normalized = applyDefinition(def)
+    try {
+      await fetchVersions()
+    } catch (e) {
+      console.warn('[graphEditor] fetchVersions failed:', graphId.value, e)
+      versions.value = normalized?.version
+        ? [{ version: normalized.version, graphId: graphId.value }]
+        : []
+    }
+    return normalized
   }
 
   function selectGraph(id) {
@@ -320,6 +342,7 @@ export const useGraphEditorStore = defineStore('aceGraphEditor', () => {
     interruptBefore.value = []
     saver.value = 'memory'
     validationErrors.value = []
+    edgeParamIssues.value = []
     plantUmlContent.value = ''
     Object.keys(keyStrategies).forEach(k => delete keyStrategies[k])
   }
@@ -354,9 +377,10 @@ export const useGraphEditorStore = defineStore('aceGraphEditor', () => {
   return {
     graphId, version, displayName, description, keyStrategies,
     nodes, edges, interruptBefore, saver,
-    validationErrors, plantUmlContent, versions, enabledVersion, baselineVersion,
+    validationErrors, edgeParamIssues, plantUmlContent, versions, enabledVersion, baselineVersion,
     saving, publishing, selectedNode, selectedLfNodeId,
     setFromLfData, applyDefinition, normalizeDefinition, buildDefinition, save, validate, loadPlantUml,
+    refreshEdgeParamValidation,
     hasContentChanged, needsVersionBump, suggestNextVersion, snapshotBaseline, loadVersionAsBaseline,
     maxKnownVersion, versionExists,
     publishCurrent, loadLatest, loadEnabledVersion, fetchVersions, selectGraph, initNewGraph, resetEditor,

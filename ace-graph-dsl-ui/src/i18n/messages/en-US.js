@@ -26,6 +26,7 @@ export default {
     publishSuccess: 'Published version {version}',
     publishFailed: 'Publish failed: {msg}',
     saveUnchanged: 'No changes vs baseline — no new version created',
+    readOnly: 'Built-in · Read Only',
     statusRunning: 'Running v{version}',
     statusDraft: 'Target v{version}',
     statusBaseline: 'Baseline v{version}',
@@ -89,7 +90,15 @@ export default {
     builtin: 'Built-in',
     script: 'Script',
     createScript: '+ New script node',
+    edit: 'Edit',
+    delete: 'Delete',
+    deleteConfirm: 'Delete script node "{name}"?',
+    referenceWarning: 'The following graphs reference this node and will fail to compile after deletion:',
     empty: 'No nodes'
+  },
+  edgeValidation: {
+    title: 'Edge parameter validation',
+    issue: '{from} → {to}: target node {target} missing input keys [{keys}]'
   },
   propertyPanel: {
     title: 'Properties',
@@ -120,6 +129,7 @@ export default {
   },
   scriptEditor: {
     title: 'New script node',
+    editTitle: 'Edit script node',
     nodeId: 'Node ID',
     nodeIdPlaceholder: 'script:my_node',
     displayName: 'Display name',
@@ -142,8 +152,10 @@ export default {
     mockError: 'Invalid mockState JSON',
     nodeIdError: 'nodeId must start with script:',
     createOk: 'Script node created',
+    updateOk: 'Script node updated',
     validate: 'Validate',
     testRun: 'Test run',
-    create: 'Create'
+    create: 'Create',
+    update: 'Update'
   }
 }
