@@ -1,5 +1,5 @@
 <script setup>
-import { ref, computed } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { ElMessageBox, ElMessage } from 'element-plus'
 import { useNodeRegistryStore } from '../../stores/nodeRegistry'
 import { usePermissionStore, MENU } from '../../stores/permissions'
@@ -43,6 +43,18 @@ function isHitlCategory(c) {
   return c === 'HITL'
 }
 
+async function ensureRegistryLoaded() {
+  if (!perm.loaded) await perm.load()
+  const tasks = []
+  if (!nodeStore.nodes.length) tasks.push(nodeStore.fetchNodes())
+  if (!nodeStore.dispatchers.length) tasks.push(nodeStore.fetchDispatchers())
+  if (tasks.length) await Promise.all(tasks)
+}
+
+onMounted(() => {
+  ensureRegistryLoaded()
+})
+
 async function onScriptCreated() {
   await nodeStore.fetchNodes()
 }
@@ -75,7 +87,7 @@ async function onDelete(node) {
 </script>
 
 <template>
-  <div class="node-panel" :class="{ 'node-panel--embedded': props.embedded }">
+  <div class="node-panel" :class="{ 'node-panel--embedded': props.embedded }" v-loading="nodeStore.loading">
     <div class="panel-header">{{ t('nodePanel.title') }}</div>
     <el-alert :title="t('nodePanel.canvasHint')" type="info" :closable="false" show-icon class="canvas-hint" />
     <el-input v-model="keyword" :placeholder="t('nodePanel.search')" clearable size="small" style="margin-bottom: 8px;" />
