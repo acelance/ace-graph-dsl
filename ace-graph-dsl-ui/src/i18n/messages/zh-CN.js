@@ -157,5 +157,11 @@ export default {
     testRun: '试跑',
     create: '创建',
     update: '更新'
+  },
+  engine: {
+    aviator: { hint: "单行表达式；返回 seq.map('key', value) 或标量" },
+    spel: { hint: "使用 #state['key'] / #config['key']；Map 用 {'key': value}" },
+    qlexpress: { hint: "支持多行 if/else；return map('key', value)" },
+    groovy: { hint: "支持集合操作；return [key: value]；需管理员开启" }
   }
 }

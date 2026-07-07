@@ -67,7 +67,7 @@
 | 6.3 | 版本 diff / 回滚 UI | P2 | ✅ | `VersionHistoryDrawer` + JSON/结构 diff |
 | 6.4 | 主题 token 与 i18n | P2 | ✅ | `tokens.css` + i18n 框架 + `ScriptNodeEditor` 已外置 |
 | 7.1 | 脚本引擎线程池 | P2 | ✅ | 共享线程池 + 可配置 |
-| 7.2 | 多脚本引擎 | P2 | ⏳ | 仅 Aviator；SPI 可扩展 |
+| 7.2 | 多脚本引擎 | P2 | 🔶 | Aviator+SpEL 已落地；QLExpress/Groovy 见 MULTI_SCRIPT_ENGINE_PLAN v2.0 |
 | 7.3 | 脚本版条件边 Dispatcher | P2 | ✅ | `condition` + `ScriptEdgeActionFactory` |
 | 8.1 | 单元 / 集成测试 | P3 | 🔶 | 6 个测试类；集成测试待补 |
 | 8.2 | CI 流水线 | P3 | ✅ | `.github/workflows/ci.yml` + `publish.yml` |
@@ -247,14 +247,14 @@
 | **改进** | ✅ 共享守护线程池（`SynchronousQueue` + `AbortPolicy`，保留超时语义，池满抛繁忙）；实现 `AutoCloseable`，由 Spring 推断销毁方法优雅关闭；池大小 `ace.graph.dsl.script.execution-pool-size`（<=0 按 CPU 核数，下限 2） |
 | **价值** | 高并发下降低线程创建开销 |
 
-### 7.2 多脚本引擎 ⏳ 待办
+### 7.2 多脚本引擎 🔶 部分实施
 
 | 项 | 说明 |
 |----|------|
-| **参考** | [NODE_FLEXIBILITY_EXPLORATION.md](./NODE_FLEXIBILITY_EXPLORATION.md) Phase 2 |
-| **现状** | 仅内置 `AviatorScriptEngine`；`ScriptEngineRegistry` 支持宿主扩展 Bean |
-| **改进** | Groovy Sandbox / QLExpress 等，覆盖多行复杂逻辑 |
-| **价值** | 脚本节点适用面更广 |
+| **参考** | [MULTI_SCRIPT_ENGINE_PLAN.md](./MULTI_SCRIPT_ENGINE_PLAN.md) v2.0（SpEL / QLExpress / Groovy 完善方案） |
+| **现状** | Aviator ✅；SpEL 基础版 ✅（缺超时/安全/单测）；QLExpress / Groovy ⏳ |
+| **改进** | Phase A SpEL 加固 → Phase B QLExpress → Phase C Groovy Sandbox；配套元数据 API、前端 multiLine、配置开关 |
+| **价值** | 按场景选引擎，复杂规则可读可维护，安全边界不降低 |
 
 ### 7.3 脚本版条件边 Dispatcher ✅ 已实施
 

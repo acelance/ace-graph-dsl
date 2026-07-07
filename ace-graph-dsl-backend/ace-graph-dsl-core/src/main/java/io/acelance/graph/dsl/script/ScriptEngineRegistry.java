@@ -2,6 +2,7 @@ package io.acelance.graph.dsl.script;
 
 import org.springframework.stereotype.Component;
 
+import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -36,5 +37,13 @@ public class ScriptEngineRegistry {
     /** 返回所有已注册引擎的 ID 集合，供前端引擎下拉选择 */
     public Set<String> listEngineIds() {
         return Set.copyOf(engines.keySet());
+    }
+
+    /** 返回所有已注册引擎的元数据，按 id 字典序排列，供前端引擎下拉与编辑器行为决策 */
+    public List<ScriptEngineDescriptor> listDescriptors() {
+        return engines.values().stream()
+                .map(ScriptEngine::descriptor)
+                .sorted(Comparator.comparing(ScriptEngineDescriptor::id))
+                .toList();
     }
 }

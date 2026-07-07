@@ -16,4 +16,9 @@ public interface ScriptEngine {
 
     /** 执行已编译脚本 */
     Object execute(Object compiled, ScriptExecutionContext ctx);
+
+    /** 引擎元数据（供前端引擎下拉 / 编辑器行为决策）。子类可覆盖以提供更完整信息。 */
+    default ScriptEngineDescriptor descriptor() {
+        return new ScriptEngineDescriptor(engineId(), engineId(), false, 1, null);
+    }
 }

@@ -157,5 +157,11 @@ export default {
     testRun: 'Test run',
     create: 'Create',
     update: 'Update'
+  },
+  engine: {
+    aviator: { hint: "Single-line expression; return seq.map('key', value) or a scalar" },
+    spel: { hint: "Use #state['key'] / #config['key']; Map as {'key': value}" },
+    qlexpress: { hint: "Multi-line if/else supported; return map('key', value)" },
+    groovy: { hint: "Collection ops supported; return [key: value]; requires admin enablement" }
   }
 }
