@@ -24,13 +24,16 @@ public class GraphValidator {
     private final GraphNodeRegistry nodeRegistry;
     private final EdgeDispatcherRegistry dispatcherRegistry;
     private final ScriptEdgeActionFactory scriptEdgeActionFactory;
+    private final EdgeParamReachabilityValidator reachabilityValidator;
 
     public GraphValidator(GraphNodeRegistry nodeRegistry,
                           EdgeDispatcherRegistry dispatcherRegistry,
-                          ScriptEdgeActionFactory scriptEdgeActionFactory) {
+                          ScriptEdgeActionFactory scriptEdgeActionFactory,
+                          EdgeParamReachabilityValidator reachabilityValidator) {
         this.nodeRegistry = nodeRegistry;
         this.dispatcherRegistry = dispatcherRegistry;
         this.scriptEdgeActionFactory = scriptEdgeActionFactory;
+        this.reachabilityValidator = reachabilityValidator;
     }
 
     /**
@@ -106,6 +109,17 @@ public class GraphValidator {
             errors.add("检测到环（HITL resume 外不允许回环）");
         }
 
+        // 6. 连线参数可达性（发布前置校验；保存草稿不经过此校验器）
+        errors.addAll(reachabilityValidator.validate(def));
+
+        return errors.isEmpty() ? ValidationResult.pass() : ValidationResult.fail(errors);
+    }
+
+    /**
+     * 仅校验连线参数可达性，供发布等场景单独调用。
+     */
+    public ValidationResult validateParamReachability(GraphDefinition def) {
+        List<String> errors = reachabilityValidator.validate(def);
         return errors.isEmpty() ? ValidationResult.pass() : ValidationResult.fail(errors);
     }
 

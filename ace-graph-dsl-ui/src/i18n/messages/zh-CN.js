@@ -96,6 +96,10 @@ export default {
     referenceWarning: '以下图引用了此节点，删除后将无法编译:',
     empty: '无节点'
   },
+  edgeValidation: {
+    title: '连线参数校验',
+    issue: '{from} → {to}：目标节点 {target} 缺少入参 [{keys}]'
+  },
   propertyPanel: {
     title: '属性面板',
     tabNode: '节点配置',

@@ -96,6 +96,10 @@ export default {
     referenceWarning: 'The following graphs reference this node and will fail to compile after deletion:',
     empty: 'No nodes'
   },
+  edgeValidation: {
+    title: 'Edge parameter validation',
+    issue: '{from} → {to}: target node {target} missing input keys [{keys}]'
+  },
   propertyPanel: {
     title: 'Properties',
     tabNode: 'Node',

@@ -2,6 +2,7 @@
 import { ref, watch, onMounted, nextTick } from 'vue'
 import Toolbar from './Designer/Toolbar.vue'
 import Canvas from './Designer/Canvas.vue'
+import EdgeParamValidationPanel from './Designer/EdgeParamValidationPanel.vue'
 import { useGraphEditorStore } from '../stores/graphEditor'
 import { useNodeRegistryStore } from '../stores/nodeRegistry'
 import { usePermissionStore } from '../stores/permissions'
@@ -62,6 +63,7 @@ async function loadGraph() {
     canvasRef.value?.ensureStartEndNodes?.()
   }
   await editor.loadEnabledVersion()
+  editor.refreshEdgeParamValidation(nodeStore.nodes)
 }
 
 watch(() => props.graphId, loadGraph)
@@ -108,6 +110,7 @@ defineExpose({ onNodeDrag, canvasRef })
         @preview="editor.loadPlantUml()"
         @publish="onPublish()"
       />
+      <EdgeParamValidationPanel />
     </div>
   </div>
 </template>

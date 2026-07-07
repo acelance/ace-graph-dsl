@@ -16,13 +16,13 @@ const CAT_COLORS = {
     NORMAL: { stroke: '#5b8def', fill: '#eff6ff', bar: '#5b8def', icon: '#5b8def' },
     ROUTER: { stroke: '#f59e0b', fill: '#fffbeb', bar: '#f59e0b', icon: '#f59e0b', accent: '#fde68a' },
     MERGE:  { stroke: '#22c55e', fill: '#f0fdf4', bar: '#22c55e', icon: '#22c55e' },
-    HITL:   { stroke: '#ef4444', fill: '#fef2f2', bar: '#ef4444', icon: '#ef4444' },
+    HITL:   { stroke: '#9333ea', fill: '#faf5ff', bar: '#9333ea', icon: '#7c3aed' },
   },
   dark: {
     NORMAL: { stroke: '#60a5fa', fill: '#1e3a5f', bar: '#60a5fa', icon: '#60a5fa' },
     ROUTER: { stroke: '#fbbf24', fill: '#3d2e0a', bar: '#fbbf24', icon: '#fbbf24', accent: '#78350f' },
     MERGE:  { stroke: '#34d399', fill: '#064e3b', bar: '#34d399', icon: '#34d399' },
-    HITL:   { stroke: '#f87171', fill: '#3b1219', bar: '#f87171', icon: '#f87171' },
+    HITL:   { stroke: '#a78bfa', fill: '#2e1065', bar: '#a78bfa', icon: '#c4b5fd' },
   },
 }
 

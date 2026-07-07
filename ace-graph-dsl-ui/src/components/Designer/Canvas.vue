@@ -42,6 +42,10 @@ watch(() => editor.selectedNode?.config, (config) => {
   }
 }, { deep: true })
 
+watch(() => editor.edgeParamIssues, () => {
+  applyEdgeValidationStyles()
+}, { deep: true })
+
 function detectCanvasTheme() {
   const root = containerRef.value?.closest('.ace-graph-dsl-designer, .ace-graph-dsl-manager')
   if (root?.classList.contains('dark') || document.documentElement.classList.contains('dark')) {
@@ -218,6 +222,32 @@ function syncToStore() {
     }
   }
   refreshSelectionState()
+  applyEdgeValidationStyles()
+}
+
+function lfNodeToDslId(node) {
+  if (!node) return ''
+  if (node.id === 'lf_start' || node.properties?.kind === 'START') return '__START__'
+  if (node.id === 'lf_end' || node.properties?.kind === 'END') return '__END__'
+  return node.properties?.nodeId || node.id.replace(/^lf_/, '')
+}
+
+/** 仅对状态变化的边 setProperties，避免全量重绘 */
+function applyEdgeValidationStyles() {
+  if (!lf) return
+  const invalidKeys = new Set((editor.edgeParamIssues || []).map(i => i.edgeKey))
+  const { nodes, edges } = lf.getGraphData()
+  const nodeById = new Map(nodes.map(n => [n.id, n]))
+
+  for (const edge of edges) {
+    const fromDsl = lfNodeToDslId(nodeById.get(edge.sourceNodeId))
+    const toDsl = lfNodeToDslId(nodeById.get(edge.targetNodeId))
+    const edgeKey = `${fromDsl}->${toDsl}`
+    const shouldInvalid = invalidKeys.has(edgeKey)
+    const currentInvalid = edge.properties?.paramInvalid === true
+    if (shouldInvalid === currentInvalid) continue
+    lf.setProperties(edge.id, { ...edge.properties, paramInvalid: shouldInvalid })
+  }
 }
 
 function isStartNode(n) {
@@ -353,6 +383,7 @@ function renderFromDefinition(def) {
     console.error('[Canvas] renderFromDefinition failed:', err)
   } finally {
     suppressSync = false
+    syncToStore()
   }
 }
 

@@ -36,7 +36,11 @@ function onDragStart(e, n) {
 }
 
 function categoryTagType(c) {
-  return { NORMAL: 'info', ROUTER: 'warning', MERGE: 'success', HITL: 'danger' }[c] || 'info'
+  return { NORMAL: 'info', ROUTER: 'warning', MERGE: 'success', HITL: '' }[c] || 'info'
+}
+
+function isHitlCategory(c) {
+  return c === 'HITL'
 }
 
 async function onScriptCreated() {
@@ -95,7 +99,12 @@ async function onDelete(node) {
         <div class="node-info">
           <span class="node-name">{{ n.displayName }}</span>
           <el-tag v-if="n.origin === 'SCRIPT'" size="small" type="success" style="margin-left: 4px;">SCRIPT</el-tag>
-          <el-tag size="small" :type="categoryTagType(n.category)" style="margin-left: 4px;">{{ n.category }}</el-tag>
+          <el-tag
+            size="small"
+            :type="categoryTagType(n.category)"
+            :class="{ 'hitl-tag': isHitlCategory(n.category) }"
+            style="margin-left: 4px;"
+          >{{ n.category }}</el-tag>
         </div>
       </div>
       <div class="node-row node-row--bottom" v-if="n.origin === 'SCRIPT'">
@@ -147,4 +156,9 @@ async function onDelete(node) {
 .node-name { font-size: 13px; }
 .node-info { display: flex; align-items: center; flex: 1; min-width: 0; }
 .node-actions { display: flex; gap: 4px; }
+:deep(.hitl-tag) {
+  --el-tag-bg-color: #f3e8ff;
+  --el-tag-border-color: #d8b4fe;
+  --el-tag-text-color: #7c3aed;
+}
 </style>
