@@ -15,6 +15,8 @@
 | 动态图编译 / 版本管理 / 发布回滚 | ✅ |
 | 节点注册中心 + 设计器 REST API | ✅ |
 | 脚本节点端到端（CRUD / 校验 / 试跑） | ✅ |
+| 连线参数可达性校验（前后端 + 画布标红） | ✅ |
+| 自定义 SVG 节点 / 贝塞尔连线（LogicFlow v2） | ✅ |
 | 节点权限 SPI（`GraphNodeAccessControl`，后端资源级） | ✅ |
 | 菜单权限 SPI（`GraphMenuAccessControl`，前端功能级）+ REST + UI 接入 | ✅ |
 | cs-reply 库化改造 demo（`m2-ace` / `web-m2-ace`） | ✅ |
@@ -71,6 +73,9 @@
 | 8.2 | CI 流水线 | P3 | ✅ | `.github/workflows/ci.yml` + `publish.yml` |
 | 8.3 | SemVer 发布 | P3 | 🔶 | 版本 1.0.0；demo 已切版本坐标；`CHANGELOG.md` 已创建；私服发布待运维 |
 | 8.4 | 配置元数据 | P3 | ✅ | `spring-configuration-metadata` |
+| 9.1 | 连线参数可达性校验 | P2 | ✅ | `EdgeParamReachabilityValidator` + 前端 `edgeParamValidation.js` |
+| 9.2 | 画布自定义节点 / 连线 | P2 | ✅ | `DspNode.js` / `DspEdge.js`；失败边标红 |
+| 9.3 | 校验提示面板 + HITL 配色 | P2 | ✅ | 左下角悬浮面板；HITL 紫色 |
 
 ---
 
@@ -328,6 +333,8 @@ flowchart LR
 ---
 
 ## 11. 变更记录
+
+> **v1.9**（2026-07-07）· 连线参数可达性校验全链路：后端 `EdgeParamReachabilityValidator` 接入 `GraphValidator`（发布/校验触发，草稿豁免）；前端实时校验 + 左下角悬浮提示 + 失败连线标红；START / HITL 入边豁免；HITL 节点配色改为紫色；UI README 快问快答补充 Vue 2 集成说明。
 
 > **v1.8**（2026-07-03）· 实施四类生产部署优化：多实例图懒加载（`GraphRuntime.get()` DB 版本检查 + TTL）；多实例脚本节点同步（`ensureScriptNodesLoaded()` 编译前从 DB 重新加载）；脚本节点管理 UI（NodePanel 编辑/删除 + ScriptNodeEditor 编辑模式 + 引用检查）；孤儿节点检测 API（`GET /nodes/orphans` + `GET /nodes/references`）；MySQL JDBC DDL 兼容性修复。详见 [PRODUCTION_DEPLOYMENT_ISSUES.md](./PRODUCTION_DEPLOYMENT_ISSUES.md)。
 >

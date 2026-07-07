@@ -338,12 +338,38 @@ ace:
                         运行时 GraphRuntime 热更新
 ```
 
-1. 设计器通过 `POST .../draft` 保存草稿
-2. 调用 `POST .../validate` 校验节点引用、边连通性等
-3. 调用 `POST .../publish` 触发：校验 → 编译 → 持久化 enabled 标记 → 更新内存中的 `CompiledGraph`
+1. 设计器通过 `POST .../draft` 保存草稿（**不**校验连线参数可达性）
+2. 调用 `POST .../validate` 校验节点引用、边连通性、**连线参数可达性**（`EdgeParamReachabilityValidator`）等
+3. 调用 `POST .../publish` 触发：校验（含连线参数可达性）→ 编译 → 持久化 enabled 标记 → 更新内存中的 `CompiledGraph`
 4. 业务代码通过 `GraphRuntime.get(graphId)` 获取最新编译结果
 
 回滚流程与发布类似，直接切换到目标历史版本并重新编译。
+
+## GraphValidator 校验项
+
+`GraphValidator.validate()` 在编译、发布、回滚及 `POST .../validate` 时执行；**保存草稿不校验**。
+
+| 序号 | 校验项 | 类 / 模块 |
+|------|--------|-----------|
+| 1 | 节点存在性 | `GraphNodeRegistry` |
+| 2 | 边引用合法性 | `from` / `to` / 条件边 mapping |
+| 3 | 条件边 | dispatcher 或脚本路由、mapping、表达式 |
+| 4 | KeyStrategy 覆盖 | 节点 `outputKeys` ⊆ `keyStrategies` |
+| 5 | interruptBefore | 中断点节点存在 |
+| 6 | 环检测 | HITL resume 外不允许成环 |
+| 7 | 连线参数可达性 | `EdgeParamReachabilityValidator` |
+
+**连线参数可达性**（第 7 项）：沿有向边从 `__START__` 累积上游 `outputKeys`，检查目标节点 `inputKeys` 是否可达。
+
+**豁免规则**：
+
+| 连线 | 是否校验 | 原因 |
+|------|----------|------|
+| `__START__` → 业务节点 | 否 | 入参来自图调用初始 state |
+| 普通节点 → `HITL` | 否 | 入参来自 interrupt / resume |
+| 普通节点 → 普通节点 | 是 | 须由上游产出所需 key |
+
+前端 `utils/edgeParamValidation.js` 与后端规则保持一致，用于设计时实时提示与失败边标红。
 
 ## 架构概览
 

@@ -5,6 +5,19 @@ All notable changes to the Ace Graph DSL project are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.3] — 2026-07-07
+
+### Added
+
+- **连线参数可达性校验（后端）**：`EdgeParamReachabilityValidator` 接入 `GraphValidator` 第 7 项；`publish` / `validate` 触发；`draft` 不校验。豁免 `__START__` 出边与目标为 `HITL` 的入边。
+- **连线参数校验（前端）**：`edgeParamValidation.js` + `edgeParamIssues`；左下角 `EdgeParamValidationPanel` 悬浮提示；失败连线 `paramInvalid` 标红（增量 `setProperties`）。
+- **自定义画布元素**：`DspNode.js`（分类配色 SVG 节点、ROUTER 六边形）、`DspEdge.js`（贝塞尔连线）。
+
+### Changed
+
+- **HITL 节点配色**：画布与节点面板标签由红色系改为紫色，与校验失败红色连线区分。
+- **文档**：UI / 后端 README、`PROJECT_OVERVIEW.md`、`FUTURE_OPTIMIZATION_PLAN.md`（v1.9）、`BUILTIN_GRAPH_GUIDE.md` 补充校验与画布说明；UI 快问快答增加 Vue 2 集成说明。
+
 ## [1.0.2] — 2026-07-03
 
 ### Added
