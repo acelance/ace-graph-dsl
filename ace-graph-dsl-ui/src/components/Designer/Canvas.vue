@@ -46,6 +46,14 @@ watch(() => editor.edgeParamIssues, () => {
   applyEdgeValidationStyles()
 }, { deep: true })
 
+watch(() => editor.edgeEditCommand, (cmd) => {
+  if (cmd) applyConditionalEdgeEdit(cmd)
+})
+
+watch(() => editor.edgeConvertCommand, (lfEdgeId) => {
+  if (lfEdgeId) convertEdgeToConditional(lfEdgeId)
+})
+
 function detectCanvasTheme() {
   const root = containerRef.value?.closest('.ace-graph-dsl-designer, .ace-graph-dsl-manager')
   if (root?.classList.contains('dark') || document.documentElement.classList.contains('dark')) {
@@ -89,6 +97,7 @@ function deleteSelectedElements() {
   edges.forEach(edge => edge.id && lf.deleteEdge(edge.id))
   nodes.forEach(node => node.id && lf.deleteNode(node.id))
   editor.clearSelectedNode()
+  editor.clearSelectedEdge()
   refreshSelectionState()
   syncToStore()
   return true
@@ -173,18 +182,21 @@ function initLf() {
   lf.on('node:add,node:delete,node:dnd-add,edge:add,edge:delete,node:properties-update', syncToStore)
   lf.on('node:click', ({ data }) => {
     refreshSelectionState()
+    editor.clearSelectedEdge()
     if (data.properties?.kind === 'START' || data.properties?.kind === 'END') {
       editor.clearSelectedNode()
       return
     }
     editor.setSelectedNode(data.id, data.properties?.nodeId || data.id, data.properties?.config || {})
   })
-  lf.on('edge:click', () => {
+  lf.on('edge:click', ({ data }) => {
     editor.clearSelectedNode()
+    selectEdgeModel(data)
     refreshSelectionState()
   })
   lf.on('blank:click', () => {
     editor.clearSelectedNode()
+    editor.clearSelectedEdge()
     refreshSelectionState()
   })
   lf.on('element:click', () => refreshSelectionState())
@@ -343,7 +355,7 @@ function renderFromDefinition(def) {
     if (!lfNodeIds.has(source)) return
 
     if (e.type === 'conditional') {
-      const dispatcher = e.dispatcher || e.condition || 'route'
+      const routeLabel = e.dispatcher || e.condition || 'route'
       Object.entries(e.mapping || {}).forEach(([key, target], j) => {
         const targetNodeId = resolveLfTarget(target, idMap)
         if (!lfNodeIds.has(targetNodeId)) return
@@ -352,10 +364,12 @@ function renderFromDefinition(def) {
           sourceNodeId: source,
           targetNodeId,
           type: 'dsp-bezier',
-          text: `${dispatcher}:${key}`,
+          text: `${routeLabel}:${key}`,
           properties: baseProperties({
             type: 'conditional',
-            dispatcher: e.dispatcher || e.condition,
+            dispatcher: e.dispatcher,
+            condition: e.condition,
+            conditionEngine: e.conditionEngine,
             mapping: e.mapping
           })
         })
@@ -387,11 +401,105 @@ function renderFromDefinition(def) {
   }
 }
 
+function selectEdgeModel(model) {
+  if (!model) return
+  const data = model.getData ? model.getData() : model
+  const { nodes } = lf.getGraphData()
+  const nodeById = new Map(nodes.map(n => [n.id, n]))
+  editor.setSelectedEdge({
+    lfEdgeId: model.id,
+    type: data.properties?.type || 'normal',
+    from: lfNodeToDslId(nodeById.get(data.sourceNodeId)),
+    to: lfNodeToDslId(nodeById.get(data.targetNodeId)),
+    dispatcher: data.properties?.dispatcher || '',
+    condition: data.properties?.condition || '',
+    conditionEngine: data.properties?.conditionEngine || 'aviator',
+    mapping: { ...(data.properties?.mapping || {}) }
+  })
+}
+
+/** 按补丁重建条件边分组：删除原分组所有 LF 边，按新 mapping 重建，并重新选中首条边 */
+function applyConditionalEdgeEdit(cmd) {
+  if (!lf) return
+  const data = lf.getGraphData()
+  const nodeById = new Map(data.nodes.map(n => [n.id, n]))
+  const groupEdges = data.edges.filter(e => {
+    if (e.properties?.type !== 'conditional') return false
+    const fromDsl = lfNodeToDslId(nodeById.get(e.sourceNodeId))
+    return fromDsl === cmd.from &&
+      (e.properties.dispatcher || '') === (cmd.oldDispatcher || '') &&
+      (e.properties.condition || '') === (cmd.oldCondition || '')
+  })
+  groupEdges.forEach(e => lf.deleteEdge(e.id))
+
+  const sourceLf = data.nodes.find(n => lfNodeToDslId(n) === cmd.from)
+  if (!sourceLf) return
+  const routeLabel = cmd.condition || cmd.oldDispatcher || 'route'
+  const newIds = []
+  Object.entries(cmd.mapping || {}).forEach(([key, target], j) => {
+    const targetLf = data.nodes.find(n => lfNodeToDslId(n) === target)
+    if (!targetLf) return
+    const id = `lf_ce_${Date.now()}_${j}`
+    lf.addEdge({
+      id,
+      sourceNodeId: sourceLf.id,
+      targetNodeId: targetLf.id,
+      type: 'dsp-bezier',
+      text: `${routeLabel}:${key}`,
+      properties: baseProperties({
+        type: 'conditional',
+        dispatcher: cmd.oldDispatcher,
+        condition: cmd.condition,
+        conditionEngine: cmd.conditionEngine,
+        mapping: cmd.mapping
+      })
+    })
+    newIds.push(id)
+  })
+  syncToStore()
+  if (newIds[0]) selectEdgeModel(lf.getEdgeModelById(newIds[0]))
+  editor.clearEdgeCommands()
+}
+
+/** 将普通边转换为条件边（单条默认映射，便于后续编辑） */
+function convertEdgeToConditional(lfEdgeId) {
+  if (!lf) return
+  const model = lf.getEdgeModelById(lfEdgeId)
+  if (!model) return
+  const d = model.getData()
+  if (d.properties?.type === 'conditional') return
+  const { nodes } = lf.getGraphData()
+  const nodeById = new Map(nodes.map(n => [n.id, n]))
+  const fromDsl = lfNodeToDslId(nodeById.get(d.sourceNodeId))
+  const toDsl = lfNodeToDslId(nodeById.get(d.targetNodeId))
+  lf.deleteEdge(lfEdgeId)
+  const id = `lf_ce_${Date.now()}`
+  lf.addEdge({
+    id,
+    sourceNodeId: d.sourceNodeId,
+    targetNodeId: d.targetNodeId,
+    type: 'dsp-bezier',
+    text: ':default',
+    properties: baseProperties({
+      type: 'conditional',
+      dispatcher: '',
+      condition: '',
+      conditionEngine: 'aviator',
+      mapping: { default: toDsl }
+    })
+  })
+  syncToStore()
+  selectEdgeModel(lf.getEdgeModelById(id))
+  editor.clearEdgeCommands()
+}
+
 defineExpose({
   onNodeDrag,
   renderFromDefinition,
   ensureStartEndNodes,
   deleteSelectedElements,
+  applyConditionalEdgeEdit,
+  convertEdgeToConditional,
   whenReady: () => lfReady
 })
 </script>

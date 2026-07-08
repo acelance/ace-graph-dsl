@@ -41,6 +41,17 @@
             <artifactId>redisson</artifactId>
             <optional>true</optional>
         </dependency>
+        <!-- 可选脚本引擎扩展：不传递给消费端，由 @ConditionalOnClass 守护，宿主显式引入后才加载 -->
+        <dependency>
+            <groupId>io.acelance</groupId>
+            <artifactId>ace-graph-dsl-script-qlexpress</artifactId>
+            <optional>true</optional>
+        </dependency>
+        <dependency>
+            <groupId>io.acelance</groupId>
+            <artifactId>ace-graph-dsl-script-groovy</artifactId>
+            <optional>true</optional>
+        </dependency>
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-configuration-processor</artifactId>

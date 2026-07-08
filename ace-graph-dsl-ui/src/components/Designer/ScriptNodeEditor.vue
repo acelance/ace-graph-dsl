@@ -86,6 +86,20 @@ async function fetchEngines() {
 const inputKeys = computed(() => parseKeys(form.value.inputKeysText))
 const outputKeys = computed(() => parseKeys(form.value.outputKeysText))
 
+// 当前选中引擎元数据：用于决定脚本编辑器行数与提示文案
+const selectedEngine = computed(() =>
+  engines.value.find(e => e.id === form.value.engine) || null
+)
+const scriptRows = computed(() => (selectedEngine.value?.multiLine ? 14 : 3))
+const scriptHintText = computed(() => {
+  const key = selectedEngine.value?.hintKey
+  if (key) {
+    const txt = t(key)
+    if (txt && txt !== key) return txt
+  }
+  return t('scriptEditor.scriptHint')
+})
+
 function parseKeys(text) {
   return (text || '').split(',').map(s => s.trim()).filter(Boolean)
 }
@@ -197,8 +211,8 @@ async function onSubmit() {
         </el-select>
       </el-form-item>
       <el-form-item :label="t('scriptEditor.scriptBody')" required>
-        <el-input v-model="form.scriptBody" type="textarea" :rows="6" font-family="monospace" />
-        <div class="hint">{{ t('scriptEditor.scriptHint', { state: 'state', config: 'config' }) }}</div>
+        <el-input v-model="form.scriptBody" type="textarea" :rows="scriptRows" />
+        <div class="hint">{{ scriptHintText }}</div>
       </el-form-item>
       <el-form-item :label="t('scriptEditor.mockState')">
         <el-input v-model="form.mockStateJson" type="textarea" :rows="2" />

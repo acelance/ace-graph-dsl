@@ -39,10 +39,13 @@
         <spring-ai-alibaba.version>1.1.2.2</spring-ai-alibaba.version>
         <aviator.version>5.4.3</aviator.version>
         <redisson.version>3.42.0</redisson.version>
+        <qlexpress.version>3.3.4</qlexpress.version>
     </properties>
 
     <modules>
         <module>ace-graph-dsl-core</module>
+        <module>ace-graph-dsl-script-qlexpress</module>
+        <module>ace-graph-dsl-script-groovy</module>
         <module>ace-graph-dsl-persistence</module>
         <module>ace-graph-dsl-spring-boot-starter</module>
     </modules>
@@ -82,6 +85,21 @@
                 <groupId>org.redisson</groupId>
                 <artifactId>redisson</artifactId>
                 <version>${redisson.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>io.acelance</groupId>
+                <artifactId>ace-graph-dsl-script-qlexpress</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>io.acelance</groupId>
+                <artifactId>ace-graph-dsl-script-groovy</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>com.alibaba</groupId>
+                <artifactId>QLExpress</artifactId>
+                <version>${qlexpress.version}</version>
             </dependency>
         </dependencies>
     </dependencyManagement>

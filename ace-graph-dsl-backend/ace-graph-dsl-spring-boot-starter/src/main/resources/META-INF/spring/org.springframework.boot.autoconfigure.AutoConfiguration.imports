@@ -1,2 +1,4 @@
 io.acelance.graph.dsl.autoconfigure.AceGraphDslAutoConfiguration
 io.acelance.graph.dsl.autoconfigure.AceGraphDslWebConfiguration
+io.acelance.graph.dsl.autoconfigure.AceGraphDslScriptQlexpressAutoConfiguration
+io.acelance.graph.dsl.autoconfigure.AceGraphDslScriptGroovyAutoConfiguration

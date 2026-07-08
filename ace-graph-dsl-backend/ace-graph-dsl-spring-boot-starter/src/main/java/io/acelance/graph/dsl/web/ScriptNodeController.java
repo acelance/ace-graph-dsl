@@ -8,7 +8,7 @@ import io.acelance.graph.dsl.security.GraphNodeAccessControl;
 import io.acelance.graph.dsl.security.menu.GraphMenuPermissionResolver;
 import io.acelance.graph.dsl.security.menu.GraphMenuPermissions;
 import io.acelance.graph.dsl.service.ScriptNodeService;
-import io.acelance.graph.dsl.script.ScriptEngine;
+import io.acelance.graph.dsl.script.ScriptEngineDescriptor;
 import io.acelance.graph.dsl.script.ScriptEngineRegistry;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -52,12 +52,10 @@ public class ScriptNodeController {
         this.graphDefRepository = graphDefRepository;
     }
 
-    /** 列出可用的脚本引擎 */
+    /** 列出可用的脚本引擎（含元数据，供前端下拉与编辑器行为决策） */
     @GetMapping("/engines")
-    public List<EngineMeta> listEngines() {
-        return engineRegistry.listEngineIds().stream()
-                .map(EngineMeta::new)
-                .toList();
+    public List<ScriptEngineDescriptor> listEngines() {
+        return engineRegistry.listDescriptors();
     }
 
     /** 查询引用指定脚本节点的图 ID 列表（节点删除前的引用检查） */
@@ -211,19 +209,4 @@ public class ScriptNodeController {
 
     /** 已存节点试跑请求体 */
     public record TestRunRequest(Map<String, Object> mockState, Map<String, Object> config) {}
-
-    /** 引擎元数据（供前端下拉选择） */
-    public record EngineMeta(String id, String label) {
-        public EngineMeta(String id) {
-            this(id, toLabel(id));
-        }
-
-        private static String toLabel(String id) {
-            return switch (id) {
-                case "aviator" -> "Aviator 表达式";
-                case "spel" -> "SpEL 表达式";
-                default -> id;
-            };
-        }
-    }
 }

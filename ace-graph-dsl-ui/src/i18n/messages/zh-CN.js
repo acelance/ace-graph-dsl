@@ -100,6 +100,27 @@ export default {
     title: '连线参数校验',
     issue: '{from} → {to}：目标节点 {target} 缺少入参 [{keys}]'
   },
+  edgeEditor: {
+    title: '边配置',
+    type: '类型',
+    from: '源节点',
+    to: '目标节点',
+    conditional: '条件边',
+    normal: '普通边',
+    routingMode: '路由方式',
+    dispatcherMode: 'Java Dispatcher',
+    scriptMode: '脚本路由',
+    engine: '脚本引擎 (conditionEngine)',
+    condition: '路由表达式 (condition)',
+    conditionHint: '返回 mapping 的 key（字符串）；可用变量 {state}（图状态）',
+    mapping: '路由映射 (mapping)',
+    mappingKey: '条件值 / key',
+    mappingTarget: '目标节点',
+    addMapping: '+ 新增映射',
+    apply: '应用',
+    convert: '转为条件边',
+    noConditional: '普通边不支持条件路由。点击「转为条件边」可启用条件路由配置。'
+  },
   propertyPanel: {
     title: '属性面板',
     tabNode: '节点配置',
@@ -157,5 +178,11 @@ export default {
     testRun: '试跑',
     create: '创建',
     update: '更新'
+  },
+  engine: {
+    aviator: { hint: "单行表达式；返回 seq.map('key', value) 或标量" },
+    spel: { hint: "使用 #state['key'] / #config['key']；Map 用 {'key': value}" },
+    qlexpress: { hint: "支持多行 if/else；return map('key', value)" },
+    groovy: { hint: "支持集合操作；return [key: value]；需管理员开启" }
   }
 }

@@ -1,8 +1,10 @@
 <script setup>
 import { ref, watch, computed } from 'vue'
+import { Delete } from '@element-plus/icons-vue'
 import { useGraphEditorStore } from '../../stores/graphEditor'
 import { useNodeRegistryStore } from '../../stores/nodeRegistry'
 import { useI18n } from '../../i18n'
+import { listScriptEngines } from '../../api/graph'
 
 const props = defineProps({
   /** 嵌入左侧目录时使用紧凑布局 */
@@ -57,12 +59,152 @@ function addKey() {
 function removeKey(k) {
   delete editor.keyStrategies[k]
 }
+
+/* ───────── 条件边编辑区 ───────── */
+const edgeEngines = ref([])
+const edgeEngine = ref('aviator')
+const edgeCondition = ref('')
+const edgeMappingRows = ref([])
+
+const edgeIsConditional = computed(() => editor.selectedEdge?.type === 'conditional')
+
+const edgeNodeOptions = computed(() =>
+  (editor.nodes || [])
+    .map(n => n.nodeId)
+    .filter(id => id && id !== '__START__')
+    .concat(['__END__'])
+)
+
+const selectedEdgeEngineMeta = computed(() =>
+  edgeEngines.value.find(e => e.id === edgeEngine.value) || null
+)
+const edgeScriptRows = computed(() => (selectedEdgeEngineMeta.value?.multiLine ? 14 : 3))
+const edgeScriptHint = computed(() => {
+  const key = selectedEdgeEngineMeta.value?.hintKey
+  if (key) {
+    const txt = t(key)
+    if (txt && txt !== key) return txt
+  }
+  return t('edgeEditor.conditionHint')
+})
+
+async function fetchEdgeEngines() {
+  try {
+    const list = await listScriptEngines()
+    edgeEngines.value = list && list.length ? list : [{ id: 'aviator', label: 'Aviator 表达式' }]
+  } catch {
+    edgeEngines.value = [{ id: 'aviator', label: 'Aviator 表达式' }]
+  }
+}
+
+function resetEdgeForm() {
+  const e = editor.selectedEdge
+  if (!e) return
+  edgeEngine.value = e.conditionEngine || 'aviator'
+  edgeCondition.value = e.condition || ''
+  edgeMappingRows.value = Object.entries(e.mapping || {}).map(([k, v]) => ({ key: k, target: v }))
+}
+
+watch(() => editor.selectedEdge, (e) => {
+  if (e) {
+    fetchEdgeEngines()
+    resetEdgeForm()
+  }
+}, { immediate: true })
+
+function addMappingRow() {
+  edgeMappingRows.value.push({ key: '', target: '' })
+}
+
+function removeMappingRow(idx) {
+  edgeMappingRows.value.splice(idx, 1)
+}
+
+function applyEdgeEdit() {
+  const e = editor.selectedEdge
+  if (!e) return
+  const mapping = {}
+  for (const r of edgeMappingRows.value) {
+    if (r.key && r.target) mapping[r.key] = r.target
+  }
+  editor.requestEdgeEdit({
+    lfEdgeId: e.lfEdgeId,
+    from: e.from,
+    oldDispatcher: e.dispatcher,
+    oldCondition: e.condition,
+    conditionEngine: edgeEngine.value,
+    condition: edgeCondition.value,
+    mapping
+  })
+}
+
+function convertEdge() {
+  const e = editor.selectedEdge
+  if (e) editor.requestEdgeConvert(e.lfEdgeId)
+}
 </script>
 
 <template>
   <div class="property-panel" :class="{ 'property-panel--embedded': embedded }">
-    <div v-if="!embedded" class="panel-header">{{ t('propertyPanel.title') }}</div>
-    <el-tabs v-model="activeTab" :class="{ 'embedded-tabs': embedded }">
+    <div v-if="!embedded" class="panel-header">{{ editor.selectedEdge ? t('edgeEditor.title') : t('propertyPanel.title') }}</div>
+
+    <template v-if="editor.selectedEdge">
+      <div class="edge-editor">
+        <el-form label-width="92px" size="small">
+          <el-form-item :label="t('edgeEditor.type')">
+            <el-tag :type="edgeIsConditional ? 'warning' : 'info'" size="small">
+              {{ edgeIsConditional ? t('edgeEditor.conditional') : t('edgeEditor.normal') }}
+            </el-tag>
+          </el-form-item>
+          <el-form-item :label="t('edgeEditor.from')">
+            <el-input :model-value="editor.selectedEdge.from" disabled />
+          </el-form-item>
+
+          <template v-if="edgeIsConditional">
+            <el-form-item :label="t('edgeEditor.routingMode')">
+              <el-tag v-if="editor.selectedEdge.dispatcher" size="small" type="success">{{ t('edgeEditor.dispatcherMode') }}: {{ editor.selectedEdge.dispatcher }}</el-tag>
+              <el-tag v-else size="small" type="warning">{{ t('edgeEditor.scriptMode') }}</el-tag>
+            </el-form-item>
+            <el-form-item :label="t('edgeEditor.engine')">
+              <el-select v-model="edgeEngine" style="width: 100%;">
+                <el-option v-for="en in edgeEngines" :key="en.id" :label="en.label" :value="en.id" />
+              </el-select>
+            </el-form-item>
+            <el-form-item :label="t('edgeEditor.condition')">
+              <el-input v-model="edgeCondition" type="textarea" :rows="edgeScriptRows" />
+              <div class="hint">{{ edgeScriptHint }}</div>
+            </el-form-item>
+            <el-form-item :label="t('edgeEditor.mapping')">
+              <div class="mapping-editor">
+                <div v-for="(row, idx) in edgeMappingRows" :key="idx" class="mapping-row">
+                  <el-input v-model="row.key" :placeholder="t('edgeEditor.mappingKey')" class="mapping-key" />
+                  <el-select v-model="row.target" :placeholder="t('edgeEditor.mappingTarget')" class="mapping-target">
+                    <el-option v-for="opt in edgeNodeOptions" :key="opt" :label="opt" :value="opt" />
+                  </el-select>
+                  <el-button type="danger" link :icon="Delete" @click="removeMappingRow(idx)" />
+                </div>
+                <el-button size="small" @click="addMappingRow">{{ t('edgeEditor.addMapping') }}</el-button>
+              </div>
+            </el-form-item>
+            <el-form-item>
+              <el-button type="primary" size="small" @click="applyEdgeEdit">{{ t('edgeEditor.apply') }}</el-button>
+            </el-form-item>
+          </template>
+
+          <template v-else>
+            <el-form-item :label="t('edgeEditor.to')">
+              <el-input :model-value="editor.selectedEdge.to" disabled />
+            </el-form-item>
+            <el-alert :title="t('edgeEditor.noConditional')" type="info" :closable="false" />
+            <el-form-item>
+              <el-button size="small" @click="convertEdge">{{ t('edgeEditor.convert') }}</el-button>
+            </el-form-item>
+          </template>
+        </el-form>
+      </div>
+    </template>
+
+    <el-tabs v-else v-model="activeTab" :class="{ 'embedded-tabs': embedded }">
       <el-tab-pane :label="t('propertyPanel.tabNode')" name="node">
         <template v-if="editor.selectedNode && selectedDescriptor">
           <el-form label-width="100px" size="small">
@@ -235,4 +377,15 @@ function removeKey(k) {
   padding: 20px;
   text-align: center;
 }
+.edge-editor { padding: 4px 2px; }
+.edge-editor .hint { font-size: 12px; color: var(--agd-color-text-secondary, #909399); margin-top: 4px; }
+.mapping-editor { width: 100%; }
+.mapping-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 6px;
+}
+.mapping-key { flex: 1; min-width: 0; }
+.mapping-target { flex: 1.4; min-width: 0; }
 </style>

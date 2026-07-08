@@ -404,6 +404,65 @@ public class AceGraphDslProperties {
         public void setExecutionPoolSize(int executionPoolSize) {
             this.executionPoolSize = executionPoolSize;
         }
+
+        /** 是否启用 QLExpress 脚本引擎（引入可选模块后默认 true） */
+        private boolean qlexpressEnabled = true;
+        /** QLExpress 防死循环上限（预留；当前防死循环主要由执行超时兜底） */
+        private int qlexpressMaxLoopCount = 10_000;
+        /** 是否启用 Groovy 沙箱引擎（默认关闭，需显式开启并过安全评审） */
+        private boolean groovyEnabled = false;
+        private final GroovyScript groovy = new GroovyScript();
+
+        public boolean isQlexpressEnabled() {
+            return qlexpressEnabled;
+        }
+
+        public void setQlexpressEnabled(boolean qlexpressEnabled) {
+            this.qlexpressEnabled = qlexpressEnabled;
+        }
+
+        public int getQlexpressMaxLoopCount() {
+            return qlexpressMaxLoopCount;
+        }
+
+        public void setQlexpressMaxLoopCount(int qlexpressMaxLoopCount) {
+            this.qlexpressMaxLoopCount = qlexpressMaxLoopCount;
+        }
+
+        public boolean isGroovyEnabled() {
+            return groovyEnabled;
+        }
+
+        public void setGroovyEnabled(boolean groovyEnabled) {
+            this.groovyEnabled = groovyEnabled;
+        }
+
+        public GroovyScript getGroovy() {
+            return groovy;
+        }
+    }
+
+    public static class GroovyScript {
+        /** 编译缓存条目上限 */
+        private int maxScriptCache = 200;
+        /** 导入白名单（包名，支持 java.util.* 形式） */
+        private List<String> allowedImports = new ArrayList<>(List.of("java.util.*", "java.math.*", "java.time.*"));
+
+        public int getMaxScriptCache() {
+            return maxScriptCache;
+        }
+
+        public void setMaxScriptCache(int maxScriptCache) {
+            this.maxScriptCache = maxScriptCache;
+        }
+
+        public List<String> getAllowedImports() {
+            return allowedImports;
+        }
+
+        public void setAllowedImports(List<String> allowedImports) {
+            this.allowedImports = allowedImports;
+        }
     }
 
     public static class DynamicNodes {

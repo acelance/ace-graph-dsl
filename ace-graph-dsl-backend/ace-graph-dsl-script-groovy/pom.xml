@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>io.acelance</groupId>
+        <artifactId>ace-graph-dsl-backend</artifactId>
+        <version>1.0.0</version>
+    </parent>
+
+    <artifactId>ace-graph-dsl-script-groovy</artifactId>
+    <name>ace-graph-dsl-script-groovy</name>
+    <description>Groovy sandbox script engine extension for Ace Graph DSL (optional, opt-in)</description>
+
+    <dependencies>
+        <dependency>
+            <groupId>io.acelance</groupId>
+            <artifactId>ace-graph-dsl-core</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.groovy</groupId>
+            <artifactId>groovy</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <plugins>
+            <!-- 父 POM 默认 skipTests=true（发布场景）；本模块安全测试需执行 -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <version>3.2.5</version>
+                <configuration>
+                    <skipTests>false</skipTests>
+                </configuration>
+            </plugin>
+        </plugins>
+    </build>
+
+</project>
