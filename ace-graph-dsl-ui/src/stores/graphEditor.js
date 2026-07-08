@@ -25,6 +25,9 @@ export const useGraphEditorStore = defineStore('aceGraphEditor', () => {
   const publishing = ref(false)
   const selectedNode = ref(null)
   const selectedLfNodeId = ref(null)
+  const selectedEdge = ref(null)
+  const edgeEditCommand = ref(null)
+  const edgeConvertCommand = ref(null)
 
   const RESERVED_NODE_IDS = new Set(['__START__', '__END__', 'lf_start', 'lf_end'])
 
@@ -56,7 +59,7 @@ export const useGraphEditorStore = defineStore('aceGraphEditor', () => {
     for (const e of def.edges || []) {
       const from = normalizeToken(e.from)
       if (e.type === 'conditional') {
-        const key = `${from}:${e.dispatcher}`
+        const key = `${from}|${e.dispatcher || ''}|${e.condition || ''}`
         if (!conditionalByKey.has(key)) {
           const mapping = {}
           for (const [k, v] of Object.entries(e.mapping || {})) {
@@ -67,6 +70,8 @@ export const useGraphEditorStore = defineStore('aceGraphEditor', () => {
             to: '',
             type: 'conditional',
             dispatcher: e.dispatcher,
+            condition: e.condition,
+            conditionEngine: e.conditionEngine,
             mapping
           })
         }
@@ -134,7 +139,7 @@ export const useGraphEditorStore = defineStore('aceGraphEditor', () => {
     for (const e of lfData.edges) {
       const from = normalizeToken(nodeIdMap[e.sourceNodeId] || e.sourceNodeId)
       if (e.properties?.type === 'conditional') {
-        const key = `${from}:${e.properties.dispatcher}`
+        const key = `${from}|${e.properties.dispatcher || ''}|${e.properties.condition || ''}`
         if (!conditionalByKey.has(key)) {
           const mapping = {}
           for (const [k, v] of Object.entries(e.properties.mapping || {})) {
@@ -145,6 +150,8 @@ export const useGraphEditorStore = defineStore('aceGraphEditor', () => {
             to: '',
             type: 'conditional',
             dispatcher: e.properties.dispatcher,
+            condition: e.properties.condition,
+            conditionEngine: e.properties.conditionEngine,
             mapping
           })
         }
@@ -361,6 +368,29 @@ export const useGraphEditorStore = defineStore('aceGraphEditor', () => {
     selectedNode.value = null
   }
 
+  function setSelectedEdge(edge) {
+    selectedEdge.value = edge
+  }
+
+  function clearSelectedEdge() {
+    selectedEdge.value = null
+  }
+
+  /** 请求画布按补丁重建条件边分组（conditionEngine / condition / mapping） */
+  function requestEdgeEdit(cmd) {
+    edgeEditCommand.value = { ...cmd, _t: Date.now() }
+  }
+
+  /** 请求画布将普通边转换为条件边 */
+  function requestEdgeConvert(lfEdgeId) {
+    edgeConvertCommand.value = lfEdgeId
+  }
+
+  function clearEdgeCommands() {
+    edgeEditCommand.value = null
+    edgeConvertCommand.value = null
+  }
+
   function updateSelectedNodeConfig(config) {
     if (selectedNode.value) {
       selectedNode.value.config = { ...config }
@@ -378,12 +408,13 @@ export const useGraphEditorStore = defineStore('aceGraphEditor', () => {
     graphId, version, displayName, description, keyStrategies,
     nodes, edges, interruptBefore, saver,
     validationErrors, edgeParamIssues, plantUmlContent, versions, enabledVersion, baselineVersion,
-    saving, publishing, selectedNode, selectedLfNodeId,
+    saving, publishing,     selectedNode, selectedLfNodeId, selectedEdge, edgeEditCommand, edgeConvertCommand,
     setFromLfData, applyDefinition, normalizeDefinition, buildDefinition, save, validate, loadPlantUml,
     refreshEdgeParamValidation,
     hasContentChanged, needsVersionBump, suggestNextVersion, snapshotBaseline, loadVersionAsBaseline,
     maxKnownVersion, versionExists,
     publishCurrent, loadLatest, loadEnabledVersion, fetchVersions, selectGraph, initNewGraph, resetEditor,
-    setSelectedNode, clearSelectedNode, updateSelectedNodeConfig
+    setSelectedNode, clearSelectedNode, updateSelectedNodeConfig,
+    setSelectedEdge, clearSelectedEdge, requestEdgeEdit, requestEdgeConvert, clearEdgeCommands
   }
 })

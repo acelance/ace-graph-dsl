@@ -100,6 +100,27 @@ export default {
     title: 'Edge parameter validation',
     issue: '{from} → {to}: target node {target} missing input keys [{keys}]'
   },
+  edgeEditor: {
+    title: 'Edge Config',
+    type: 'Type',
+    from: 'Source',
+    to: 'Target',
+    conditional: 'Conditional',
+    normal: 'Normal',
+    routingMode: 'Routing',
+    dispatcherMode: 'Java Dispatcher',
+    scriptMode: 'Script routing',
+    engine: 'Script engine (conditionEngine)',
+    condition: 'Routing expression (condition)',
+    conditionHint: 'Return the mapping key (string); available var {state} (graph state)',
+    mapping: 'Routing mapping (mapping)',
+    mappingKey: 'Condition value / key',
+    mappingTarget: 'Target node',
+    addMapping: '+ Add mapping',
+    apply: 'Apply',
+    convert: 'Convert to conditional',
+    noConditional: 'Normal edges do not support conditional routing. Click "Convert to conditional" to enable it.'
+  },
   propertyPanel: {
     title: 'Properties',
     tabNode: 'Node',
