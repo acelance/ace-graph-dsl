@@ -3,6 +3,7 @@ import { ref, reactive } from 'vue'
 import { saveDraft, validateDefinition, previewPlantUml, publish, getLatestDefinition, listVersions, getEnabled } from '../api/graph'
 import { canonicalContent, bumpPatchVersion, maxSemver, compareSemver } from '../utils/graphContent'
 import { validateEdgeParamReachability } from '../utils/edgeParamValidation'
+import { validateTopology } from '../utils/topologyValidation'
 
 export const useGraphEditorStore = defineStore('aceGraphEditor', () => {
   const graphId = ref('')
@@ -28,6 +29,12 @@ export const useGraphEditorStore = defineStore('aceGraphEditor', () => {
   const selectedEdge = ref(null)
   const edgeEditCommand = ref(null)
   const edgeConvertCommand = ref(null)
+  const canUndo = ref(false)
+  const canRedo = ref(false)
+  const conditionalDrawMode = ref(false)
+  const topologyIssues = ref([])
+  const minimapVisible = ref(true)
+  const groups = ref([])
 
   const RESERVED_NODE_IDS = new Set(['__START__', '__END__', 'lf_start', 'lf_end'])
 
@@ -124,6 +131,7 @@ export const useGraphEditorStore = defineStore('aceGraphEditor', () => {
     const nodeIdMap = { lf_start: '__START__', lf_end: '__END__' }
     nodes.value = lfData.nodes
       .filter(n => !isStartNode(n) && !isEndNode(n))
+      .filter(n => n.properties?.kind !== 'GROUP')
       .map(n => {
         const nodeId = n.properties?.nodeId || n.id
         nodeIdMap[n.id] = nodeId
@@ -249,6 +257,13 @@ export const useGraphEditorStore = defineStore('aceGraphEditor', () => {
     return result
   }
 
+  /** 整体拓扑校验（环 / END 可达 / 不可达 / 孤立节点），结果存入 topologyIssues */
+  function validateTopologyNow() {
+    const res = validateTopology(buildDefinition())
+    topologyIssues.value = res.issues
+    return res
+  }
+
   async function loadPlantUml() {
     const def = buildDefinition()
     plantUmlContent.value = await previewPlantUml(graphId.value, def)
@@ -295,6 +310,10 @@ export const useGraphEditorStore = defineStore('aceGraphEditor', () => {
     plantUmlContent.value = ''
     selectedNode.value = null
     selectedLfNodeId.value = null
+    canUndo.value = false
+    canRedo.value = false
+    topologyIssues.value = []
+    groups.value = []
   }
 
   async function loadLatest() {
@@ -351,6 +370,12 @@ export const useGraphEditorStore = defineStore('aceGraphEditor', () => {
     validationErrors.value = []
     edgeParamIssues.value = []
     plantUmlContent.value = ''
+    canUndo.value = false
+    canRedo.value = false
+    conditionalDrawMode.value = false
+    topologyIssues.value = []
+    minimapVisible.value = true
+    groups.value = []
     Object.keys(keyStrategies).forEach(k => delete keyStrategies[k])
   }
 
@@ -409,9 +434,10 @@ export const useGraphEditorStore = defineStore('aceGraphEditor', () => {
     nodes, edges, interruptBefore, saver,
     validationErrors, edgeParamIssues, plantUmlContent, versions, enabledVersion, baselineVersion,
     saving, publishing,     selectedNode, selectedLfNodeId, selectedEdge, edgeEditCommand, edgeConvertCommand,
+    canUndo, canRedo, conditionalDrawMode, topologyIssues, minimapVisible, groups,
     setFromLfData, applyDefinition, normalizeDefinition, buildDefinition, save, validate, loadPlantUml,
     refreshEdgeParamValidation,
-    hasContentChanged, needsVersionBump, suggestNextVersion, snapshotBaseline, loadVersionAsBaseline,
+    hasContentChanged, needsVersionBump, suggestNextVersion, snapshotBaseline, loadVersionAsBaseline, validateTopologyNow,
     maxKnownVersion, versionExists,
     publishCurrent, loadLatest, loadEnabledVersion, fetchVersions, selectGraph, initNewGraph, resetEditor,
     setSelectedNode, clearSelectedNode, updateSelectedNodeConfig,

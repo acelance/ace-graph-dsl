@@ -231,8 +231,72 @@ export const DspRectNode = { type: 'dsp-rect', model: DspRectModel, view: DspRec
 export const DspDiamondNode = { type: 'dsp-diamond', model: DspRouterModel, view: DspRouterView }
 export const DspCircleNode = { type: 'dsp-circle', model: DspCircleModel, view: DspCircleView }
 
+// ── 子流程分组容器（虚线圆角矩形 + 标题栏，无连接锚点） ──
+const GROUP_COLORS = {
+  light: { stroke: '#8b5cf6', fill: 'rgba(139,92,246,0.06)', header: 'rgba(139,92,246,0.12)' },
+  dark:  { stroke: '#a78bfa', fill: 'rgba(167,139,250,0.10)', header: 'rgba(167,139,250,0.18)' },
+}
+
+class DspGroupModel extends RectNodeModel {
+  setAttributes() {
+    super.setAttributes()
+    const p = this.properties || {}
+    this.width = p.width || 240
+    this.height = p.height || 140
+    this.radius = 10
+    this.zIndex = -1
+  }
+
+  getDefaultAnchor() {
+    // 容器节点不参与连线
+    return []
+  }
+
+  getNodeStyle() {
+    const style = super.getNodeStyle()
+    const theme = (this.properties?.theme === 'dark') ? 'dark' : 'light'
+    const c = GROUP_COLORS[theme]
+    return { ...style, fill: c.fill, stroke: c.stroke, strokeWidth: 1.5, strokeDasharray: '6 4' }
+  }
+
+  getTextStyle() {
+    const style = super.getTextStyle()
+    return { ...style, fontSize: 13, fontWeight: 600, textAlign: 'left', textBaseline: 'top' }
+  }
+}
+
+class DspGroupView extends RectNode {
+  getShape() {
+    const { model } = this.props
+    const { x, y, width, height, radius } = model
+    const theme = (model.properties?.theme === 'dark') ? 'dark' : 'light'
+    const c = GROUP_COLORS[theme]
+    const headerH = 26
+    const collapsed = !!model.properties?.collapsed
+    return h('g', {}, [
+      h('rect', {
+        x: x - width / 2, y: y - height / 2,
+        width, height, rx: radius, ry: radius,
+        fill: c.fill, stroke: c.stroke, strokeWidth: 1.5, strokeDasharray: '6 4',
+      }),
+      h('rect', {
+        x: x - width / 2, y: y - height / 2,
+        width, height: headerH, rx: radius, ry: radius,
+        fill: c.header, stroke: 'none',
+      }),
+      h('path', {
+        d: `M ${x - width / 2} ${y - height / 2 + headerH} L ${x + width / 2} ${y - height / 2 + headerH}`,
+        stroke: c.stroke, strokeWidth: 1, strokeOpacity: 0.4,
+      }),
+    ])
+  }
+}
+
+export const DspGroupNode = { type: 'dsp-group', model: DspGroupModel, view: DspGroupView }
+
 export function resolveNodeType(category, kind) {
   if (kind === 'START' || kind === 'END') return 'dsp-circle'
+  if (kind === 'GROUP') return 'dsp-group'
   if (category === 'ROUTER') return 'dsp-diamond'
   return 'dsp-rect'
 }

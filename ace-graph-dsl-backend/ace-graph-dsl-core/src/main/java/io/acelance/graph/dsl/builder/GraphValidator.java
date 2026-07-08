@@ -9,6 +9,9 @@ import io.acelance.graph.dsl.script.ScriptEdgeActionFactory;
 import org.springframework.stereotype.Component;
 
 import java.util.ArrayList;
+import java.util.ArrayDeque;
+import java.util.Deque;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -108,6 +111,9 @@ public class GraphValidator {
         if (hasCycle(def)) {
             errors.add("检测到环（HITL resume 外不允许回环）");
         }
+
+        // 5.5 拓扑可达性：END 可达 + 不可达节点 + 孤立节点
+        validateTopology(def, errors);
 
         // 6. 连线参数可达性（发布前置校验；保存草稿不经过此校验器）
         errors.addAll(reachabilityValidator.validate(def));
@@ -224,5 +230,66 @@ public class GraphValidator {
         }
         recursion.remove(node);
         return false;
+    }
+
+    /**
+     * 拓扑可达性校验：END 是否从 START 可达、是否存在不可达节点、是否存在孤立节点。
+     * 纯结构校验，不依赖节点注册表。
+     */
+    private void validateTopology(GraphDefinition def, List<String> errors) {
+        Set<String> nodeIds = def.nodes() == null ? new HashSet<>()
+                : def.nodes().stream().map(NodeRef::nodeId).collect(Collectors.toSet());
+        nodeIds.add(GraphDefinition.START);
+        nodeIds.add(GraphDefinition.END);
+
+        Map<String, Set<String>> adj = new HashMap<>();
+        Map<String, Set<String>> rev = new HashMap<>();
+        List<GraphEdge> edges = def.edges() != null ? def.edges() : List.of();
+        for (GraphEdge edge : edges) {
+            if (edge.isConditional()) {
+                if (edge.mapping() != null) {
+                    for (String target : edge.mapping().values()) {
+                        link(nodeIds, adj, rev, edge.from(), target);
+                    }
+                }
+            } else {
+                link(nodeIds, adj, rev, edge.from(), edge.to());
+            }
+        }
+
+        // END 可达性（从 START BFS，END 视为终止节点不再向外扩展）
+        Set<String> reachable = new HashSet<>();
+        Deque<String> queue = new ArrayDeque<>();
+        reachable.add(GraphDefinition.START);
+        queue.add(GraphDefinition.START);
+        while (!queue.isEmpty()) {
+            String cur = queue.poll();
+            if (GraphDefinition.END.equals(cur)) continue;
+            for (String next : adj.getOrDefault(cur, Set.of())) {
+                if (reachable.add(next)) queue.add(next);
+            }
+        }
+        if (!reachable.contains(GraphDefinition.END)) {
+            errors.add("无法从 START 到达 END（流程断头，END 不可达）");
+        }
+
+        for (String id : nodeIds) {
+            if (GraphDefinition.START.equals(id) || GraphDefinition.END.equals(id)) continue;
+            if (!reachable.contains(id)) {
+                errors.add("不可达节点（从 START 无法到达）: " + id);
+            }
+            boolean hasIn = !rev.getOrDefault(id, Set.of()).isEmpty();
+            boolean hasOut = !adj.getOrDefault(id, Set.of()).isEmpty();
+            if (!hasIn && !hasOut) {
+                errors.add("孤立节点（无任何连线）: " + id);
+            }
+        }
+    }
+
+    private void link(Set<String> nodeIds, Map<String, Set<String>> adj, Map<String, Set<String>> rev, String from, String to) {
+        if (from == null || to == null || from.equals(to)) return;
+        if (!nodeIds.contains(from) || !nodeIds.contains(to)) return;
+        adj.computeIfAbsent(from, k -> new HashSet<>()).add(to);
+        rev.computeIfAbsent(to, k -> new HashSet<>()).add(from);
     }
 }
