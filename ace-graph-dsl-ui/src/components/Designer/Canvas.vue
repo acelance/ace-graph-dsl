@@ -458,11 +458,14 @@ function renderFromDefinition(def) {
     const category = desc?.category || 'NORMAL'
     // 同名节点（相同 nodeId）需保证 LF id 唯一，避免拖拽/选中相互干扰
     const id = `lf_${n.nodeId}_${i}`
+    // 优先使用已保存的画布坐标；无坐标（历史数据/新建）时回退到分层网格，避免每次进入都重排成格子
+    const px = typeof n.x === 'number' ? n.x : 200 + 200 * (i + 1)
+    const py = typeof n.y === 'number' ? n.y : 150 + (i % 3) * 100
     lfNodes.push({
       id,
       type: resolveNodeType(category),
-      x: 200 + 200 * (i + 1),
-      y: 150 + (i % 3) * 100,
+      x: px,
+      y: py,
       text: desc?.displayName || n.nodeId,
       properties: baseProperties({
         nodeId: n.nodeId,
@@ -746,15 +749,35 @@ function autoLayout() {
       }
     })
 
-    // 清除边的缓存路径坐标（startPoint/endpoint/pointsList），让 LF 重新计算
+    // 清除边的缓存路径坐标和文字位置，让 LF 根据新路径重新计算
     edges.forEach(e => {
       delete e.startPoint
       delete e.endPoint
       delete e.pointsList
+      if (e.text) {
+        delete e.text.x
+        delete e.text.y
+      }
     })
 
     // 全量重新渲染画布，LogicFlow 会根据新节点坐标自动重算所有边路径
     lf.render(data)
+
+    // 检测孤立节点（无入边且无出边的业务节点，排除 START/END/分组）
+    const connected = new Set()
+    edges.forEach(e => {
+      if (idSet.has(e.sourceNodeId)) connected.add(e.sourceNodeId)
+      if (idSet.has(e.targetNodeId)) connected.add(e.targetNodeId)
+    })
+    const isolatedNodes = nodes.filter(n => {
+      if (n.properties?.kind === 'GROUP') return false
+      if (n.id === 'lf_start' || n.id === 'lf_end') return false
+      return !connected.has(n.id)
+    })
+    if (isolatedNodes.length > 0) {
+      const names = isolatedNodes.map(n => n.text?.value || n.id).join('、')
+      ElMessage.warning(`${t('canvas.isolatedNodes') || '存在孤立节点'}: ${names}`)
+    }
 
     lf.fitView()
     syncToStore()

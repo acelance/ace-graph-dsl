@@ -34,6 +34,6 @@ class GraphDefinitionContentComparatorTest {
     }
 
     private static NodeRef node(String id) {
-        return new NodeRef(id, Map.of());
+        return new NodeRef(id, Map.of(), null, null);
     }
 }

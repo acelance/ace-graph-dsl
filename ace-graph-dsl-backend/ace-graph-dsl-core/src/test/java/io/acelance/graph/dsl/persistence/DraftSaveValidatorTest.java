@@ -22,7 +22,7 @@ class DraftSaveValidatorTest {
                 version,
                 "",
                 Map.of(),
-                List.of(new NodeRef(nodeId, Map.of())),
+                List.of(new NodeRef(nodeId, Map.of(), null, null)),
                 List.of(),
                 CompileConfigDto.defaultConfig(), null);
     }

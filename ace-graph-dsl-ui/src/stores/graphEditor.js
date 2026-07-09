@@ -81,6 +81,12 @@ export const useGraphEditorStore = defineStore('aceGraphEditor', () => {
             conditionEngine: e.conditionEngine,
             mapping
           })
+        } else {
+          // 同一源节点同一路由来源的多条条件边：合并 mapping，避免丢分支
+          const existing = conditionalByKey.get(key)
+          for (const [k, v] of Object.entries(e.mapping || {})) {
+            existing.mapping[k] = normalizeToken(v)
+          }
         }
         continue
       }
@@ -135,7 +141,7 @@ export const useGraphEditorStore = defineStore('aceGraphEditor', () => {
       .map(n => {
         const nodeId = n.properties?.nodeId || n.id
         nodeIdMap[n.id] = nodeId
-        return { nodeId, config: n.properties?.config || {} }
+        return { nodeId, config: n.properties?.config || {}, x: n.x, y: n.y }
       })
       .filter(n => !isReservedNodeId(n.nodeId))
     if (startNode) nodeIdMap[startNode.id] = '__START__'
@@ -162,6 +168,12 @@ export const useGraphEditorStore = defineStore('aceGraphEditor', () => {
             conditionEngine: e.properties.conditionEngine,
             mapping
           })
+        } else {
+          // 同一源节点同一路由来源的多条条件边：合并 mapping，避免丢分支
+          const existing = conditionalByKey.get(key)
+          for (const [k, v] of Object.entries(e.properties.mapping || {})) {
+            existing.mapping[k] = normalizeToken(v)
+          }
         }
         continue
       }

@@ -290,9 +290,10 @@ async function onPublish() {
         <el-button v-if="!readOnly" :icon="FolderOpened" size="small" @click="emit('createGroup')">
           {{ t('toolbar.group') }}
         </el-button>
-        <el-button v-if="!readOnly && perm.can(MENU.GRAPH_VALIDATE)" :icon="MagicStick" size="small" @click="emit('autoLayout')">
+        <!-- TODO: 自动布局功能待完善，暂时隐藏 -->
+        <!-- <el-button v-if="!readOnly && perm.can(MENU.GRAPH_VALIDATE)" :icon="MagicStick" size="small" @click="emit('autoLayout')">
           {{ t('toolbar.autoLayout') }}
-        </el-button>
+        </el-button> -->
         <el-button-group v-if="perm.can(MENU.GRAPH_VIEW)">
           <el-button :icon="ZoomIn" :title="t('toolbar.zoomIn')" size="small" @click="emit('zoomIn')" />
           <el-button :icon="ZoomOut" :title="t('toolbar.zoomOut')" size="small" @click="emit('zoomOut')" />

@@ -82,7 +82,7 @@ class GraphValidatorTest {
         return new GraphDefinition(
                 "g1", "测试图", "1.0.0", "",
                 Map.of(),
-                List.of(new NodeRef("a", Map.of()), new NodeRef("b", Map.of()), new NodeRef("c", Map.of())),
+                List.of(new NodeRef("a", Map.of(), null, null), new NodeRef("b", Map.of(), null, null), new NodeRef("c", Map.of(), null, null)),
                 List.of(
                         new GraphEdge(GraphDefinition.START, "a", GraphEdge.TYPE_NORMAL, null, null, null, null),
                         conditional,

@@ -82,7 +82,7 @@ public record GraphDefinition(
         Set<Node> internalNodes = getNodes(stateGraph);
         if (internalNodes != null) {
             for (Node n : internalNodes) {
-                nodeRefs.add(new NodeRef(n.id(), Map.of()));
+                nodeRefs.add(new NodeRef(n.id(), Map.of(), null, null));
             }
         }
 

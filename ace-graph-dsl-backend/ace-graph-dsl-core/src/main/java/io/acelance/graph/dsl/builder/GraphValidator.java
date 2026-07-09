@@ -178,6 +178,14 @@ public class GraphValidator {
                 errors.add("条件边 mapping 未覆盖 possibleTargets: 缺少 " + target);
             }
         }
+        // 反向校验：mapping 的 target 不能超出 dispatcher 声明的 possibleTargets 范围，
+        // 否则该分支永远无法被命中（Dispatcher 不会返回能匹配它的路由 key），成为死分支。
+        for (String target : mappedTargets) {
+            if (!possible.contains(target)) {
+                errors.add("条件边 mapping 目标超出 possibleTargets 范围: " + target
+                        + "（dispatcher=" + edge.dispatcher() + "）");
+            }
+        }
     }
 
     /**
