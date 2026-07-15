@@ -147,7 +147,9 @@
   - `node:drag` 监听：拖拽分组容器时按增量同步移动成员（`model.move(dx,dy)`）；
   - `deleteSelectedElements()` 增强：删除分组容器时自动解组成员，删除成员时从分组移除。
 - **`src/components/Designer/GroupPanel.vue`**（新建）：左下角悬浮面板，列出分组，支持折叠/展开/解组。
-- **`src/components/Designer/Toolbar.vue`**：新增「子流程」成组按钮（非只读），`emit('createGroup')`。
+- **`src/components/Designer/Toolbar.vue`**：新增「子流程」成组按钮（非只读）。
+- **多选（修复）**：LogicFlow 开启 `multipleSelectKey`（Win=`ctrl` / macOS=`meta`），并挂载 `SelectionSelect`；工具栏增加「框选」。用法：`Ctrl/Cmd+点击` 或框选 ≥2 业务节点后再点子流程。
+- **持久化限制**：分组为画布内可视化能力，**不持久化到 DSL**（导入/重载图后分组丢失，成员节点保留）。
 
 ### 4. 画布内节点搜索定位
 - **`src/components/Designer/NodeSearch.vue`**（新建）：右上角搜索框，按节点名称/ID 模糊匹配；点击结果调用 `canvas.focusNode(lfId)` → `lf.focusOn({id})` 居中 + 选中高亮。

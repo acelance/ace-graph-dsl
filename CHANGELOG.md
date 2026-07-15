@@ -5,6 +5,24 @@ All notable changes to the Ace Graph DSL project are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.0] — 2026-07-14
+
+### Added
+
+- **多脚本引擎**：`ScriptEngineDescriptor`、`AbstractTimeoutScriptEngine`；SpEL 超时隔离与安全加固（禁 `T()` / BeanResolver）。
+- **可选模块**：`ace-graph-dsl-script-qlexpress`、`ace-graph-dsl-script-groovy`（starter `optional` + `@ConditionalOnClass` / 开关）。
+- **API**：`GET /nodes/engines` 返回 `multiLine` / `maxScriptLines` / `hintKey`。
+- **前端**：脚本节点与条件边按引擎切换多行编辑区与 hint（i18n）；Groovy 默认不出现在引擎列表。
+
+### Changed
+
+- **文档**：`MULTI_SCRIPT_ENGINE_PLAN` v2.2、`FUTURE_OPTIMIZATION_PLAN` §7.2 ✅、`SCRIPT_NODE_EXAMPLES` 四引擎样例、`PROJECT_OVERVIEW` 模块说明、UI README「如何选择脚本引擎」。
+- **测试（2026-07-15）**：新增 [MULTI_SCRIPT_ENGINE_TEST_PLAN.md](ace-graph-dsl-backend/docs/MULTI_SCRIPT_ENGINE_TEST_PLAN.md)；补齐 `ScriptNodeServiceTest`、条件边多引擎、SpEL 超时、starter 条件装配测；L1–L3 `mvn test` 通过。
+
+### Security
+
+- Groovy 默认 `groovy-enabled=false`；沙箱 `SecureASTCustomizer` + 导入白名单；QLExpress RiskControl；各引擎执行超时共用配置。
+
 ## [1.0.3] — 2026-07-07
 
 ### Added

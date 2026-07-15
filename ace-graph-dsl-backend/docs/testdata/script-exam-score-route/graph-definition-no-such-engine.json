@@ -1,0 +1,80 @@
+{
+  "graphId": "script-exam-score-route-no-such-engine",
+  "displayName": "学员考试成绩及格分流（全脚本，无 conditionEngine）",
+  "version": "1.0.0",
+  "description": "联调样本：全 script 节点 + SpEL 条件边（M-06/M-08）。初始 state 示例 {\"raw_score\":85} → pass；{\"raw_score\":45} → fail。",
+  "keyStrategies": {
+    "raw_score": "REPLACE",
+    "score": "REPLACE",
+    "result": "REPLACE",
+    "message": "REPLACE",
+    "final_score": "REPLACE",
+    "final_status": "REPLACE",
+    "final_message": "REPLACE"
+  },
+  "nodes": [
+    {
+      "nodeId": "script:exam_normalize_score",
+      "config": {},
+      "x": 120,
+      "y": 200
+    },
+    {
+      "nodeId": "script:exam_stamp_pass",
+      "config": {},
+      "x": 420,
+      "y": 80
+    },
+    {
+      "nodeId": "script:exam_stamp_fail",
+      "config": {},
+      "x": 420,
+      "y": 320
+    },
+    {
+      "nodeId": "script:exam_merge_result",
+      "config": {},
+      "x": 720,
+      "y": 200
+    }
+  ],
+  "edges": [
+    {
+      "from": "__START__",
+      "to": "script:exam_normalize_score",
+      "type": "normal"
+    },
+    {
+      "from": "script:exam_normalize_score",
+      "to": "",
+      "type": "conditional",
+      "dispatcher": null,
+      "condition": "#state['score'] > 60 ? 'pass' : 'fail'",
+      "conditionEngine": "no-such-engine",
+      "mapping": {
+        "pass": "script:exam_stamp_pass",
+        "fail": "script:exam_stamp_fail"
+      }
+    },
+    {
+      "from": "script:exam_stamp_pass",
+      "to": "script:exam_merge_result",
+      "type": "normal"
+    },
+    {
+      "from": "script:exam_stamp_fail",
+      "to": "script:exam_merge_result",
+      "type": "normal"
+    },
+    {
+      "from": "script:exam_merge_result",
+      "to": "__END__",
+      "type": "normal"
+    }
+  ],
+  "compile": {
+    "interruptBefore": [],
+    "saver": "memory"
+  },
+  "bootstrap": false
+}

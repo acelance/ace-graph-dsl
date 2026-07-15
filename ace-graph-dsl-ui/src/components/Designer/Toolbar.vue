@@ -1,7 +1,7 @@
 <script setup>
 import { ref, computed, watch, onMounted, onBeforeUnmount, nextTick } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { RefreshLeft, RefreshRight, VideoPlay, Upload, Download, Share, Switch, ZoomIn, ZoomOut, FullScreen, ScaleToOriginal, MagicStick, MapLocation, FolderOpened, Rank } from '@element-plus/icons-vue'
+import { RefreshLeft, RefreshRight, VideoPlay, Upload, Download, Share, Switch, ZoomIn, ZoomOut, FullScreen, ScaleToOriginal, MagicStick, MapLocation, FolderOpened, Rank, Crop } from '@element-plus/icons-vue'
 import { useGraphEditorStore } from '../../stores/graphEditor'
 import { usePermissionStore, MENU } from '../../stores/permissions'
 import { useI18n } from '../../i18n'
@@ -22,7 +22,7 @@ const props = defineProps({
   showActions: { type: Boolean, default: true },
   readOnly: { type: Boolean, default: false }
 })
-const emit = defineEmits(['save', 'validate', 'preview', 'publish', 'undo', 'redo', 'dryRun', 'importDsl', 'exportDsl', 'topology', 'zoomIn', 'zoomOut', 'fit', 'resetZoom', 'autoLayout', 'toggleMinimap', 'createGroup'])
+const emit = defineEmits(['save', 'validate', 'preview', 'publish', 'undo', 'redo', 'dryRun', 'importDsl', 'exportDsl', 'topology', 'zoomIn', 'zoomOut', 'fit', 'resetZoom', 'autoLayout', 'toggleMinimap', 'createGroup', 'toggleBoxSelect'])
 
 const showVersionHistory = ref(false)
 
@@ -287,7 +287,24 @@ async function onPublish() {
         >
           {{ t('toolbar.conditionalEdge') }}
         </el-button>
-        <el-button v-if="!readOnly" :icon="FolderOpened" size="small" @click="emit('createGroup')">
+        <el-button
+          v-if="!readOnly"
+          :type="canvasRef?.selectionSelectActive ? 'warning' : 'default'"
+          :icon="Crop"
+          :plain="!canvasRef?.selectionSelectActive"
+          :title="t('toolbar.boxSelectHint')"
+          size="small"
+          @click="emit('toggleBoxSelect')"
+        >
+          {{ t('toolbar.boxSelect') }}
+        </el-button>
+        <el-button
+          v-if="!readOnly"
+          :icon="FolderOpened"
+          size="small"
+          :title="t('toolbar.groupHint')"
+          @click="emit('createGroup')"
+        >
           {{ t('toolbar.group') }}
         </el-button>
         <!-- TODO: 自动布局功能待完善，暂时隐藏 -->

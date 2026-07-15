@@ -2,8 +2,11 @@ package io.acelance.graph.dsl.script;
 
 import org.junit.jupiter.api.Test;
 
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.stream.IntStream;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -57,5 +60,17 @@ class SpelScriptEngineTest {
         // 未注册 BeanFactoryResolver，@bean 引用应被拒绝
         assertThrows(IllegalArgumentException.class, () ->
                 engine.execute(engine.compile("@systemProperties"), new ScriptExecutionContext(Map.of(), Map.of())));
+    }
+
+    @Test
+    void timeoutInterruptsLongProjection() {
+        // SpEL 无 while；用超短超时 + 大集合投影触发 AbstractTimeoutScriptEngine 超时
+        SpelScriptEngine shortEngine = new SpelScriptEngine(50);
+        List<Integer> nums = IntStream.range(0, 800_000).boxed().collect(ArrayList::new, ArrayList::add, ArrayList::addAll);
+        Object compiled = shortEngine.compile("#state['nums'].?[true]");
+        ScriptExecutionContext ctx = new ScriptExecutionContext(Map.of("nums", nums), Map.of());
+        IllegalArgumentException ex = assertThrows(IllegalArgumentException.class,
+                () -> shortEngine.execute(compiled, ctx));
+        assertTrue(ex.getMessage().contains("超时"), () -> "消息: " + ex.getMessage());
     }
 }

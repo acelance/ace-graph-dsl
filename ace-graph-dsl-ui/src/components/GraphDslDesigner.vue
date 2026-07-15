@@ -129,6 +129,7 @@ function onResetZoom() { canvasRef.value?.resetZoom() }
 function onToggleMinimap() { canvasRef.value?.toggleMinimap() }
 function onAutoLayout() { canvasRef.value?.autoLayout() }
 function onCreateGroup() { canvasRef.value?.createGroup() }
+function onToggleBoxSelect() { canvasRef.value?.toggleSelectionSelect() }
 
 /** 导出当前 DSL 为 JSON 文件 */
 function onExportDsl() {
@@ -209,6 +210,7 @@ defineExpose({ onNodeDrag, canvasRef })
         @autoLayout="onAutoLayout"
         @toggleMinimap="onToggleMinimap"
         @createGroup="onCreateGroup"
+        @toggleBoxSelect="onToggleBoxSelect"
       />
       <NodeSearch :canvas-ref="canvasRef" />
       <GroupPanel :canvas-ref="canvasRef" />

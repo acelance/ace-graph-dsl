@@ -1,0 +1,58 @@
+[
+  {
+    "nodeId": "script:exam_normalize_score",
+    "displayName": "成绩标准化",
+    "category": "NORMAL",
+    "description": "将 raw_score 裁剪到 0~100，写出 score，供 SpEL 条件边分流",
+    "inputKeys": ["raw_score"],
+    "outputKeys": ["score"],
+    "engine": "aviator",
+    "scriptBody": "let s = double(state.raw_score); return seq.map('score', s > 100 ? 100 : (s < 0 ? 0 : s));",
+    "permissionTags": ["public"],
+    "supportsParallel": false,
+    "version": "1.0.0",
+    "operator": "designer"
+  },
+  {
+    "nodeId": "script:exam_stamp_pass",
+    "displayName": "及格盖章",
+    "category": "NORMAL",
+    "description": "及格分支：写入 result / message，透传 score",
+    "inputKeys": ["score"],
+    "outputKeys": ["score", "result", "message"],
+    "engine": "aviator",
+    "scriptBody": "seq.map('score', state.score, 'result', 'pass', 'message', '成绩及格')",
+    "permissionTags": ["public"],
+    "supportsParallel": false,
+    "version": "1.0.0",
+    "operator": "designer"
+  },
+  {
+    "nodeId": "script:exam_stamp_fail",
+    "displayName": "不及格盖章",
+    "category": "NORMAL",
+    "description": "不及格分支：写入 result / message，透传 score",
+    "inputKeys": ["score"],
+    "outputKeys": ["score", "result", "message"],
+    "engine": "aviator",
+    "scriptBody": "seq.map('score', state.score, 'result', 'fail', 'message', '成绩不及格')",
+    "permissionTags": ["public"],
+    "supportsParallel": false,
+    "version": "1.0.0",
+    "operator": "designer"
+  },
+  {
+    "nodeId": "script:exam_merge_result",
+    "displayName": "汇聚成绩结论",
+    "category": "NORMAL",
+    "description": "将分支结果汇总为 final_status / final_message / final_score",
+    "inputKeys": ["score", "result", "message"],
+    "outputKeys": ["final_score", "final_status", "final_message"],
+    "engine": "aviator",
+    "scriptBody": "seq.map('final_score', state.score, 'final_status', state.result, 'final_message', state.message)",
+    "permissionTags": ["public"],
+    "supportsParallel": false,
+    "version": "1.0.0",
+    "operator": "designer"
+  }
+]

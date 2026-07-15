@@ -1,7 +1,7 @@
 # Ace Graph DSL — 后续优化与功能规划建议
 
-> 版本：v1.8  
-> 日期：2026-07-03  
+> 版本：v2.0  
+> 日期：2026-07-14  
 > 适用范围：`ace-graph-dsl-backend` / `ace-graph-dsl-ui` 作为第三方组件嵌入业务系统后的持续演进
 
 ---
@@ -23,7 +23,7 @@
 
 本文在 [LIBRARY_EMBEDDING_ROADMAP.md](./LIBRARY_EMBEDDING_ROADMAP.md) 基础上，按**价值 / 成本**重新梳理后续优化项，并给出建议落地顺序。
 
-> **实施进度（截至 v1.8）**：阶段一（P0）嵌入基线全部落地（3.2 `.d.ts` 已生成，仅余私服发布）；阶段二（P1）权限闭环（含 Security 集成文档 4.4）、审计日志、ObjectMapper 隔离、checkpoint saver（SPI + Redis）、通用图执行 / SSE 端点全部收尾；阶段三（P2）脚本引擎线程池（7.1）、脚本条件边 Dispatcher（7.3）、可观测 trace SPI（6.1）、**版本 diff / 回滚 UI（6.3）**、**主题 i18n（6.4）** 已落地。阶段四（P3）单元测试已起步、配置元数据已落地；CI 流水线（8.2）已入库；SemVer（8.3）1.0.0 已定版（`CHANGELOG.md` 已创建，私服发布待运维）。剩余 **多租户（6.2）**、**多脚本引擎（7.2）** 待规划/实施。详见 [§2.1 实施进度总表](#21-实施进度总表) 与 [§11 变更记录](#11-变更记录)。
+> **实施进度（截至 v2.0）**：阶段一～三（P0–P2）主项已落地，含 **多脚本引擎（7.2）**（Aviator / SpEL / QLExpress / Groovy，见 [MULTI_SCRIPT_ENGINE_PLAN.md](./MULTI_SCRIPT_ENGINE_PLAN.md) v2.2）。阶段四（P3）单元测试已扩面、配置元数据与 CI 已入库；SemVer 见 `CHANGELOG.md`。剩余 **多租户（6.2）** 及 7.2 非阻塞收尾（集成测试 / 切换确认框等）。详见 [§2.1 实施进度总表](#21-实施进度总表) 与 [§11 变更记录](#11-变更记录)。
 
 ### 1.1 权限模型边界（避免混淆）
 
@@ -67,9 +67,9 @@
 | 6.3 | 版本 diff / 回滚 UI | P2 | ✅ | `VersionHistoryDrawer` + JSON/结构 diff |
 | 6.4 | 主题 token 与 i18n | P2 | ✅ | `tokens.css` + i18n 框架 + `ScriptNodeEditor` 已外置 |
 | 7.1 | 脚本引擎线程池 | P2 | ✅ | 共享线程池 + 可配置 |
-| 7.2 | 多脚本引擎 | P2 | 🔶 | Aviator+SpEL 已落地；QLExpress/Groovy 见 MULTI_SCRIPT_ENGINE_PLAN v2.0 |
+| 7.2 | 多脚本引擎 | P2 | ✅ | 四引擎 + optional 模块 + 前端 multiLine/条件边；见 MULTI_SCRIPT_ENGINE_PLAN v2.2 |
 | 7.3 | 脚本版条件边 Dispatcher | P2 | ✅ | `condition` + `ScriptEdgeActionFactory` |
-| 8.1 | 单元 / 集成测试 | P3 | 🔶 | 6 个测试类；集成测试待补 |
+| 8.1 | 单元 / 集成测试 | P3 | 🔶 | 多引擎 L1–L3 已绿；MockMvc/同图 e2e 待补，见 TEST_PLAN |
 | 8.2 | CI 流水线 | P3 | ✅ | `.github/workflows/ci.yml` + `publish.yml` |
 | 8.3 | SemVer 发布 | P3 | 🔶 | 版本 1.0.0；demo 已切版本坐标；`CHANGELOG.md` 已创建；私服发布待运维 |
 | 8.4 | 配置元数据 | P3 | ✅ | `spring-configuration-metadata` |
@@ -247,14 +247,14 @@
 | **改进** | ✅ 共享守护线程池（`SynchronousQueue` + `AbortPolicy`，保留超时语义，池满抛繁忙）；实现 `AutoCloseable`，由 Spring 推断销毁方法优雅关闭；池大小 `ace.graph.dsl.script.execution-pool-size`（<=0 按 CPU 核数，下限 2） |
 | **价值** | 高并发下降低线程创建开销 |
 
-### 7.2 多脚本引擎 🔶 部分实施
+### 7.2 多脚本引擎 ✅ 已实施
 
 | 项 | 说明 |
 |----|------|
-| **参考** | [MULTI_SCRIPT_ENGINE_PLAN.md](./MULTI_SCRIPT_ENGINE_PLAN.md) v2.0（SpEL / QLExpress / Groovy 完善方案） |
-| **现状** | Aviator ✅；SpEL 基础版 ✅（缺超时/安全/单测）；QLExpress / Groovy ⏳ |
-| **改进** | Phase A SpEL 加固 → Phase B QLExpress → Phase C Groovy Sandbox；配套元数据 API、前端 multiLine、配置开关 |
+| **参考** | [MULTI_SCRIPT_ENGINE_PLAN.md](./MULTI_SCRIPT_ENGINE_PLAN.md) v2.2 |
+| **现状** | Aviator / SpEL（加固）在 core；QLExpress / Groovy 为 optional 子模块；`ScriptEngineDescriptor` + `/nodes/engines`；前端脚本节点与条件边可选引擎；Groovy 默认关闭 |
 | **价值** | 按场景选引擎，复杂规则可读可维护，安全边界不降低 |
+| **残余** | 多引擎条件边单测扩面、集成测试、切换引擎确认框、运维 Groovy 开启手册（见方案 §2.3） |
 
 ### 7.3 脚本版条件边 Dispatcher ✅ 已实施
 
@@ -270,7 +270,7 @@
 
 | 项 | 状态 | 说明 |
 |----|------|------|
-| **单元 / 集成测试** | 🔶 部分实施 | ✅ 已起步 6 个测试类：`GraphValidatorTest`、`ScriptEdgeActionFactoryTest`、`AviatorScriptEngineTest`、`GraphEdgeJsonTest`、`GraphDefinitionContentComparatorTest`、`DraftSaveValidatorTest`；core 模块 surefire 3.2.5 + `skipTests=false`。**待办**：`DynamicGraphBuilder` / `ScriptNodeService` / 权限解析集成测试 |
+| **单元 / 集成测试** | 🔶 部分实施 | ✅ L1–L3：引擎单测、`ScriptNodeServiceTest`、条件边多引擎、`ApplicationContextRunner` 开关测已通（见 [MULTI_SCRIPT_ENGINE_TEST_PLAN.md](./MULTI_SCRIPT_ENGINE_TEST_PLAN.md)）。**待办**：MockMvc Controller、四引擎同图 e2e |
 | **CI 流水线** | ✅ 已实施 | `.github/workflows/ci.yml`（backend `mvn -B verify` JDK 17 + frontend `npm ci && npm run build` Node 20）+ `publish.yml`（tag 触发 `mvn deploy` + `npm publish`）已入库 |
 | **SemVer 发布** | 🔶 部分实施 | 版本 1.0.0；demo 已切版本坐标（`package.json` `1.0.0` / `pom.xml` `1.0.0`）；`CHANGELOG.md` 已创建；正式发布到私服待运维执行 |
 | **配置元数据** | ✅ 已实施 | `spring-configuration-metadata.json` 自动生成，覆盖 `ace.graph.dsl.observability.*`、`ace.graph.dsl.web.execution.*` 等 |
@@ -333,6 +333,10 @@ flowchart LR
 ---
 
 ## 11. 变更记录
+
+> **v2.1**（2026-07-15）· 多脚本引擎测试联调：新增 `MULTI_SCRIPT_ENGINE_TEST_PLAN.md`；补齐 `ScriptNodeServiceTest`、条件边多引擎、SpEL 超时、starter `ApplicationContextRunner`；L1–L3 `mvn test` 通过。
+
+> **v2.0**（2026-07-14）· 多脚本引擎 Phase A/B/C 功能落地并完成文档同步：SpEL 加固、`ace-graph-dsl-script-qlexpress` / `ace-graph-dsl-script-groovy` optional 模块、Descriptor API、前端 multiLine 与条件边引擎选择；§7.2 标 ✅；样例与 CHANGELOG `[1.1.0]` 已更新。
 
 > **v1.9**（2026-07-07）· 连线参数可达性校验全链路：后端 `EdgeParamReachabilityValidator` 接入 `GraphValidator`（发布/校验触发，草稿豁免）；前端实时校验 + 左下角悬浮提示 + 失败连线标红；START / HITL 入边豁免；HITL 节点配色改为紫色；UI README 快问快答补充 Vue 2 集成说明。
 

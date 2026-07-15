@@ -3,7 +3,7 @@ import { ref, onMounted, onBeforeUnmount, watch } from 'vue'
 import { Delete } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
 import LogicFlow from '@logicflow/core'
-import { MiniMap, Snapshot } from '@logicflow/extension'
+import { MiniMap, Snapshot, SelectionSelect } from '@logicflow/extension'
 import '@logicflow/core/dist/index.css'
 import '@logicflow/extension/lib/style/index.css'
 import { useNodeRegistryStore } from '../../stores/nodeRegistry'
@@ -18,11 +18,21 @@ const { t } = useI18n()
 
 const containerRef = ref(null)
 const canDeleteSelection = ref(false)
+/** 框选模式（SelectionSelect 独占）是否开启 */
+const selectionSelectActive = ref(false)
 let lf = null
 let suppressSync = false
 let groupLastPos = {}
 let lfReadyResolve
 const lfReady = new Promise(resolve => { lfReadyResolve = resolve })
+
+/** Win/Linux 用 Ctrl，macOS 用 Cmd，以便点选多选 */
+function detectMultipleSelectKey() {
+  const platform = navigator.platform || ''
+  const ua = navigator.userAgent || ''
+  if (/Mac|iPhone|iPad|iPod/i.test(platform) || /Mac OS/i.test(ua)) return 'meta'
+  return 'ctrl'
+}
 
 onMounted(() => { initLf() })
 onBeforeUnmount(() => {
@@ -273,12 +283,14 @@ function initLf() {
   lf = new LogicFlow({
     container: containerRef.value,
     grid: { size: 10, visible: true, type: 'dot' },
-    plugins: [MiniMap, Snapshot],
+    plugins: [MiniMap, Snapshot, SelectionSelect],
     keyboard: { enabled: true },
     edgeTextDraggable: false,
     adjustEdge: true,
     hoverOutline: true,
     edgeSelectedOutline: true,
+    // 默认 '' 时无法多选，成组按钮会始终提示「请先选中至少 2 个业务节点」
+    multipleSelectKey: detectMultipleSelectKey(),
     guards: {
       beforeDelete: (data) => !isReservedNodeData(data)
     }
@@ -321,6 +333,13 @@ function initLf() {
     refreshSelectionState()
   })
   lf.on('element:click', () => refreshSelectionState())
+  lf.on('selection:selected', () => {
+    refreshSelectionState()
+    // 框选完成后自动退出独占模式，便于立刻点「子流程」成组
+    if (selectionSelectActive.value) {
+      closeSelectionSelectMode()
+    }
+  })
   // 子流程分组：拖拽容器时同步移动成员
   lf.on('node:dragstart', ({ data }) => {
     if (data?.properties?.kind === 'GROUP') groupLastPos[data.id] = { x: data.x, y: data.y }
@@ -334,6 +353,35 @@ function initLf() {
   // 缩略图默认显示
   try { lf.extension?.miniMap?.show?.() } catch (e) { /* noop */ }
   lfReadyResolve?.()
+}
+
+function closeSelectionSelectMode() {
+  if (!lf) return
+  try { lf.extension?.selectionSelect?.closeSelectionSelect?.() } catch (e) { /* noop */ }
+  selectionSelectActive.value = false
+}
+
+/** 切换框选：开启后在画布空白处拖拽框住多个节点，再点「子流程」成组 */
+function toggleSelectionSelect() {
+  if (!lf) return
+  const ext = lf.extension?.selectionSelect
+  if (!ext) {
+    ElMessage.warning(t('toolbar.boxSelectUnavailable'))
+    return
+  }
+  if (selectionSelectActive.value) {
+    closeSelectionSelectMode()
+    return
+  }
+  try {
+    ext.setExclusiveMode?.(true)
+    ext.openSelectionSelect()
+    selectionSelectActive.value = true
+    ElMessage.info(t('toolbar.boxSelectHint'))
+  } catch (e) {
+    selectionSelectActive.value = false
+    ElMessage.warning(t('toolbar.boxSelectUnavailable'))
+  }
 }
 
 function resolveLfTarget(token, idMap) {
@@ -944,6 +992,8 @@ defineExpose({
   createGroup,
   toggleGroupCollapse,
   ungroup,
+  toggleSelectionSelect,
+  selectionSelectActive,
   whenReady: () => lfReady
 })
 </script>

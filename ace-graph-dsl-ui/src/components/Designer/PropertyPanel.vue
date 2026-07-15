@@ -1,6 +1,7 @@
 <script setup>
 import { ref, watch, computed } from 'vue'
 import { Delete } from '@element-plus/icons-vue'
+import { ElMessage } from 'element-plus'
 import { useGraphEditorStore } from '../../stores/graphEditor'
 import { useNodeRegistryStore } from '../../stores/nodeRegistry'
 import { useI18n } from '../../i18n'
@@ -132,6 +133,15 @@ function removeMappingRow(idx) {
 function applyEdgeEdit() {
   const e = editor.selectedEdge
   if (!e) return
+  // 脚本路由：引擎须在 /nodes/engines 列表中（导入非法引擎时「应用」应拦截，与校验/试运行一致）
+  if (!e.dispatcher && edgeCondition.value) {
+    const engineId = (edgeEngine.value || '').trim() || 'aviator'
+    const known = edgeEngines.value.some(en => en.id === engineId)
+    if (!known) {
+      ElMessage.error(t('edgeEditor.unknownEngine', { engine: engineId }))
+      return
+    }
+  }
   const mapping = {}
   for (const r of edgeMappingRows.value) {
     if (r.key && r.target) mapping[r.key] = r.target
@@ -145,6 +155,7 @@ function applyEdgeEdit() {
     condition: edgeCondition.value,
     mapping
   })
+  ElMessage.success(t('edgeEditor.applyOk'))
 }
 
 function convertEdge() {
