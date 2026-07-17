@@ -1,6 +1,7 @@
 <script setup>
 import { ref, computed, watch, onMounted, onBeforeUnmount, nextTick } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import { RefreshLeft, RefreshRight, VideoPlay, Upload, Download, Share, Switch, ZoomIn, ZoomOut, FullScreen, ScaleToOriginal, MagicStick, MapLocation, FolderOpened, Rank, Crop } from '@element-plus/icons-vue'
 import { useGraphEditorStore } from '../../stores/graphEditor'
 import { usePermissionStore, MENU } from '../../stores/permissions'
 import { useI18n } from '../../i18n'
@@ -21,9 +22,53 @@ const props = defineProps({
   showActions: { type: Boolean, default: true },
   readOnly: { type: Boolean, default: false }
 })
-const emit = defineEmits(['save', 'validate', 'preview', 'publish'])
+const emit = defineEmits(['save', 'validate', 'preview', 'publish', 'undo', 'redo', 'dryRun', 'importDsl', 'exportDsl', 'topology', 'zoomIn', 'zoomOut', 'fit', 'resetZoom', 'autoLayout', 'toggleMinimap', 'createGroup', 'toggleBoxSelect'])
 
 const showVersionHistory = ref(false)
+
+// ── 工具栏拖拽 ──
+const actionsRef = ref(null)
+const isDragging = ref(false)
+const dragOffset = ref({ x: 0, y: 0 })
+/** 拖拽后的自定义位置；null 表示使用 CSS 默认的居中底部定位 */
+const dragPosition = ref(null)
+
+function onDragStart(e) {
+  if (!props.floatingActions || !actionsRef.value) return
+  // 仅左键且点击在工具栏自身（非按钮交互区域）时才触发拖拽
+  if (e.button !== 0) return
+  const rect = actionsRef.value.getBoundingClientRect()
+  dragOffset.value = { x: e.clientX - rect.left, y: e.clientY - rect.top }
+  isDragging.value = true
+  e.preventDefault()
+  document.addEventListener('mousemove', onDragMove)
+  document.addEventListener('mouseup', onDragEnd)
+}
+
+function onDragMove(e) {
+  if (!isDragging.value || !actionsRef.value) return
+  const parent = actionsRef.value.parentElement
+  if (!parent) return
+  const pRect = parent.getBoundingClientRect()
+  const aRect = actionsRef.value.getBoundingClientRect()
+  let x = e.clientX - pRect.left - dragOffset.value.x
+  let y = e.clientY - pRect.top - dragOffset.value.y
+  // 限制不超出父容器边界
+  x = Math.max(0, Math.min(x, pRect.width - aRect.width))
+  y = Math.max(0, Math.min(y, pRect.height - aRect.height))
+  dragPosition.value = { x, y }
+}
+
+function onDragEnd() {
+  isDragging.value = false
+  document.removeEventListener('mousemove', onDragMove)
+  document.removeEventListener('mouseup', onDragEnd)
+}
+
+onBeforeUnmount(() => {
+  document.removeEventListener('mousemove', onDragMove)
+  document.removeEventListener('mouseup', onDragEnd)
+})
 
 const BADGE_BEVEL = 14
 const BADGE_BEVEL_RISE = 24
@@ -205,8 +250,14 @@ async function onPublish() {
       </div>
     </div>
 
-    <div v-if="showActions" class="toolbar-actions" :class="{ 'toolbar-actions--floating': floatingActions }">
+    <div v-if="showActions" ref="actionsRef" class="toolbar-actions" :class="{ 'toolbar-actions--floating': floatingActions, 'is-dragging': isDragging }" :style="dragPosition ? { left: dragPosition.x + 'px', top: dragPosition.y + 'px', bottom: 'auto', right: 'auto', transform: 'none' } : {}">
+      <span v-if="floatingActions" class="toolbar-drag-handle" :title="t('toolbar.dragHint') || '拖动移动'" @mousedown="onDragStart">
+        <Rank />
+      </span>
+      <div class="toolbar-actions-body">
       <el-button-group>
+        <el-button :icon="RefreshLeft" :disabled="!editor.canUndo" :title="t('toolbar.undo')" size="small" @click="emit('undo')" />
+        <el-button :icon="RefreshRight" :disabled="!editor.canRedo" :title="t('toolbar.redo')" size="small" @click="emit('redo')" />
         <el-button v-if="!readOnly && perm.can(MENU.GRAPH_SAVE)" @click="onSave" :loading="editor.saving" size="small">
           {{ t('toolbar.save') }}
         </el-button>
@@ -219,11 +270,69 @@ async function onPublish() {
         <el-button v-if="!readOnly && perm.can(MENU.GRAPH_PUBLISH)" type="primary" @click="onPublish" :loading="editor.publishing" size="small">
           {{ t('toolbar.publish') }}
         </el-button>
+        <el-button v-if="perm.can(MENU.GRAPH_VALIDATE)" :icon="VideoPlay" @click="emit('dryRun')" size="small">
+          {{ t('toolbar.dryRun') }}
+        </el-button>
+        <el-button v-if="perm.can(MENU.GRAPH_VALIDATE)" :icon="Share" @click="emit('topology')" size="small">
+          {{ t('toolbar.topology') }}
+        </el-button>
+        <el-button
+          v-if="!readOnly"
+          :type="editor.conditionalDrawMode ? 'warning' : 'default'"
+          :icon="Switch"
+          :plain="!editor.conditionalDrawMode"
+          :title="t('toolbar.conditionalEdgeHint')"
+          size="small"
+          @click="editor.conditionalDrawMode = !editor.conditionalDrawMode"
+        >
+          {{ t('toolbar.conditionalEdge') }}
+        </el-button>
+        <el-button
+          v-if="!readOnly"
+          :type="canvasRef?.selectionSelectActive ? 'warning' : 'default'"
+          :icon="Crop"
+          :plain="!canvasRef?.selectionSelectActive"
+          :title="t('toolbar.boxSelectHint')"
+          size="small"
+          @click="emit('toggleBoxSelect')"
+        >
+          {{ t('toolbar.boxSelect') }}
+        </el-button>
+        <el-button
+          v-if="!readOnly"
+          :icon="FolderOpened"
+          size="small"
+          :title="t('toolbar.groupHint')"
+          @click="emit('createGroup')"
+        >
+          {{ t('toolbar.group') }}
+        </el-button>
+        <!-- TODO: 自动布局功能待完善，暂时隐藏 -->
+        <!-- <el-button v-if="!readOnly && perm.can(MENU.GRAPH_VALIDATE)" :icon="MagicStick" size="small" @click="emit('autoLayout')">
+          {{ t('toolbar.autoLayout') }}
+        </el-button> -->
+        <el-button-group v-if="perm.can(MENU.GRAPH_VIEW)">
+          <el-button :icon="ZoomIn" :title="t('toolbar.zoomIn')" size="small" @click="emit('zoomIn')" />
+          <el-button :icon="ZoomOut" :title="t('toolbar.zoomOut')" size="small" @click="emit('zoomOut')" />
+          <el-button :icon="FullScreen" :title="t('toolbar.fitView')" size="small" @click="emit('fit')" />
+          <el-button :icon="ScaleToOriginal" :title="t('toolbar.resetZoom')" size="small" @click="emit('resetZoom')" />
+          <el-button :icon="MapLocation" :title="editor.minimapVisible ? t('toolbar.minimapHide') : t('toolbar.minimapShow')" size="small" @click="emit('toggleMinimap')" />
+        </el-button-group>
+        <el-button v-if="perm.can(MENU.GRAPH_VIEW)" :icon="Download" size="small" @click="emit('exportDsl')">
+          {{ t('toolbar.export') }}
+        </el-button>
+        <el-button v-if="!readOnly && perm.can(MENU.GRAPH_SAVE)" :icon="Upload" size="small" @click="emit('importDsl')">
+          {{ t('toolbar.import') }}
+        </el-button>
         <el-button v-if="perm.can(MENU.GRAPH_VIEW)" size="small" @click="showVersionHistory = true">
           {{ t('toolbar.versionHistory') }}
         </el-button>
       </el-button-group>
       <el-tag v-if="readOnly" type="warning" effect="plain" size="small">{{ t('toolbar.readOnly') || '只读' }}</el-tag>
+      </div>
+      <span v-if="floatingActions" class="toolbar-drag-handle toolbar-drag-handle--end" :title="t('toolbar.dragHint') || '拖动移动'" @mousedown="onDragStart">
+        <Rank />
+      </span>
     </div>
 
     <VersionHistoryDrawer v-model:visible="showVersionHistory" :canvas-ref="canvasRef" />
@@ -372,10 +481,50 @@ async function onPublish() {
   left: 50%;
   bottom: 20px;
   transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
   padding: 6px 10px;
   border-radius: 8px;
   background: rgba(255, 255, 255, 0.96);
   border: 1px solid var(--agd-color-border, #e4e7ed);
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.12);
+  cursor: default;
+}
+.toolbar-actions-body {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  overflow: hidden;
+}
+.toolbar-actions--floating.is-dragging {
+  cursor: grabbing;
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.18);
+  opacity: 0.92;
+}
+.toolbar-drag-handle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  margin-right: 6px;
+  color: #909399;
+  font-size: 12px;
+  cursor: grab;
+  vertical-align: middle;
+  flex-shrink: 0;
+}
+.toolbar-drag-handle--end {
+  margin-right: 0;
+  margin-left: 6px;
+}
+.toolbar-drag-handle:hover {
+  color: #409eff;
+}
+.toolbar-drag-handle:active {
+  cursor: grabbing;
 }
 </style>

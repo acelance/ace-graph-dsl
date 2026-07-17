@@ -39,8 +39,8 @@ class EdgeParamReachabilityValidatorTest {
                 "g1", "test", "1.0.0", "",
                 Map.of("reply_draft", "REPLACE", "translate_en", "REPLACE"),
                 List.of(
-                        new NodeRef("draft", Map.of()),
-                        new NodeRef("translate", Map.of())),
+                        new NodeRef("draft", Map.of(), null, null),
+                        new NodeRef("translate", Map.of(), null, null)),
                 List.of(
                         new GraphEdge(GraphDefinition.START, "draft", GraphEdge.TYPE_NORMAL, null, null, null, null),
                         new GraphEdge("draft", "translate", GraphEdge.TYPE_NORMAL, null, null, null, null),
@@ -57,7 +57,7 @@ class EdgeParamReachabilityValidatorTest {
         GraphDefinition def = new GraphDefinition(
                 "g1", "test", "1.0.0", "",
                 Map.of("translate_en", "REPLACE"),
-                List.of(new NodeRef("translate", Map.of())),
+                List.of(new NodeRef("translate", Map.of(), null, null)),
                 List.of(
                         new GraphEdge(GraphDefinition.START, "rag", GraphEdge.TYPE_NORMAL, null, null, null, null),
                         new GraphEdge("rag", "translate", GraphEdge.TYPE_NORMAL, null, null, null, null),
@@ -76,7 +76,7 @@ class EdgeParamReachabilityValidatorTest {
         GraphDefinition def = new GraphDefinition(
                 "g1", "test", "1.0.0", "",
                 Map.of("normalized_query", "REPLACE"),
-                List.of(new NodeRef("intake", Map.of())),
+                List.of(new NodeRef("intake", Map.of(), null, null)),
                 List.of(
                         new GraphEdge(GraphDefinition.START, "intake", GraphEdge.TYPE_NORMAL, null, null, null, null),
                         new GraphEdge("intake", GraphDefinition.END, GraphEdge.TYPE_NORMAL, null, null, null, null)),
@@ -93,8 +93,8 @@ class EdgeParamReachabilityValidatorTest {
                 "g1", "test", "1.0.0", "",
                 Map.of("reply_draft", "REPLACE", "feed_back", "REPLACE"),
                 List.of(
-                        new NodeRef("draft", Map.of()),
-                        new NodeRef("human", Map.of())),
+                        new NodeRef("draft", Map.of(), null, null),
+                        new NodeRef("human", Map.of(), null, null)),
                 List.of(
                         new GraphEdge(GraphDefinition.START, "draft", GraphEdge.TYPE_NORMAL, null, null, null, null),
                         new GraphEdge("draft", "human", GraphEdge.TYPE_NORMAL, null, null, null, null),

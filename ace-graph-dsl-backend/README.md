@@ -34,7 +34,9 @@ ace-graph-dsl-backend/
 | [作为第三方通用组件的优化与演进规划](docs/LIBRARY_EMBEDDING_ROADMAP.md) | 库嵌入业务系统的痛点、已修复缺口、优化项与演进路线 |
 | [后续优化与功能规划建议](docs/FUTURE_OPTIMIZATION_PLAN.md) | 按 P0–P3 优先级梳理的后续优化项、落地顺序与近期起步包 |
 | [节点灵活性增强探索方案](docs/NODE_FLEXIBILITY_EXPLORATION.md) | 动态节点、脚本节点与权限抽象的设计背景 |
-| [脚本节点填写与使用样例](docs/SCRIPT_NODE_EXAMPLES.md) | 设计器字段说明、Aviator 样例、cs-reply 集成与 API 契约 |
+| [脚本节点填写与使用样例](docs/SCRIPT_NODE_EXAMPLES.md) | 四引擎字段说明、样例、条件边与 API 契约 |
+| [多脚本引擎方案](docs/MULTI_SCRIPT_ENGINE_PLAN.md) | SpEL / QLExpress / Groovy 实施与分包进度 |
+| [多脚本引擎测试联调方案](docs/MULTI_SCRIPT_ENGINE_TEST_PLAN.md) | L1–L3 自动化矩阵 + 设计器手工清单 |
 | [菜单/功能权限抽象与接入指南](docs/MENU_PERMISSION_INTEGRATION.md) | 对接外部权限框架的 SPI、标准菜单 key、REST API 与前端接入 |
 
 ## 技术栈

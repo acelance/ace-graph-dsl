@@ -1,6 +1,7 @@
 package io.acelance.graph.dsl.web;
 
 import io.acelance.graph.dsl.autoconfigure.BuiltinGraphRegistry;
+import io.acelance.graph.dsl.builder.DynamicGraphBuilder;
 import io.acelance.graph.dsl.builder.ValidationResult;
 import io.acelance.graph.dsl.definition.GraphDefinition;
 import io.acelance.graph.dsl.persistence.GraphDefinitionRepository;
@@ -10,6 +11,9 @@ import io.acelance.graph.dsl.security.menu.GraphMenuPermissionResolver;
 import io.acelance.graph.dsl.security.menu.GraphMenuPermissions;
 import io.acelance.graph.dsl.service.GraphPreviewService;
 import io.acelance.graph.dsl.store.GraphRuntime;
+import com.alibaba.cloud.ai.graph.CompiledGraph;
+import com.alibaba.cloud.ai.graph.NodeOutput;
+import com.alibaba.cloud.ai.graph.RunnableConfig;
 import com.alibaba.cloud.ai.graph.exception.GraphStateException;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -17,10 +21,12 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
+import reactor.core.publisher.Flux;
 
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 
 /**
  * 图定义 REST API：保存草稿、校验、预览、版本管理。
@@ -36,15 +42,17 @@ public class GraphDefinitionController {
     private final GraphPreviewService previewService;
     private final GraphMenuPermissionResolver menuPermissions;
     private final BuiltinGraphRegistry builtinRegistry;
+    private final DynamicGraphBuilder builder;
 
     public GraphDefinitionController(GraphDefinitionRepository store, GraphRuntime runtime,
                                      GraphPreviewService previewService, GraphMenuPermissionResolver menuPermissions,
-                                     BuiltinGraphRegistry builtinRegistry) {
+                                     BuiltinGraphRegistry builtinRegistry, DynamicGraphBuilder builder) {
         this.store = store;
         this.runtime = runtime;
         this.previewService = previewService;
         this.menuPermissions = menuPermissions;
         this.builtinRegistry = builtinRegistry;
+        this.builder = builder;
     }
 
     /** 列出所有图定义（最新版本），合并内置图 */
@@ -143,4 +151,40 @@ public class GraphDefinitionController {
         }
         return def;
     }
+
+    /**
+     * 试运行（dry-run）：把传入的草稿定义临时编译为 CompiledGraph 并跑一遍，
+     * 收集每个节点的输出轨迹与最终状态，不注册到运行时、不影响已发布图。
+     *
+     * <p>用于设计器内调试：用户填入初始 state，查看各节点执行结果，无需发布。</p>
+     */
+    @PostMapping("/{graphId}/dry-run")
+    public Map<String, Object> dryRun(@PathVariable String graphId, @RequestBody DryRunRequest req) {
+        MenuPermissionGuard.require(menuPermissions, GraphMenuPermissions.GRAPH_VALIDATE, "无权试运行 Graph");
+        GraphDefinition def = req.definition();
+        if (def == null) {
+            throw new IllegalArgumentException("definition 不能为空");
+        }
+        try {
+            CompiledGraph compiled = builder.build(def);
+            String threadId = UUID.randomUUID().toString();
+            RunnableConfig config = RunnableConfig.builder().threadId(threadId).build();
+            Map<String, Object> inputs = req.inputs() != null ? req.inputs() : Map.of();
+            List<Map<String, Object>> trace = new ArrayList<>();
+            Flux<NodeOutput> flux = compiled.stream(inputs, config);
+            flux.doOnNext(out -> {
+                Map<String, Object> state = out.state() != null ? out.state().data() : Map.of();
+                trace.add(Map.of("node", out.node(), "state", state));
+            }).blockLast();
+            // 仅执行一次 stream，finalState 取最后一条轨迹的 state，避免重复执行带来副作用
+            Map<String, Object> finalState = trace.isEmpty()
+                    ? Map.of() : (Map<String, Object>) trace.get(trace.size() - 1).get("state");
+            return Map.of("trace", trace, "finalState", finalState);
+        } catch (Exception e) {
+            return Map.of("error", e.getMessage() != null ? e.getMessage() : e.toString());
+        }
+    }
+
+    /** 试运行请求体：草稿定义 + 初始输入 state。 */
+    public record DryRunRequest(GraphDefinition definition, Map<String, Object> inputs) {}
 }

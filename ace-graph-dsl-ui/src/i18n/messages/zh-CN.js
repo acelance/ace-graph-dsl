@@ -15,6 +15,39 @@ export default {
     preview: 'PlantUML 预览',
     publish: '发布',
     versionHistory: '版本历史',
+    undo: '撤销',
+    redo: '重做',
+    dryRun: '试运行',
+    dryRunTitle: '试运行',
+    import: '导入',
+    export: '导出',
+    conditionalEdge: '条件边',
+    conditionalEdgeHint: '开启后，下一条连线将直接创建为条件边',
+    topology: '拓扑校验',
+    zoomIn: '放大',
+    zoomOut: '缩小',
+    fitView: '适应画布',
+    resetZoom: '重置缩放',
+    autoLayout: '自动布局',
+    minimap: '缩略图',
+    minimapHide: '隐藏缩略图',
+    minimapShow: '显示缩略图',
+    group: '子流程',
+    groupCreate: '成组',
+    groupCreateHint: '请先多选至少 2 个业务节点再成组（Ctrl+点击，或先开「框选」拖选）',
+    groupHint: '用法：Ctrl+点击多选节点，或点「框选」后拖选，再点本按钮成组。仅画布可视化，不写入 DSL。',
+    boxSelect: '框选',
+    boxSelectHint: '框选已开启：在画布空白处拖拽框住节点，松开后可点子流程成组',
+    boxSelectUnavailable: '框选插件不可用',
+    groupCollapse: '折叠',
+    groupExpand: '展开',
+    groupUngroup: '解组',
+    groupEmpty: '暂无子流程分组',
+    groupCount: '{n} 个节点',
+    importSuccess: '已导入 DSL（{graphId} v{version}），记得保存',
+    importFailed: '导入失败: {msg}',
+    importInvalid: '文件不是有效的 Graph DSL JSON',
+    exportSuccess: '已导出 DSL JSON',
     saveSuccess: '草稿已保存',
     saveFailed: '保存失败: {msg}',
     validateSuccess: '校验通过',
@@ -80,7 +113,10 @@ export default {
   canvas: {
     delete: '删除',
     deleteSelection: '删除选中',
-    deleteSelectionHint: '删除选中的节点或连线（Delete / Backspace）'
+    deleteSelectionHint: '删除选中的节点或连线（Delete / Backspace）',
+    copied: '已复制 {n} 个节点',
+    pasteHint: 'Ctrl+C 复制选中节点 / Ctrl+V 粘贴',
+    autoLayoutFailed: '自动布局失败'
   },
   nodePanel: {
     title: '节点面板',
@@ -100,6 +136,26 @@ export default {
     title: '连线参数校验',
     issue: '{from} → {to}：目标节点 {target} 缺少入参 [{keys}]'
   },
+  topology: {
+    title: '拓扑校验',
+    ok: '拓扑结构正常（无环、END 可达、无孤立节点）',
+    cycle: '环',
+    noEnd: 'END 不可达',
+    unreachable: '不可达节点',
+    isolated: '孤立节点',
+    error: '错误',
+    warning: '警告'
+  },
+  search: {
+    placeholder: '搜索节点并定位…',
+    noResult: '无匹配节点',
+    hint: '输入节点名称或 ID，回车/点击定位到画布'
+  },
+  group: {
+    title: '子流程分组',
+    collapsed: '已折叠',
+    expanded: '已展开'
+  },
   edgeEditor: {
     title: '边配置',
     type: '类型',
@@ -118,6 +174,8 @@ export default {
     mappingTarget: '目标节点',
     addMapping: '+ 新增映射',
     apply: '应用',
+    applyOk: '边配置已应用',
+    unknownEngine: '脚本引擎不可用: {engine}（不在当前可用引擎列表中，请重新选择）',
     convert: '转为条件边',
     noConditional: '普通边不支持条件路由。点击「转为条件边」可启用条件路由配置。'
   },
@@ -184,5 +242,18 @@ export default {
     spel: { hint: "使用 #state['key'] / #config['key']；Map 用 {'key': value}" },
     qlexpress: { hint: "支持多行 if/else；return map('key', value)" },
     groovy: { hint: "支持集合操作；return [key: value]；需管理员开启" }
+  },
+  dryRun: {
+    title: '试运行',
+    hint: '将当前草稿临时编译并运行一次，收集各节点输出轨迹，不影响已发布图。',
+    mockState: '初始 State (JSON)',
+    run: '运行',
+    running: '运行中…',
+    trace: '执行轨迹',
+    finalState: '最终状态',
+    node: '节点',
+    empty: '运行后展示各节点输出轨迹',
+    error: '试运行失败',
+    mockError: 'mockState JSON 格式错误'
   }
 }

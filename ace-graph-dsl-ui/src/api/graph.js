@@ -70,6 +70,10 @@ export function createGraphApi(options = '/') {
     publish: (graphId, version, operator = 'designer') => http.post(`${p}/definitions/${graphId}/publish`, { version, operator }).then(r => r.data),
     rollback: (graphId, version, operator = 'designer') => http.post(`${p}/definitions/${graphId}/rollback`, { version, operator }).then(r => r.data),
     getEnabled: (graphId) => http.get(`${p}/definitions/${graphId}/enabled`).then(r => r.data),
+    dryRunGraph: (graphId, definition, inputs) => http.post(`${p}/definitions/${graphId}/dry-run`, {
+      definition,
+      inputs: inputs || {}
+    }).then(r => r.data),
     getMenuPermissions: () => http.get(`${p}/permissions/menus`).then(r => r.data)
   }
 }
@@ -121,4 +125,5 @@ export const previewMermaid = (...args) => defaultApi.previewMermaid(...args)
 export const publish = (...args) => defaultApi.publish(...args)
 export const rollback = (...args) => defaultApi.rollback(...args)
 export const getEnabled = (...args) => defaultApi.getEnabled(...args)
+export const dryRunGraph = (...args) => defaultApi.dryRunGraph(...args)
 export const getMenuPermissions = (...args) => defaultApi.getMenuPermissions(...args)

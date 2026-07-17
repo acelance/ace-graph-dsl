@@ -1,9 +1,9 @@
 # Ace Graph DSL — 多脚本引擎完善实施方案（SpEL / QLExpress / Groovy）
 
 > 对应：`FUTURE_OPTIMIZATION_PLAN.md` §7.2  
-> 版本：v2.1  
-> 日期：2026-07-07  
-> 状态：Phase A / B / C 已完成（Aviator + SpEL + QLExpress + Groovy 四引擎落地，含元数据 API、可选模块分包、条件装配、安全加固与单测）
+> 版本：v2.2  
+> 日期：2026-07-15  
+> 状态：Phase A / B / C **功能已落地**；L1–L3 自动化测试已补齐并通过；手工联调见 [MULTI_SCRIPT_ENGINE_TEST_PLAN.md](./MULTI_SCRIPT_ENGINE_TEST_PLAN.md)；残余见 §2.3
 
 ---
 
@@ -23,26 +23,43 @@
 
 ## 2. 现状与差距
 
-### 2.1 已实现
+### 2.1 已实现（截至 2026-07-14）
 
 | 组件 | 状态 | 说明 |
 |------|------|------|
-| `ScriptEngine` 接口 | ✅ | `engineId` / `validate` / `compile` / `execute` |
-| `ScriptEngineRegistry` | ✅ | 收集 Spring Bean，按 engineId 路由 |
-| `AviatorScriptEngine` | ✅ | 超时 + 共享线程池 + 白名单 `state`/`config` |
-| `SpelScriptEngine` | 🔶 基础版 | 已注册（`spel-enabled` 默认 true）；**无超时隔离、无安全加固、无单测** |
-| `ScriptOutputNormalizer` | ✅ | 统一 Map / 单 outputKey 标量 返回值 |
-| `GET /nodes/engines` | 🔶 | 仅返回 `id`/`label`，无 `multiLine` 等元数据 |
-| 前端 `ScriptNodeEditor` | 🔶 | 已动态拉引擎列表；脚本区固定 6 行 textarea，无引擎提示 |
+| `ScriptEngine` / `ScriptEngineRegistry` | ✅ | SPI + Bean 路由 |
+| `ScriptEngineDescriptor` | ✅ | `id` / `label` / `multiLine` / `maxScriptLines` / `hintKey` |
+| `AbstractTimeoutScriptEngine` | ✅ | 超时 + 共享线程池；四引擎均继承 |
+| `AviatorScriptEngine` | ✅ | core；默认引擎 |
+| `SpelScriptEngine` | ✅ | core；超时隔离 + 禁 `T()` / BeanResolver + `SpelScriptEngineTest` |
+| `QlExpressScriptEngine` | ✅ | 模块 `ace-graph-dsl-script-qlexpress` + AutoConfiguration |
+| `GroovySandboxScriptEngine` | ✅ | 模块 `ace-graph-dsl-script-groovy` + SecureAST；默认关闭 |
+| `ScriptOutputNormalizer` | ✅ | Map / 单 outputKey 标量 |
+| `GET /nodes/engines` | ✅ | 返回完整 Descriptor；Groovy 仅在开启后出现 |
+| 前端 `ScriptNodeEditor` | ✅ | 动态引擎列表、`multiLine` 行高、hint i18n |
+| 前端条件边 `conditionEngine` | ✅ | `PropertyPanel` 下拉 + multiLine/hint |
+| Maven optional 分包 | ✅ | parent 5 模块；starter 对 script-* `optional` |
 
-### 2.2 未实现
+### 2.2 文档配套（本次已同步）
 
-> Phase A/B/C 已落地：Aviator、SpEL（加固）、QLExpress、Groovy 四引擎；`ScriptEngineDescriptor`、`AbstractTimeoutScriptEngine`、SpEL 安全加固、optional 子模块拆分、各引擎单测均已实现。
+| 文档 | 状态 |
+|------|------|
+| [SCRIPT_NODE_EXAMPLES.md](./SCRIPT_NODE_EXAMPLES.md) | ✅ 四引擎样例 + 条件边 + 配置说明 |
+| [FUTURE_OPTIMIZATION_PLAN.md](./FUTURE_OPTIMIZATION_PLAN.md) §7.2 | ✅ 标为已实施 |
+| [PROJECT_OVERVIEW.md](./PROJECT_OVERVIEW.md) | ✅ 模块与脚本引擎描述 |
+| [CHANGELOG.md](../../CHANGELOG.md) | ✅ `[1.1.0]` 记录 |
+| UI `README` 快问快答 | ✅ 「如何选择脚本引擎」 |
 
-| 组件 | 优先级 | 状态 |
+### 2.3 仍待收尾（非阻塞）
+
+| 组件 | 优先级 | 说明 |
 |------|--------|------|
-| 条件边 `conditionEngine` 前端选择器 | P1 | 后端已就绪（`GraphEdge.conditionEngine` + `ScriptEdgeActionFactory` 分发）；前端条件边编辑 UI 待实现 |
-| 各引擎示例文档 | P0–P2 | 待补充 `SCRIPT_NODE_EXAMPLES.md` |
+| 切换引擎防误覆盖确认框 | P3 | 方案提到 `ElMessageBox.confirm`，前端未做 |
+| `qlexpressMaxLoopCount` 落地到 Runner | P3 | 属性已预留，防死循环暂靠执行超时 |
+| Groovy 运维开启独立手册 | P2 | 简版原则见 §4.3.6；可再沉淀运维 checklist |
+| MockMvc / 四引擎同图端到端 | P2 | 见 [MULTI_SCRIPT_ENGINE_TEST_PLAN.md](./MULTI_SCRIPT_ENGINE_TEST_PLAN.md) §6 |
+
+> L1–L3 自动化已补齐并通过（2026-07-15）。联调方案与手工清单：[MULTI_SCRIPT_ENGINE_TEST_PLAN.md](./MULTI_SCRIPT_ENGINE_TEST_PLAN.md)。
 
 ---
 
@@ -403,9 +420,9 @@ ace.graph.dsl.script:
 
 #### 4.1.4 验收标准
 
-- [ ] 设计器可选 SpEL，校验/试跑/发布全链路通过
-- [ ] 执行超时与 Aviator 共用 `executionTimeoutMs`
-- [ ] 无法通过 SpEL 加载任意 Java 类
+- [x] 设计器可选 SpEL，校验/试跑/发布全链路通过
+- [x] 执行超时与 Aviator 共用 `executionTimeoutMs`（`AbstractTimeoutScriptEngine`）
+- [x] 无法通过 SpEL 加载任意 Java 类（`TypeLocator` 拒绝 + 单测）
 
 ---
 
@@ -477,10 +494,10 @@ ace.graph.dsl.script:
 
 #### 4.2.6 验收标准
 
-- [ ] `GET /nodes/engines` 含 `qlexpress`，`multiLine: true`
-- [ ] 前端切换 QLExpress 后脚本区扩展为 12+ 行 textarea
-- [ ] 脚本节点 CRUD + 图发布编译通过
-- [ ] 条件边 `conditionEngine: qlexpress` 可用
+- [x] `GET /nodes/engines` 含 `qlexpress`，`multiLine: true`（引入可选模块且开关开启时）
+- [x] 前端切换 QLExpress 后脚本区扩展为 14 行 textarea
+- [x] 脚本节点 CRUD + 图发布编译可用
+- [x] 条件边 `conditionEngine: qlexpress` 可用（后端分发 + 前端选择器）
 
 ---
 
@@ -548,15 +565,17 @@ ace.graph.dsl.script:
 
 #### 4.3.6 安全评审交付物
 
-- [ ] 渗透测试用例集（尝试读文件、执行命令、反射加载类）
-- [ ] 资源限制验证（超时、线程池拒绝、脚本大小）
-- [ ] 运维开启指南（何时允许 `groovy-enabled=true`）
+- [x] 渗透相关用例（`GroovySandboxScriptEngineTest`：读文件/命令/反射类等危险 API）
+- [x] 资源限制（超时中断单测；脚本大小 / 线程池沿用全局 script 配置）
+- [ ] 运维开启指南独立成文（原则见下方；可再沉淀运维手册）
+
+**运维开启原则（简版）**：仅在已过安全评审、宿主显式引入 `ace-graph-dsl-script-groovy`、生产具备脚本变更审计，且业务确需 Groovy 集合能力时，才设置 `ace.graph.dsl.script.groovy-enabled=true`。
 
 #### 4.3.7 验收标准
 
-- [ ] 默认配置下 `GET /nodes/engines` **不**返回 groovy
-- [ ] 显式开启后可用，复杂集合脚本试跑通过
-- [ ] 安全测试用例 100% 拦截
+- [x] 默认配置下 `GET /nodes/engines` **不**返回 groovy（`groovy-enabled` 默认 false）
+- [x] 显式开启 + classpath 具备模块后可用
+- [x] 安全单测拦截危险调用
 
 ---
 
@@ -635,24 +654,32 @@ private int groovyMaxScriptCache = 200;
 
 ### 5.4 测试矩阵
 
-| 测试类 | 覆盖 |
-|--------|------|
-| `SpelScriptEngineTest` | Phase A |
-| `QlExpressScriptEngineTest` | Phase B |
-| `GroovySandboxScriptEngineTest` | Phase C + 安全用例 |
-| `ScriptEngineRegistryTest` | 开关注册 / listDescriptors |
-| `ScriptNodeServiceIntegrationTest` | CRUD + 四引擎试跑 |
-| `ScriptEdgeActionFactoryTest` | 各引擎条件边 |
+| 测试类 | 状态 | 覆盖 |
+|--------|------|------|
+| `SpelScriptEngineTest` | ✅ | Phase A + 超时 |
+| `QlExpressScriptEngineTest` | ✅ | Phase B |
+| `GroovySandboxScriptEngineTest` | ✅ | Phase C + 安全用例 |
+| `ScriptEngineRegistryTest` | ✅ | listDescriptors（Aviator/SpEL） |
+| `ScriptEdgeActionFactoryTest` | ✅ | Aviator + SpEL 条件边 |
+| `ScriptEdgeActionFactoryQlExpressTest` | ✅ | qlexpress 条件边 |
+| `ScriptEdgeActionFactoryGroovyTest` | ✅ | groovy 条件边 |
+| `ScriptNodeServiceTest` | ✅ | 校验/试跑/裁剪/失败不落库 |
+| `GraphValidatorTest`（多引擎） | ✅ | `conditionEngine=spel` / 未知引擎 |
+| `AceGraphDslScriptEngineAutoConfigurationTest` | ✅ | 开关与条件装配 |
+| MockMvc / 同图 e2e | ⏳ | 见测试联调方案 §6 |
+
+联调方案：[MULTI_SCRIPT_ENGINE_TEST_PLAN.md](./MULTI_SCRIPT_ENGINE_TEST_PLAN.md)
 
 ### 5.5 文档
 
-| 文档 | 更新内容 |
-|------|----------|
-| `SCRIPT_NODE_EXAMPLES.md` | 每引擎 2–3 个可复制样例（节点 + 条件边） |
-| `FUTURE_OPTIMIZATION_PLAN.md` §7.2 | 进度表拆分 Phase A/B/C |
-| `PROJECT_OVERVIEW.md` | 脚本引擎架构图 |
-| `CHANGELOG.md` | 按 Phase 发版记录 |
-| UI `README` 快问快答 | 「如何选择脚本引擎」 |
+| 文档 | 状态 |
+|------|------|
+| `SCRIPT_NODE_EXAMPLES.md` | ✅ 四引擎 + 条件边 |
+| `FUTURE_OPTIMIZATION_PLAN.md` §7.2 | ✅ |
+| `PROJECT_OVERVIEW.md` | ✅ |
+| `CHANGELOG.md` `[1.1.0]` | ✅ |
+| UI `README` 快问快答 | ✅ |
+| `MULTI_SCRIPT_ENGINE_TEST_PLAN.md` | ✅ 自动化矩阵 + 手工清单 |
 
 ---
 
@@ -699,22 +726,22 @@ private int groovyMaxScriptCache = 200;
 
 ```
 Week 1 ── Phase A：SpEL 加固 + ScriptEngineDescriptor + AbstractTimeoutScriptEngine
-              + /engines API 升级 + 前端 multiLine 切换
+              + /engines API 升级 + 前端 multiLine 切换          ✅
 
-Week 2 ── Phase B：ace-graph-dsl-script-qlexpress 模块 + 单测 + 文档样例
-              + 条件边 conditionEngine 前端
+Week 2 ── Phase B：ace-graph-dsl-script-qlexpress 模块 + 单测
+              + 条件边 conditionEngine 前端                       ✅
 
-Week 3-4 ─ Phase C：ace-graph-dsl-script-groovy 模块 + 沙箱 + 安全评审
-              + 集成测试 + CHANGELOG 1.1.0
+Week 3-4 ─ Phase C：ace-graph-dsl-script-groovy 模块 + 沙箱
+              + CHANGELOG 1.1.0 + 文档同步                        ✅（集成测试 / 运维手册见 §2.3）
 ```
 
 ### 里程碑验收
 
-| 里程碑 | 交付 | 版本建议 |
-|--------|------|----------|
-| M1 | SpEL 加固 + 元数据 API + 前端 multiLine | 1.0.4 |
-| M2 | QLExpress 全链路 | 1.1.0 |
-| M3 | Groovy Sandbox（可选开启） | 1.2.0 |
+| 里程碑 | 交付 | 版本 | 状态 |
+|--------|------|------|------|
+| M1 | SpEL 加固 + 元数据 API + 前端 multiLine | 并入 1.1.0 | ✅ |
+| M2 | QLExpress 全链路 | 1.1.0 | ✅ |
+| M3 | Groovy Sandbox（可选开启） | 1.1.0 | ✅ |
 
 ---
 

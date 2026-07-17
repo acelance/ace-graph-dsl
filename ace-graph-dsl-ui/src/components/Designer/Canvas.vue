@@ -1,14 +1,15 @@
 <script setup>
 import { ref, onMounted, onBeforeUnmount, watch } from 'vue'
 import { Delete } from '@element-plus/icons-vue'
+import { ElMessage } from 'element-plus'
 import LogicFlow from '@logicflow/core'
-import { MiniMap, Control, Snapshot } from '@logicflow/extension'
+import { MiniMap, Snapshot, SelectionSelect } from '@logicflow/extension'
 import '@logicflow/core/dist/index.css'
 import '@logicflow/extension/lib/style/index.css'
 import { useNodeRegistryStore } from '../../stores/nodeRegistry'
 import { useGraphEditorStore } from '../../stores/graphEditor'
 import { useI18n } from '../../i18n'
-import { DspRectNode, DspDiamondNode, DspCircleNode, resolveNodeType } from './DspNode.js'
+import { DspRectNode, DspDiamondNode, DspCircleNode, DspGroupNode, resolveNodeType } from './DspNode.js'
 import { DspBezierEdge } from './DspEdge.js'
 
 const nodeStore = useNodeRegistryStore()
@@ -17,10 +18,21 @@ const { t } = useI18n()
 
 const containerRef = ref(null)
 const canDeleteSelection = ref(false)
+/** 框选模式（SelectionSelect 独占）是否开启 */
+const selectionSelectActive = ref(false)
 let lf = null
 let suppressSync = false
+let groupLastPos = {}
 let lfReadyResolve
 const lfReady = new Promise(resolve => { lfReadyResolve = resolve })
+
+/** Win/Linux 用 Ctrl，macOS 用 Cmd，以便点选多选 */
+function detectMultipleSelectKey() {
+  const platform = navigator.platform || ''
+  const ua = navigator.userAgent || ''
+  if (/Mac|iPhone|iPad|iPod/i.test(platform) || /Mac OS/i.test(ua)) return 'meta'
+  return 'ctrl'
+}
 
 onMounted(() => { initLf() })
 onBeforeUnmount(() => {
@@ -93,6 +105,29 @@ function deleteSelectedElements() {
   const edges = elements.edges
   if (!nodes.length && !edges.length) return false
 
+  // 分组清理：删除分组容器时解组成员；删除成员时从分组移除
+  const deletedGroupIds = new Set()
+  nodes.forEach(n => {
+    if (n.properties?.kind === 'GROUP') deletedGroupIds.add(n.id)
+  })
+  if (deletedGroupIds.size) {
+    deletedGroupIds.forEach(gid => {
+      const g = editor.groups.find(x => x.id === gid)
+      if (g) g.memberIds.forEach(mid => {
+        const m = lf.getNodeModelById(mid)
+        if (m) { m.visible = true; const p = { ...m.properties }; delete p.groupId; lf.setProperties(mid, p) }
+      })
+    })
+    editor.groups = editor.groups.filter(x => !deletedGroupIds.has(x.id))
+  }
+  nodes.forEach(n => {
+    const gid = n.properties?.groupId
+    if (gid && !deletedGroupIds.has(gid)) {
+      const g = editor.groups.find(x => x.id === gid)
+      if (g) g.memberIds = g.memberIds.filter(id => id !== n.id)
+    }
+  })
+
   lf.clearSelectElements()
   edges.forEach(edge => edge.id && lf.deleteEdge(edge.id))
   nodes.forEach(node => node.id && lf.deleteNode(node.id))
@@ -108,6 +143,89 @@ function registerDeleteShortcut() {
     if (!lf.options.keyboard?.enabled) return true
     if (lf.graphModel.textEditElement) return true
     return deleteSelectedElements() ? false : true
+  })
+}
+
+function refreshHistoryState() {
+  const h = lf.history
+  if (h) {
+    editor.canUndo = !!h.undoAble
+    editor.canRedo = !!h.redoAble
+  }
+}
+
+function undo() {
+  if (!lf) return
+  lf.undo()
+  refreshHistoryState()
+}
+
+function redo() {
+  if (!lf) return
+  lf.redo()
+  refreshHistoryState()
+}
+
+/** 复制选中业务节点（排除 START/END）到剪贴板 */
+let clipboard = null
+function copySelection() {
+  if (!lf) return
+  const { nodes } = lf.getSelectElements(true)
+  const biz = nodes.filter(n => !isReservedNodeData(n))
+  if (!biz.length) return
+  clipboard = biz.map(n => ({
+    nodeId: n.properties?.nodeId || n.id,
+    displayName: n.properties?.displayName,
+    category: n.properties?.category || 'NORMAL',
+    inputKeys: n.properties?.inputKeys,
+    outputKeys: n.properties?.outputKeys,
+    config: n.properties?.config || {},
+    x: n.x,
+    y: n.y
+  }))
+  ElMessage.success(t('canvas.copied', { n: clipboard.length }))
+}
+
+/** 粘贴剪贴板节点，偏移避免重叠并选中 */
+function pasteSelection() {
+  if (!lf || !clipboard || !clipboard.length) return
+  const offset = 50
+  const ids = []
+  clipboard.forEach((c, i) => {
+    const id = `${c.nodeId}_${Date.now()}_${i}`
+    lf.addNode({
+      id,
+      type: resolveNodeType(c.category),
+      x: c.x + offset,
+      y: c.y + offset,
+      text: c.displayName,
+      properties: baseProperties({
+        nodeId: c.nodeId,
+        displayName: c.displayName,
+        category: c.category,
+        inputKeys: c.inputKeys,
+        outputKeys: c.outputKeys,
+        config: c.config
+      })
+    })
+    ids.push(id)
+  })
+  lf.clearSelectElements()
+  ids.forEach(id => {
+    const m = lf.getNodeModelById(id)
+    if (m) lf.selectElement(m, true)
+  })
+  syncToStore()
+}
+
+function registerCopyPasteShortcut() {
+  lf.keyboard.on(['ctrl+c', 'meta+c'], () => {
+    copySelection()
+    return false
+  })
+  lf.keyboard.on(['ctrl+v', 'meta+v'], () => {
+    pasteSelection()
+    return false
   })
 }
 
@@ -155,6 +273,7 @@ function registerCustomElements() {
   lf.register(DspRectNode)
   lf.register(DspDiamondNode)
   lf.register(DspCircleNode)
+  lf.register(DspGroupNode)
   lf.register(DspBezierEdge)
   lf.setDefaultEdgeType('dsp-bezier')
   applyLfTheme()
@@ -164,12 +283,14 @@ function initLf() {
   lf = new LogicFlow({
     container: containerRef.value,
     grid: { size: 10, visible: true, type: 'dot' },
-    plugins: [MiniMap, Control, Snapshot],
+    plugins: [MiniMap, Snapshot, SelectionSelect],
     keyboard: { enabled: true },
     edgeTextDraggable: false,
     adjustEdge: true,
     hoverOutline: true,
     edgeSelectedOutline: true,
+    // 默认 '' 时无法多选，成组按钮会始终提示「请先选中至少 2 个业务节点」
+    multipleSelectKey: detectMultipleSelectKey(),
     guards: {
       beforeDelete: (data) => !isReservedNodeData(data)
     }
@@ -178,8 +299,20 @@ function initLf() {
   lf.render({ nodes: [], edges: [] })
   ensureStartEndNodes()
   registerDeleteShortcut()
+  registerCopyPasteShortcut()
 
+  lf.on('history:change', (payload) => {
+    const d = (payload && payload.data) || payload || {}
+    editor.canUndo = !!d.undoAble
+    editor.canRedo = !!d.redoAble
+  })
   lf.on('node:add,node:delete,node:dnd-add,edge:add,edge:delete,node:properties-update', syncToStore)
+  // 条件边绘制模式：用户新拉的普通边自动转为条件边（加载/渲染时不触发，避免误转已有边）
+  lf.on('edge:add', ({ data }) => {
+    if (editor.conditionalDrawMode && !suppressSync && data && data.properties?.type !== 'conditional') {
+      convertEdgeToConditional(data.id)
+    }
+  })
   lf.on('node:click', ({ data }) => {
     refreshSelectionState()
     editor.clearSelectedEdge()
@@ -200,7 +333,55 @@ function initLf() {
     refreshSelectionState()
   })
   lf.on('element:click', () => refreshSelectionState())
+  lf.on('selection:selected', () => {
+    refreshSelectionState()
+    // 框选完成后自动退出独占模式，便于立刻点「子流程」成组
+    if (selectionSelectActive.value) {
+      closeSelectionSelectMode()
+    }
+  })
+  // 子流程分组：拖拽容器时同步移动成员
+  lf.on('node:dragstart', ({ data }) => {
+    if (data?.properties?.kind === 'GROUP') groupLastPos[data.id] = { x: data.x, y: data.y }
+  })
+  lf.on('node:drag', ({ data }) => {
+    if (data?.properties?.kind === 'GROUP') moveGroupMembers(data.id, data.x, data.y)
+  })
+  lf.on('node:dragend', ({ data }) => {
+    if (data?.properties?.kind === 'GROUP') delete groupLastPos[data.id]
+  })
+  // 缩略图默认显示
+  try { lf.extension?.miniMap?.show?.() } catch (e) { /* noop */ }
   lfReadyResolve?.()
+}
+
+function closeSelectionSelectMode() {
+  if (!lf) return
+  try { lf.extension?.selectionSelect?.closeSelectionSelect?.() } catch (e) { /* noop */ }
+  selectionSelectActive.value = false
+}
+
+/** 切换框选：开启后在画布空白处拖拽框住多个节点，再点「子流程」成组 */
+function toggleSelectionSelect() {
+  if (!lf) return
+  const ext = lf.extension?.selectionSelect
+  if (!ext) {
+    ElMessage.warning(t('toolbar.boxSelectUnavailable'))
+    return
+  }
+  if (selectionSelectActive.value) {
+    closeSelectionSelectMode()
+    return
+  }
+  try {
+    ext.setExclusiveMode?.(true)
+    ext.openSelectionSelect()
+    selectionSelectActive.value = true
+    ElMessage.info(t('toolbar.boxSelectHint'))
+  } catch (e) {
+    selectionSelectActive.value = false
+    ElMessage.warning(t('toolbar.boxSelectUnavailable'))
+  }
 }
 
 function resolveLfTarget(token, idMap) {
@@ -323,12 +504,16 @@ function renderFromDefinition(def) {
   businessNodes.forEach((n, i) => {
     const desc = nodeStore.nodes.find(d => d.nodeId === n.nodeId)
     const category = desc?.category || 'NORMAL'
-    const id = `lf_${n.nodeId}`
+    // 同名节点（相同 nodeId）需保证 LF id 唯一，避免拖拽/选中相互干扰
+    const id = `lf_${n.nodeId}_${i}`
+    // 优先使用已保存的画布坐标；无坐标（历史数据/新建）时回退到分层网格，避免每次进入都重排成格子
+    const px = typeof n.x === 'number' ? n.x : 200 + 200 * (i + 1)
+    const py = typeof n.y === 'number' ? n.y : 150 + (i % 3) * 100
     lfNodes.push({
       id,
       type: resolveNodeType(category),
-      x: 200 + 200 * (i + 1),
-      y: 150 + (i % 3) * 100,
+      x: px,
+      y: py,
       text: desc?.displayName || n.nodeId,
       properties: baseProperties({
         nodeId: n.nodeId,
@@ -348,7 +533,7 @@ function renderFromDefinition(def) {
 
   const lfNodeIds = new Set(lfNodes.map(n => n.id))
   const idMap = { '__START__': 'lf_start', '__END__': 'lf_end', lf_start: 'lf_start', lf_end: 'lf_end' }
-  businessNodes.forEach(n => { idMap[n.nodeId] = `lf_${n.nodeId}` })
+  businessNodes.forEach((n, i) => { idMap[n.nodeId] = `lf_${n.nodeId}_${i}` })
 
   ;(def.edges || []).forEach((e, i) => {
     const source = resolveLfTarget(e.from, idMap)
@@ -399,6 +584,10 @@ function renderFromDefinition(def) {
     suppressSync = false
     syncToStore()
   }
+  // 渲染（加载图）产生的 add 操作不应进入撤销栈
+  try { lf.clearHistory?.() } catch (e) { /* noop */ }
+  editor.canUndo = false
+  editor.canRedo = false
 }
 
 function selectEdgeModel(model) {
@@ -493,6 +682,296 @@ function convertEdgeToConditional(lfEdgeId) {
   editor.clearEdgeCommands()
 }
 
+// ── 缩放 / 缩略图 ──
+function zoomIn() {
+  if (lf) lf.zoom(false)
+}
+function zoomOut() {
+  if (lf) lf.zoom(true)
+}
+function fitView() {
+  if (lf) lf.fitView()
+}
+function resetZoom() {
+  if (lf) lf.resetZoom()
+}
+function toggleMinimap() {
+  if (!lf) return
+  const mm = lf.extension?.miniMap
+  if (!mm) return
+  if (editor.minimapVisible) mm.hide?.()
+  else mm.show?.()
+  editor.minimapVisible = !editor.minimapVisible
+}
+
+// ── 自动布局：基于最长路径的分层布局（保留所有节点，含分组容器） ──
+function autoLayout() {
+  if (!lf) return
+  try {
+    const data = lf.getGraphData()
+    const nodes = data.nodes
+    const edges = data.edges
+    const idSet = new Set(nodes.map(n => n.id))
+
+    // 构建邻接表（普通边 + 条件边各分支）
+    const adj = new Map()
+    const indeg = new Map()
+    nodes.forEach(n => { adj.set(n.id, []); indeg.set(n.id, 0) })
+    edges.forEach(e => {
+      const src = e.sourceNodeId
+      const dst = e.targetNodeId
+      if (!idSet.has(src) || !idSet.has(dst) || src === dst) return
+      adj.get(src).push(dst)
+      indeg.set(dst, (indeg.get(dst) || 0) + 1)
+    })
+
+    // 拓扑排序 + 最长路径分层
+    const queue = []
+    const layer = new Map()
+    nodes.forEach(n => {
+      layer.set(n.id, 0)
+      if ((indeg.get(n.id) || 0) === 0) queue.push(n.id)
+    })
+    const q = [...queue]
+    while (q.length) {
+      const cur = q.shift()
+      for (const nxt of adj.get(cur) || []) {
+        if (layer.get(nxt) < layer.get(cur) + 1) layer.set(nxt, layer.get(cur) + 1)
+        indeg.set(nxt, indeg.get(nxt) - 1)
+        if (indeg.get(nxt) === 0) q.push(nxt)
+      }
+    }
+
+    // 同层内按当前 y 排序，保证稳定
+    const byLayer = new Map()
+    nodes.forEach(n => {
+      const L = layer.get(n.id) || 0
+      if (!byLayer.has(L)) byLayer.set(L, [])
+      byLayer.get(L).push(n)
+    })
+
+    const GAP_X = 220
+    const GAP_Y = 110
+    const START_X = 120
+    const START_Y = 120
+    const pos = new Map()
+    for (const [L, layerNodes] of byLayer) {
+      layerNodes.sort((a, b) => a.y - b.y)
+      layerNodes.forEach((n, i) => {
+        pos.set(n.id, { x: START_X + L * GAP_X, y: START_Y + i * GAP_Y })
+      })
+    }
+
+    // 应用业务节点位置：直接修改数据坐标，并同步偏移文字位置
+    nodes.forEach(n => {
+      if (n.properties?.kind === 'GROUP') return
+      const p = pos.get(n.id)
+      if (!p) return
+      const dx = p.x - n.x
+      const dy = p.y - n.y
+      n.x = p.x
+      n.y = p.y
+      // 同步偏移文字标签坐标（text.x/y 是相对于画布的绝对坐标）
+      if (n.text) {
+        if (n.text.x != null) n.text.x += dx
+        if (n.text.y != null) n.text.y += dy
+      }
+    })
+
+    // 分组容器：重新贴合成员包围盒
+    editor.groups.forEach(g => {
+      const { minX, minY, maxX, maxY } = computeBounds(g.memberIds)
+      if (minX === Infinity) return
+      const pad = 30
+      const headerH = 26
+      const tx = (minX + maxX) / 2
+      const ty = (minY + maxY) / 2 - headerH / 2
+      const gNode = nodes.find(n => n.id === g.id)
+      if (gNode) {
+        gNode.x = tx
+        gNode.y = ty
+        if (!g.collapsed) {
+          gNode.width = (maxX - minX) + pad * 2
+          gNode.height = (maxY - minY) + pad * 2 + headerH
+        }
+      }
+    })
+
+    // 清除边的缓存路径坐标和文字位置，让 LF 根据新路径重新计算
+    edges.forEach(e => {
+      delete e.startPoint
+      delete e.endPoint
+      delete e.pointsList
+      if (e.text) {
+        delete e.text.x
+        delete e.text.y
+      }
+    })
+
+    // 全量重新渲染画布，LogicFlow 会根据新节点坐标自动重算所有边路径
+    lf.render(data)
+
+    // 检测孤立节点（无入边且无出边的业务节点，排除 START/END/分组）
+    const connected = new Set()
+    edges.forEach(e => {
+      if (idSet.has(e.sourceNodeId)) connected.add(e.sourceNodeId)
+      if (idSet.has(e.targetNodeId)) connected.add(e.targetNodeId)
+    })
+    const isolatedNodes = nodes.filter(n => {
+      if (n.properties?.kind === 'GROUP') return false
+      if (n.id === 'lf_start' || n.id === 'lf_end') return false
+      return !connected.has(n.id)
+    })
+    if (isolatedNodes.length > 0) {
+      const names = isolatedNodes.map(n => n.text?.value || n.id).join('、')
+      ElMessage.warning(`${t('canvas.isolatedNodes') || '存在孤立节点'}: ${names}`)
+    }
+
+    lf.fitView()
+    syncToStore()
+  } catch (e) {
+    console.error('[Canvas] autoLayout failed:', e)
+    ElMessage.error(t('canvas.autoLayoutFailed') || '自动布局失败')
+  }
+}
+
+// ── 画布内节点定位（搜索用） ──
+function focusNode(lfId) {
+  if (!lf) return
+  const m = lf.getNodeModelById(lfId)
+  if (!m) return
+  lf.focusOn({ id: lfId })
+  lf.selectElement(m, true)
+  refreshSelectionState()
+}
+
+/** 返回可搜索的业务节点列表（供 NodeSearch 使用） */
+function getSearchableNodes() {
+  if (!lf) return []
+  const { nodes } = lf.getGraphData()
+  return nodes
+    .filter(n => !isStartNode(n) && !isEndNode(n) && n.properties?.kind !== 'GROUP')
+    .map(n => ({
+      id: n.id,
+      label: (n.text && (n.text.value || n.text)) || n.properties?.nodeId || n.id,
+      nodeId: n.properties?.nodeId || n.id
+    }))
+}
+
+// ── 子流程分组 ──
+function computeBounds(memberIds) {
+  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity
+  memberIds.forEach(mid => {
+    const m = lf.getNodeModelById(mid)
+    if (!m) return
+    const w = m.width || 120
+    const h = m.height || 60
+    minX = Math.min(minX, m.x - w / 2)
+    minY = Math.min(minY, m.y - h / 2)
+    maxX = Math.max(maxX, m.x + w / 2)
+    maxY = Math.max(maxY, m.y + h / 2)
+  })
+  return { minX, minY, maxX, maxY }
+}
+
+function createGroup() {
+  if (!lf) return
+  const { nodes } = lf.getSelectElements(true)
+  const biz = nodes.filter(n => !isReservedNodeData(n) && n.properties?.kind !== 'GROUP')
+  if (biz.length < 2) {
+    ElMessage.warning(t('toolbar.groupCreateHint'))
+    return
+  }
+  const { minX, minY, maxX, maxY } = computeBounds(biz.map(n => n.id))
+  const pad = 30
+  const headerH = 26
+  const gw = (maxX - minX) + pad * 2
+  const gh = (maxY - minY) + pad * 2 + headerH
+  const gx = (minX + maxX) / 2
+  const gy = (minY + maxY) / 2 - headerH / 2
+  const groupId = `lf_group_${Date.now()}`
+  const label = `${t('toolbar.group')} ${editor.groups.length + 1}`
+  lf.addNode({
+    id: groupId,
+    type: 'dsp-group',
+    x: gx, y: gy,
+    text: label,
+    properties: baseProperties({ kind: 'GROUP', width: gw, height: gh, memberCount: biz.length, collapsed: false })
+  })
+  const memberIds = biz.map(n => n.id)
+  biz.forEach(n => {
+    lf.setProperties(n.id, { ...n.properties, groupId })
+  })
+  editor.groups.push({ id: groupId, label, memberIds, collapsed: false })
+  lf.clearSelectElements()
+  syncToStore()
+  ElMessage.success(label)
+}
+
+function moveGroupMembers(groupId, x, y) {
+  const last = groupLastPos[groupId]
+  if (!last) {
+    groupLastPos[groupId] = { x, y }
+    return
+  }
+  const dx = x - last.x
+  const dy = y - last.y
+  if (dx === 0 && dy === 0) return
+  const g = editor.groups.find(x2 => x2.id === groupId)
+  if (g) {
+    g.memberIds.forEach(mid => {
+      const m = lf.getNodeModelById(mid)
+      if (m) m.move(dx, dy)
+    })
+  }
+  last.x = x
+  last.y = y
+}
+
+function toggleGroupCollapse(lfGroupId) {
+  if (!lf) return
+  const g = editor.groups.find(x => x.id === lfGroupId)
+  if (!g) return
+  const model = lf.getNodeModelById(lfGroupId)
+  if (!model) return
+  const collapsed = !g.collapsed
+  g.collapsed = collapsed
+  lf.setProperties(lfGroupId, { ...model.properties, collapsed, memberCount: g.memberIds.length })
+  g.memberIds.forEach(mid => {
+    const m = lf.getNodeModelById(mid)
+    if (m) m.visible = !collapsed
+  })
+  if (collapsed) {
+    model.width = 180
+    model.height = 56
+  } else {
+    const { minX, minY, maxX, maxY } = computeBounds(g.memberIds)
+    const pad = 30
+    const headerH = 26
+    model.width = (maxX - minX) + pad * 2
+    model.height = (maxY - minY) + pad * 2 + headerH
+  }
+  syncToStore()
+}
+
+function ungroup(lfGroupId) {
+  if (!lf) return
+  const g = editor.groups.find(x => x.id === lfGroupId)
+  if (!g) return
+  g.memberIds.forEach(mid => {
+    const m = lf.getNodeModelById(mid)
+    if (m) {
+      m.visible = true
+      const p = { ...m.properties }
+      delete p.groupId
+      lf.setProperties(mid, p)
+    }
+  })
+  lf.deleteNode(lfGroupId)
+  editor.groups = editor.groups.filter(x => x.id !== lfGroupId)
+  syncToStore()
+}
+
 defineExpose({
   onNodeDrag,
   renderFromDefinition,
@@ -500,6 +979,21 @@ defineExpose({
   deleteSelectedElements,
   applyConditionalEdgeEdit,
   convertEdgeToConditional,
+  undo,
+  redo,
+  zoomIn,
+  zoomOut,
+  fitView,
+  resetZoom,
+  toggleMinimap,
+  autoLayout,
+  focusNode,
+  getSearchableNodes,
+  createGroup,
+  toggleGroupCollapse,
+  ungroup,
+  toggleSelectionSelect,
+  selectionSelectActive,
   whenReady: () => lfReady
 })
 </script>

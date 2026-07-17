@@ -20,6 +20,7 @@ import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -166,10 +167,59 @@ public class ScriptNodeService {
         validateScript(engine, scriptBody);
         ScriptEngine scriptEngine = engineRegistry.require(resolveEngine(engine));
         Object compiled = scriptEngine.compile(scriptBody);
+        assertMockAlignedWithInputKeys(mockState, inputKeys);
         Map<String, Object> state = extractState(mockState, inputKeys);
         ScriptExecutionContext ctx = new ScriptExecutionContext(state, config != null ? config : Map.of());
-        Object result = scriptEngine.execute(compiled, ctx);
-        return ScriptOutputNormalizer.normalize(result, outputKeys);
+        try {
+            Object result = scriptEngine.execute(compiled, ctx);
+            return ScriptOutputNormalizer.normalize(result, outputKeys);
+        } catch (RuntimeException e) {
+            throw new IllegalArgumentException(formatTestRunFailure(resolveEngine(engine), e, state, inputKeys), e);
+        }
+    }
+
+    /**
+     * 试跑时 Mock State 若声明了不在 Input Keys 白名单内的字段，会被裁剪，脚本读不到。
+     * 直接给出可读提示，避免落到引擎底层晦涩异常。
+     */
+    static void assertMockAlignedWithInputKeys(Map<String, Object> mockState, Set<String> inputKeys) {
+        if (mockState == null || mockState.isEmpty() || inputKeys == null || inputKeys.isEmpty()) {
+            return;
+        }
+        Set<String> input = new HashSet<>(inputKeys);
+        List<String> clipped = mockState.keySet().stream()
+                .filter(k -> k != null && !input.contains(k))
+                .sorted()
+                .toList();
+        if (clipped.isEmpty()) {
+            return;
+        }
+        List<String> suggested = new ArrayList<>(input);
+        for (String k : clipped) {
+            if (!suggested.contains(k)) {
+                suggested.add(k);
+            }
+        }
+        throw new IllegalArgumentException(
+                "试跑失败：Mock State 含字段 " + clipped + "，但不在 Input Keys " + inputKeys
+                        + " 中，已被过滤，脚本里的 state.xxx 读不到这些值。"
+                        + "请将 Input Keys 改为：" + String.join(", ", suggested)
+                        + "（并确认 Output Keys 与脚本返回的 key 一致）。");
+    }
+
+    private static String formatTestRunFailure(String engineId,
+                                               RuntimeException e,
+                                               Map<String, Object> state,
+                                               Set<String> inputKeys) {
+        String detail = e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName();
+        // 剥掉引擎基类重复前缀，避免「脚本执行失败: 脚本执行失败」堆叠
+        if (detail.startsWith("脚本执行失败: ")) {
+            detail = detail.substring("脚本执行失败: ".length());
+        }
+        return "脚本试跑失败（引擎=" + engineId + "）：" + detail
+                + "。当前写入脚本的 state keys=" + state.keySet()
+                + "，Input Keys=" + (inputKeys != null ? inputKeys : Set.of())
+                + "。请核对脚本中的 state 字段是否都在 Input Keys 中，且 Mock State 已赋值。";
     }
 
     /** 基于已存定义试跑 */

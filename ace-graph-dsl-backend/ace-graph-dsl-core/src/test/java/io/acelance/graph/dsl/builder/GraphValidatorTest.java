@@ -12,6 +12,7 @@ import io.acelance.graph.dsl.registry.RegisteredGraphNode;
 import io.acelance.graph.dsl.script.AviatorScriptEngine;
 import io.acelance.graph.dsl.script.ScriptEdgeActionFactory;
 import io.acelance.graph.dsl.script.ScriptEngineRegistry;
+import io.acelance.graph.dsl.script.SpelScriptEngine;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
@@ -28,7 +29,9 @@ class GraphValidatorTest {
     private final GraphValidator validator = new GraphValidator(
             nodeRegistry,
             new EdgeDispatcherRegistry(List.of()),
-            new ScriptEdgeActionFactory(new ScriptEngineRegistry(List.of(new AviatorScriptEngine(1000)))),
+            new ScriptEdgeActionFactory(new ScriptEngineRegistry(List.of(
+                    new AviatorScriptEngine(1000),
+                    new SpelScriptEngine(1000)))),
             reachabilityValidator);
 
     @Test
@@ -78,11 +81,33 @@ class GraphValidatorTest {
                 () -> "错误: " + result.errors());
     }
 
+    @Test
+    void scriptConditionalEdgeWithSpelEnginePasses() {
+        GraphDefinition def = graphWith(scriptEdge(
+                "a", "#state['x'] > 0 ? 'hi' : 'lo'", "spel", Map.of("hi", "b", "lo", "c")));
+
+        ValidationResult result = validator.validate(def);
+
+        assertTrue(result.ok(), () -> "应通过但有错误: " + result.errors());
+    }
+
+    @Test
+    void scriptConditionalEdgeWithUnknownEngineFails() {
+        GraphDefinition def = graphWith(scriptEdge(
+                "a", "state.x > 0 ? 'hi' : 'lo'", "no-such-engine", Map.of("hi", "b", "lo", "c")));
+
+        ValidationResult result = validator.validate(def);
+
+        assertFalse(result.ok());
+        assertTrue(result.errors().stream().anyMatch(e -> e.contains("脚本引擎不可用")),
+                () -> "错误: " + result.errors());
+    }
+
     private static GraphDefinition graphWith(GraphEdge conditional) {
         return new GraphDefinition(
                 "g1", "测试图", "1.0.0", "",
                 Map.of(),
-                List.of(new NodeRef("a", Map.of()), new NodeRef("b", Map.of()), new NodeRef("c", Map.of())),
+                List.of(new NodeRef("a", Map.of(), null, null), new NodeRef("b", Map.of(), null, null), new NodeRef("c", Map.of(), null, null)),
                 List.of(
                         new GraphEdge(GraphDefinition.START, "a", GraphEdge.TYPE_NORMAL, null, null, null, null),
                         conditional,
@@ -92,7 +117,12 @@ class GraphValidatorTest {
     }
 
     private static GraphEdge scriptEdge(String from, String condition, Map<String, String> mapping) {
-        return new GraphEdge(from, null, GraphEdge.TYPE_CONDITIONAL, null, mapping, condition, null);
+        return scriptEdge(from, condition, null, mapping);
+    }
+
+    private static GraphEdge scriptEdge(String from, String condition, String conditionEngine,
+                                        Map<String, String> mapping) {
+        return new GraphEdge(from, null, GraphEdge.TYPE_CONDITIONAL, null, mapping, condition, conditionEngine);
     }
 
     private static RegisteredGraphNode node(String id) {

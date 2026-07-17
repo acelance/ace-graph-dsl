@@ -20,7 +20,7 @@ class GraphEdgeJsonTest {
         GraphDefinition def = new GraphDefinition(
                 "g1", "test", "1.0.0", "",
                 Map.of(),
-                List.of(new NodeRef("a", Map.of())),
+                List.of(new NodeRef("a", Map.of(), null, null)),
                 List.of(new GraphEdge("a", null, GraphEdge.TYPE_CONDITIONAL, "disp",
                         Map.of("k", "b"), null, null)),
                 new CompileConfigDto(List.of(), "memory"), null);

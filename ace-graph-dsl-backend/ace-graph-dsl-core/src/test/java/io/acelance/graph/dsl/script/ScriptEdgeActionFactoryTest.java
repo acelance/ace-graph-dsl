@@ -15,7 +15,9 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 class ScriptEdgeActionFactoryTest {
 
     private final ScriptEdgeActionFactory factory =
-            new ScriptEdgeActionFactory(new ScriptEngineRegistry(List.of(new AviatorScriptEngine(1000))));
+            new ScriptEdgeActionFactory(new ScriptEngineRegistry(List.of(
+                    new AviatorScriptEngine(1000),
+                    new SpelScriptEngine(1000))));
 
     @Test
     void routesByExpression() throws Exception {
@@ -26,14 +28,28 @@ class ScriptEdgeActionFactoryTest {
     }
 
     @Test
+    void routesBySpelExpression() throws Exception {
+        EdgeAction action = factory.create("spel", "#state['score'] > 60 ? 'pass' : 'fail'");
+
+        assertEquals("pass", action.apply(new OverAllState(Map.of("score", 80))));
+        assertEquals("fail", action.apply(new OverAllState(Map.of("score", 30))));
+    }
+
+    @Test
     void supportsKnownEngineOnly() {
         assertTrue(factory.supports("aviator"));
+        assertTrue(factory.supports("spel"));
         assertFalse(factory.supports("groovy"));
     }
 
     @Test
     void validateRejectsInvalidExpression() {
         assertThrows(RuntimeException.class, () -> factory.validate("aviator", "!!!bad!!!"));
+    }
+
+    @Test
+    void validateRejectsInvalidSpelExpression() {
+        assertThrows(RuntimeException.class, () -> factory.validate("spel", "!!!bad!!!"));
     }
 
     @Test

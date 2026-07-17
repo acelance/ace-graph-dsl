@@ -15,6 +15,39 @@ export default {
     preview: 'PlantUML Preview',
     publish: 'Publish',
     versionHistory: 'Version History',
+    undo: 'Undo',
+    redo: 'Redo',
+    dryRun: 'Dry Run',
+    dryRunTitle: 'Dry Run',
+    import: 'Import',
+    export: 'Export',
+    conditionalEdge: 'Conditional',
+    conditionalEdgeHint: 'When on, the next connection is created as a conditional edge',
+    topology: 'Topology',
+    zoomIn: 'Zoom in',
+    zoomOut: 'Zoom out',
+    fitView: 'Fit',
+    resetZoom: 'Reset zoom',
+    autoLayout: 'Auto layout',
+    minimap: 'Minimap',
+    minimapHide: 'Hide minimap',
+    minimapShow: 'Show minimap',
+    group: 'Sub-flow',
+    groupCreate: 'Group',
+    groupCreateHint: 'Multi-select at least 2 business nodes first (Ctrl/Cmd+click, or use Box Select)',
+    groupHint: 'Ctrl/Cmd+click nodes, or enable Box Select then drag, then click this to group. Visual only — not persisted in DSL.',
+    boxSelect: 'Box Select',
+    boxSelectHint: 'Box select on: drag on blank canvas to select nodes, then click Sub-flow',
+    boxSelectUnavailable: 'Box select plugin unavailable',
+    groupCollapse: 'Collapse',
+    groupExpand: 'Expand',
+    groupUngroup: 'Ungroup',
+    groupEmpty: 'No sub-flow groups yet',
+    groupCount: '{n} nodes',
+    importSuccess: 'Imported DSL ({graphId} v{version}) — remember to save',
+    importFailed: 'Import failed: {msg}',
+    importInvalid: 'File is not a valid Graph DSL JSON',
+    exportSuccess: 'DSL JSON exported',
     saveSuccess: 'Draft saved',
     saveFailed: 'Save failed: {msg}',
     validateSuccess: 'Validation passed',
@@ -80,7 +113,10 @@ export default {
   canvas: {
     delete: 'Delete',
     deleteSelection: 'Delete selection',
-    deleteSelectionHint: 'Delete selected node or edge (Delete / Backspace)'
+    deleteSelectionHint: 'Delete selected node or edge (Delete / Backspace)',
+    copied: 'Copied {n} node(s)',
+    pasteHint: 'Ctrl+C copy selected node / Ctrl+V paste',
+    autoLayoutFailed: 'Auto layout failed'
   },
   nodePanel: {
     title: 'Node Panel',
@@ -100,6 +136,26 @@ export default {
     title: 'Edge parameter validation',
     issue: '{from} → {to}: target node {target} missing input keys [{keys}]'
   },
+  topology: {
+    title: 'Topology',
+    ok: 'Topology is healthy (no cycle, END reachable, no isolated nodes)',
+    cycle: 'Cycle',
+    noEnd: 'END unreachable',
+    unreachable: 'Unreachable nodes',
+    isolated: 'Isolated nodes',
+    error: 'Error',
+    warning: 'Warning'
+  },
+  search: {
+    placeholder: 'Search node and locate…',
+    noResult: 'No matching node',
+    hint: 'Type a node name or ID, press Enter / click to locate on canvas'
+  },
+  group: {
+    title: 'Sub-flow groups',
+    collapsed: 'Collapsed',
+    expanded: 'Expanded'
+  },
   edgeEditor: {
     title: 'Edge Config',
     type: 'Type',
@@ -118,6 +174,8 @@ export default {
     mappingTarget: 'Target node',
     addMapping: '+ Add mapping',
     apply: 'Apply',
+    applyOk: 'Edge settings applied',
+    unknownEngine: 'Script engine unavailable: {engine} (not in the current engine list; please reselect)',
     convert: 'Convert to conditional',
     noConditional: 'Normal edges do not support conditional routing. Click "Convert to conditional" to enable it.'
   },
@@ -184,5 +242,18 @@ export default {
     spel: { hint: "Use #state['key'] / #config['key']; Map as {'key': value}" },
     qlexpress: { hint: "Multi-line if/else supported; return map('key', value)" },
     groovy: { hint: "Collection ops supported; return [key: value]; requires admin enablement" }
+  },
+  dryRun: {
+    title: 'Dry Run',
+    hint: 'Compile and run the current draft once, collecting per-node output trace. Does not affect the published graph.',
+    mockState: 'Initial State (JSON)',
+    run: 'Run',
+    running: 'Running…',
+    trace: 'Execution Trace',
+    finalState: 'Final State',
+    node: 'Node',
+    empty: 'Run to see per-node output trace',
+    error: 'Dry run failed',
+    mockError: 'Invalid mockState JSON'
   }
 }

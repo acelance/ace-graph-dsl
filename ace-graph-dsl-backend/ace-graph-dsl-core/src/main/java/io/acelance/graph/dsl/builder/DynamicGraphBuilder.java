@@ -31,9 +31,11 @@ import org.slf4j.LoggerFactory;
 import org.springframework.context.ApplicationContext;
 import org.springframework.stereotype.Component;
 
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 
 import static com.alibaba.cloud.ai.graph.action.AsyncNodeAction.node_async;
 
@@ -139,12 +141,65 @@ public class DynamicGraphBuilder {
             stateGraph.addNode(ref.nodeId(), node_async(node.toAction(nodeCtx)));
         }
 
-        // 2. 注册边
-        for (GraphEdge edge : def.edges()) {
+        // 2. 注册边（先合并同一源节点的条件边，避免 StateGraph 报 "conditional edge already exist"）
+        for (GraphEdge edge : mergeConditionalEdges(def.edges())) {
             applyEdge(stateGraph, edge, ctx);
         }
 
         return stateGraph;
+    }
+
+    /**
+     * 合并同一源节点的多条条件边。
+     *
+     * <p>{@code StateGraph} 对同一个 {@code from} 只允许调用一次
+     * {@code addConditionalEdges}，因此设计器里从同一节点拉出的多条条件边
+     * （dispatcher/condition/engine 一致）需合并 mapping 为一条；若路由来源不一致
+     * 则给出明确错误，而非底层的 "already exist"。</p>
+     */
+    private List<GraphEdge> mergeConditionalEdges(List<GraphEdge> edges) {
+        if (edges == null || edges.isEmpty()) {
+            return List.of();
+        }
+        Map<String, GraphEdge> conditionalByFrom = new HashMap<>();
+        List<GraphEdge> result = new ArrayList<>();
+        for (GraphEdge edge : edges) {
+            if (!edge.isConditional()) {
+                result.add(edge);
+                continue;
+            }
+            String from = edge.from();
+            GraphEdge existing = conditionalByFrom.get(from);
+            if (existing == null) {
+                conditionalByFrom.put(from, edge);
+                // 占位，保持声明顺序；实际内容在收尾阶段回填
+                result.add(edge);
+            } else {
+                if (!sameConditionalSource(existing, edge)) {
+                    throw new IllegalArgumentException(
+                            "节点 " + from + " 存在多条条件边，且 dispatcher/condition 不一致，无法合并");
+                }
+                Map<String, String> merged = new HashMap<>(
+                        existing.mapping() != null ? existing.mapping() : Map.of());
+                if (edge.mapping() != null) {
+                    merged.putAll(edge.mapping());
+                }
+                GraphEdge mergedEdge = new GraphEdge(
+                        existing.from(), existing.to(), existing.type(),
+                        existing.dispatcher(), merged,
+                        existing.condition(), existing.conditionEngine());
+                conditionalByFrom.put(from, mergedEdge);
+                // 用合并后的边替换 result 中的占位
+                result.replaceAll(e -> e == existing ? mergedEdge : e);
+            }
+        }
+        return result;
+    }
+
+    private boolean sameConditionalSource(GraphEdge a, GraphEdge b) {
+        return Objects.equals(a.dispatcher(), b.dispatcher())
+                && Objects.equals(a.condition(), b.condition())
+                && Objects.equals(a.conditionEngine(), b.conditionEngine());
     }
 
     private void applyEdge(StateGraph g, GraphEdge edge, NodeRuntimeContext ctx) throws GraphStateException {
