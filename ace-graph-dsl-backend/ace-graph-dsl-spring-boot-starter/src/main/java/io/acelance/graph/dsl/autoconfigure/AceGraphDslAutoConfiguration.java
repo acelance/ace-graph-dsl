@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.zaxxer.hikari.HikariDataSource;
 import io.acelance.graph.dsl.audit.GraphAuditLogger;
 import io.acelance.graph.dsl.audit.Slf4jGraphAuditLogger;
+import io.acelance.graph.dsl.annotation.GraphAnnotationBeanDefinitionRegistryPostProcessor;
 import io.acelance.graph.dsl.checkpoint.CheckpointSaverProvider;
 import io.acelance.graph.dsl.checkpoint.CheckpointSaverRegistry;
 import io.acelance.graph.dsl.checkpoint.MemoryCheckpointSaverProvider;
@@ -83,6 +84,12 @@ public class AceGraphDslAutoConfiguration {
     @ConditionalOnMissingBean(name = AceGraphDslBeans.OBJECT_MAPPER)
     public ObjectMapper aceGraphDslObjectMapper() {
         return new ObjectMapper().findAndRegisterModules();
+    }
+
+    @Bean
+    @ConditionalOnMissingBean(GraphAnnotationBeanDefinitionRegistryPostProcessor.class)
+    public GraphAnnotationBeanDefinitionRegistryPostProcessor graphAnnotationRegistrar() {
+        return new GraphAnnotationBeanDefinitionRegistryPostProcessor();
     }
 
     @Bean
