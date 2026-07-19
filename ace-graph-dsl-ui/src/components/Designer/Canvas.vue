@@ -1,6 +1,6 @@
 <script setup>
-import { ref, onMounted, onBeforeUnmount, watch } from 'vue'
-import { Delete } from '@element-plus/icons-vue'
+import { ref, computed, onMounted, onBeforeUnmount, watch } from 'vue'
+import { Delete, Loading } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
 import LogicFlow from '@logicflow/core'
 import { MiniMap, Snapshot, SelectionSelect } from '@logicflow/extension'
@@ -18,6 +18,8 @@ const { t } = useI18n()
 
 const containerRef = ref(null)
 const canDeleteSelection = ref(false)
+/** 当前作用域是否存在流式/异步节点，决定是否显示画布图例 */
+const hasStreamingNode = computed(() => (editor.nodes || []).some(n => n.config && n.config.streaming))
 /** 框选模式（SelectionSelect 独占）是否开启 */
 const selectionSelectActive = ref(false)
 let lf = null
@@ -567,6 +569,8 @@ function renderFromDefinition(def) {
   const idMap = { '__START__': 'lf_start', '__END__': 'lf_end', '__ERROR__': 'lf_error', lf_start: 'lf_start', lf_end: 'lf_end', lf_error: 'lf_error' }
   businessNodes.forEach((n, i) => { idMap[n.nodeId] = `lf_${n.nodeId}_${i}` })
 
+  // ── 边：先收集再分组，支持同对节点多并行边「扇形分离」 ──
+  const rawEdges = []
   ;(def.edges || []).forEach((e, i) => {
     const source = resolveLfTarget(e.from, idMap)
     if (!lfNodeIds.has(source)) return
@@ -576,7 +580,7 @@ function renderFromDefinition(def) {
       Object.entries(e.mapping || {}).forEach(([key, target], j) => {
         const targetNodeId = resolveLfTarget(target, idMap)
         if (!lfNodeIds.has(targetNodeId)) return
-        lfEdges.push({
+        rawEdges.push({
           id: `lf_edge_${i}_${j}`,
           sourceNodeId: source,
           targetNodeId,
@@ -597,14 +601,58 @@ function renderFromDefinition(def) {
     const targetNodeId = resolveLfTarget(e.to, idMap)
     if (!lfNodeIds.has(targetNodeId)) return
     const edgeType = e.type === 'error' ? 'error' : 'normal'
-    lfEdges.push({
+    const isParallel = edgeType === 'normal' && e.parallel === true
+    rawEdges.push({
       id: `lf_edge_${i}`,
       sourceNodeId: source,
       targetNodeId,
       type: 'dsp-bezier',
-      properties: baseProperties({ type: edgeType })
+      properties: baseProperties({
+        type: edgeType,
+        parallel: isParallel,
+        aggregation: edgeType === 'normal' ? (e.aggregation || null) : null
+      })
     })
   })
+
+  // 同 (source,target) 的多条边沿垂直方向散开，避免完全重叠
+  const coordMap = new Map()
+  lfNodes.forEach(n => coordMap.set(n.id, { x: n.x, y: n.y }))
+  const pairMap = new Map()
+  rawEdges.forEach(e => {
+    const k = `${e.sourceNodeId}__${e.targetNodeId}`
+    if (!pairMap.has(k)) pairMap.set(k, [])
+    pairMap.get(k).push(e)
+  })
+  pairMap.forEach(list => {
+    if (list.length < 2) return
+    const s = coordMap.get(list[0].sourceNodeId)
+    const t = coordMap.get(list[0].targetNodeId)
+    if (!s || !t) return
+    const dx = t.x - s.x
+    const dy = t.y - s.y
+    const len = Math.hypot(dx, dy) || 1
+    const ux = dx / len
+    const uy = dy / len
+    const px = -uy
+    const py = ux
+    const spacing = 28
+    const n = list.length
+    list.forEach((e, idx) => {
+      const off = (idx - (n - 1) / 2) * spacing
+      e.startPoint = { x: s.x + ux * 32 + px * off, y: s.y + uy * 32 + py * off }
+      e.endPoint = { x: t.x - ux * 32 + px * off, y: t.y - uy * 32 + py * off }
+    })
+    // 并行块标签：仅在并行组的首条边显示聚合策略，避免重复
+    const firstParallel = list.find(e => e.properties?.parallel)
+    if (firstParallel) {
+      const agg = firstParallel.properties?.aggregation
+      firstParallel.text = agg === 'AGG_ALL_OF' ? '并行 · ALL_OF'
+        : agg === 'AGG_ANY_OF' ? '并行 · ANY_OF'
+        : '并行'
+    }
+  })
+  rawEdges.forEach(e => lfEdges.push(e))
 
   suppressSync = true
   try {
@@ -633,6 +681,8 @@ function selectEdgeModel(model) {
     type: data.properties?.type || 'normal',
     from: lfNodeToDslId(nodeById.get(data.sourceNodeId)),
     to: lfNodeToDslId(nodeById.get(data.targetNodeId)),
+    parallel: data.properties?.parallel === true,
+    aggregation: data.properties?.aggregation || null,
     dispatcher: data.properties?.dispatcher || '',
     condition: data.properties?.condition || '',
     conditionEngine: data.properties?.conditionEngine || 'aviator',
@@ -1005,6 +1055,143 @@ function ungroup(lfGroupId) {
   syncToStore()
 }
 
+/** 将一组 LF 边转换为 store 边（普通/异常/条件分组合并），与 setFromLfData 逻辑对齐 */
+function convertLfEdgesToStore(lfEdges, dslIdOf) {
+  const normalEdges = []
+  const condByKey = new Map()
+  for (const e of lfEdges) {
+    const from = dslIdOf(e.sourceNodeId)
+    const to = dslIdOf(e.targetNodeId)
+    if (e.properties?.type === 'conditional') {
+      const key = `${from}|${e.properties.dispatcher || ''}|${e.properties.condition || ''}`
+      if (!condByKey.has(key)) {
+        const mapping = {}
+        for (const [k, v] of Object.entries(e.properties.mapping || {})) mapping[k] = v
+        condByKey.set(key, {
+          from, to: '', type: 'conditional',
+          dispatcher: e.properties.dispatcher,
+          condition: e.properties.condition,
+          conditionEngine: e.properties.conditionEngine,
+          mapping
+        })
+      } else {
+        const ex = condByKey.get(key)
+        for (const [k, v] of Object.entries(e.properties.mapping || {})) ex.mapping[k] = v
+      }
+      continue
+    }
+    const type = e.properties?.type === 'error' ? 'error' : 'normal'
+    const parallel = type === 'normal' && e.properties?.parallel === true
+    const aggregation = type === 'normal' ? (e.properties?.aggregation || null) : null
+    normalEdges.push({ from, to, type, parallel, aggregation })
+  }
+  return [...normalEdges, ...condByKey.values()]
+}
+
+/**
+ * 提取选中节点为子图（P1·DX 快捷操作）：
+ * 选中节点移入新 SUBGRAPH 节点（内联 subgraph 字段），内部边保留在子图内，
+ * 跨边界的边重连到新子图节点（进入→子图、子图→外出）。
+ * 注：内联子图默认不含 START/END（与现有内联子图一致），如需编译运行进入子图内补 START/END 即可。
+ */
+function extractSelectionToSubgraph() {
+  if (!lf) return
+  const { nodes: selNodes } = lf.getSelectElements(true)
+  const bizNodes = selNodes.filter(n => !isReservedNodeData(n) && n.properties?.kind !== 'GROUP')
+  if (bizNodes.length < 1) {
+    ElMessage.warning(t('canvas.extractNeedNodes'))
+    return
+  }
+
+  const selNodeIds = new Set(bizNodes.map(n => n.id))
+  const all = lf.getGraphData()
+  const nodeById = new Map(all.nodes.map(n => [n.id, n]))
+  const dslIdOf = (lfId) => lfNodeToDslId(nodeById.get(lfId))
+
+  // 内部节点 → 子图定义中的节点（保留坐标 / 配置 / 嵌套 subgraph）
+  const innerNodes = bizNodes.map(n => ({
+    nodeId: n.properties?.nodeId || n.id.replace(/^lf_/, ''),
+    category: n.properties?.category || 'NORMAL',
+    displayName: n.properties?.displayName || '',
+    config: n.properties?.config || {},
+    x: n.x,
+    y: n.y,
+    subgraphRef: n.properties?.subgraphRef || '',
+    subgraph: n.properties?.subgraph || null
+  }))
+
+  // 内部边（两端都在选中集合）
+  const internalLfEdges = all.edges.filter(e => selNodeIds.has(e.sourceNodeId) && selNodeIds.has(e.targetNodeId))
+  const internalStoreEdges = convertLfEdgesToStore(internalLfEdges, dslIdOf)
+
+  // 边界边（恰好一端在选中集合）：提取后重连到新子图节点
+  const boundary = all.edges.filter(e => {
+    const a = selNodeIds.has(e.sourceNodeId)
+    const b = selNodeIds.has(e.targetNodeId)
+    return (a || b) && !(a && b)
+  })
+
+  const newId = `subgraph_${Date.now()}`
+  const innerDef = {
+    graphId: newId,
+    displayName: newId,
+    version: '1.0.0',
+    nodes: innerNodes,
+    edges: internalStoreEdges
+  }
+
+  // 质心定位
+  let cx = 0
+  let cy = 0
+  bizNodes.forEach(n => { cx += n.x; cy += n.y })
+  cx /= bizNodes.length
+  cy /= bizNodes.length
+
+  // 先删除选中业务节点（同时移除其相连边）
+  bizNodes.forEach(n => lf.deleteNode(n.id))
+
+  // 新增 SUBGRAPH 节点
+  const subLfId = `lf_${newId}_0`
+  lf.addNode({
+    id: subLfId,
+    type: resolveNodeType('SUBGRAPH'),
+    x: cx,
+    y: cy,
+    text: newId,
+    properties: baseProperties({
+      nodeId: newId,
+      displayName: newId,
+      category: 'SUBGRAPH',
+      config: {},
+      inputKeys: [],
+      outputKeys: [],
+      subgraphRef: '',
+      subgraph: innerDef
+    })
+  })
+
+  // 重连边界边：把选中端替换为子图节点
+  boundary.forEach(e => {
+    const fromIn = selNodeIds.has(e.sourceNodeId)
+    const toIn = selNodeIds.has(e.targetNodeId)
+    const source = fromIn ? subLfId : e.sourceNodeId
+    const target = toIn ? subLfId : e.targetNodeId
+    lf.addEdge({
+      id: `lf_ex_${Date.now()}_${Math.floor(Math.random() * 1e6)}`,
+      sourceNodeId: source,
+      targetNodeId: target,
+      type: 'dsp-bezier',
+      text: e.text,
+      properties: baseProperties({ ...(e.properties || {}) })
+    })
+  })
+
+  lf.clearSelectElements()
+  syncToStore()
+  editor.requestRerender()
+  ElMessage.success(t('canvas.extractSuccess', { n: bizNodes.length }))
+}
+
 defineExpose({
   onNodeDrag,
   renderFromDefinition,
@@ -1025,6 +1212,7 @@ defineExpose({
   createGroup,
   toggleGroupCollapse,
   ungroup,
+  extractSelectionToSubgraph,
   toggleSelectionSelect,
   selectionSelectActive,
   whenReady: () => lfReady
@@ -1044,6 +1232,23 @@ defineExpose({
         @click="deleteSelectedElements"
       />
     </el-tooltip>
+    <transition name="el-fade-in">
+      <div v-if="hasStreamingNode" class="canvas-legend">
+        <span class="legend-badge">
+          <svg viewBox="0 0 22 22" width="18" height="18" aria-hidden="true">
+            <circle cx="11" cy="11" r="9" fill="#ffffff" stroke="#06b6d4" stroke-width="2" />
+            <path d="M5 11 q2 -4 4 0 q2 4 4 0 q2 -4 4 0" fill="none" stroke="#06b6d4" stroke-width="1.8" stroke-linecap="round" />
+          </svg>
+        </span>
+        <span class="legend-label">{{ t('canvas.legendStreaming') }}</span>
+      </div>
+    </transition>
+    <transition name="el-fade-in">
+      <div v-if="editor.subgraphLoading" class="canvas-loading-overlay">
+        <el-icon class="canvas-loading-icon"><Loading /></el-icon>
+        <span class="canvas-loading-text">{{ t('canvas.loadingSubgraph') }}</span>
+      </div>
+    </transition>
   </div>
 </template>
 
@@ -1091,5 +1296,92 @@ defineExpose({
   height: 24px !important;
   line-height: 24px !important;
   background-color: var(--agd-color-bg-active, #ecf5ff) !important;
+}
+
+/* ── G7 流式 / 异步节点脉冲徽标（SVG 由 DspNode.js 动态渲染，需用 :deep 命中） ── */
+.designer-canvas-wrap :deep(.dsp-streaming) {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: dsp-stream-pulse 1.8s ease-in-out infinite;
+  filter: drop-shadow(0 0 3px rgba(6, 182, 212, 0.7));
+}
+.designer-canvas-wrap :deep(.dsp-streaming-wave) {
+  animation: dsp-stream-wave 1.8s ease-in-out infinite;
+}
+@keyframes dsp-stream-pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.55; transform: scale(1.18); }
+}
+@keyframes dsp-stream-wave {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.35; }
+}
+
+/* ── 画布图例：流式 / 异步节点说明（仅当存在此类节点时显示） ── */
+.canvas-legend {
+  position: absolute;
+  left: 10px;
+  bottom: 10px;
+  z-index: 9;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 12px 4px 8px;
+  font-size: 12px;
+  color: var(--agd-color-text-secondary, #909399);
+  background: var(--agd-color-bg-elevated, rgba(255, 255, 255, 0.82));
+  border: 1px solid var(--agd-color-border, #e4e7ed);
+  border-radius: 999px;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.08);
+  backdrop-filter: blur(6px);
+  user-select: none;
+  pointer-events: none;
+}
+:deep(.dark) .canvas-legend,
+.designer-canvas-wrap .canvas-legend {
+  background: var(--agd-color-bg-elevated-dark, rgba(40, 40, 40, 0.82));
+  border-color: var(--agd-color-border-dark, #4c4d4f);
+  color: var(--agd-color-text-secondary-dark, #a3a6ad);
+}
+.dark .canvas-legend {
+  background: var(--agd-color-bg-elevated-dark, rgba(40, 40, 40, 0.82));
+  border-color: var(--agd-color-border-dark, #4c4d4f);
+  color: var(--agd-color-text-secondary-dark, #a3a6ad);
+}
+.canvas-legend .legend-badge {
+  display: inline-flex;
+  animation: dsp-stream-pulse 1.8s ease-in-out infinite;
+}
+.canvas-legend .legend-label {
+  white-space: nowrap;
+}
+
+/* ── 引用型子图下钻时的懒加载遮罩 ── */
+.canvas-loading-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  background: var(--agd-color-overlay, rgba(255, 255, 255, 0.55));
+  backdrop-filter: blur(2px);
+  color: var(--agd-color-text-secondary, #909399);
+  font-size: 13px;
+  pointer-events: all;
+}
+.dark .canvas-loading-overlay {
+  background: rgba(20, 20, 20, 0.55);
+  color: var(--agd-color-text-secondary-dark, #cfd3dc);
+}
+.canvas-loading-icon {
+  font-size: 28px;
+  animation: agd-spin 1s linear infinite;
+}
+@keyframes agd-spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
 }
 </style>

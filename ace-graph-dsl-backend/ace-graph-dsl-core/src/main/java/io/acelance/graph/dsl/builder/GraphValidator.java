@@ -61,7 +61,7 @@ public class GraphValidator {
 
         // 1. 节点存在性（子图 / Agent 节点不走普通注册表）
         for (NodeRef ref : def.nodes()) {
-            if (ref.isSubgraph()) {
+            if (ref.hasSubgraph()) {
                 // 子图节点：校验其指向的子图定义（内嵌则递归校验；引用型由构建期解析）
                 if (ref.subgraph() != null) {
                     ValidationResult subResult = validate(ref.subgraph());
@@ -74,7 +74,7 @@ public class GraphValidator {
                 }
                 continue;
             }
-            if (ref.isAgent() || "AGENT".equals(ref.category())) {
+            if (ref.hasAgent() || "AGENT".equals(ref.category())) {
                 if (nodeRegistry.getAgentNode() == null) {
                     errors.add("未注册 AGENT 节点实现（需要 agent:script）: " + ref.nodeId());
                 }

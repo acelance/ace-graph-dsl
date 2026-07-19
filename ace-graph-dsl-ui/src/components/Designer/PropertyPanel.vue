@@ -1,11 +1,12 @@
 <script setup>
 import { ref, watch, computed } from 'vue'
-import { Delete } from '@element-plus/icons-vue'
+import { Delete, Loading } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
 import { useGraphEditorStore } from '../../stores/graphEditor'
 import { useNodeRegistryStore } from '../../stores/nodeRegistry'
 import { useI18n } from '../../i18n'
 import { listScriptEngines } from '../../api/graph'
+import MermaidPreview from './MermaidPreview.vue'
 
 const props = defineProps({
   /** 嵌入左侧目录时使用紧凑布局 */
@@ -117,6 +118,8 @@ const edgeCondition = ref('')
 const edgeMappingRows = ref([])
 
 const edgeIsConditional = computed(() => editor.selectedEdge?.type === 'conditional')
+const edgeIsParallel = computed(() => editor.selectedEdge?.parallel === true)
+const edgeAggregation = computed(() => editor.selectedEdge?.aggregation || '')
 
 const edgeNodeOptions = computed(() => {
   // dispatcher 模式：target 只能在该 dispatcher 声明的 possibleTargets 范围内选择
@@ -211,6 +214,22 @@ function convertEdge() {
   const e = editor.selectedEdge
   if (e) editor.requestEdgeConvert(e.lfEdgeId)
 }
+
+function onParallelChange(val) {
+  editor.updateSelectedEdgeParallel(val)
+}
+
+function onAggregationChange(val) {
+  editor.updateSelectedEdgeAggregation(val)
+}
+
+/* ───────── 流式 / 异步节点开关（G7 可视化区分） ───────── */
+const nodeIsStreaming = computed(() => !!editor.selectedNode?.config?.streaming)
+function onStreamingChange(val) {
+  if (!editor.selectedNode) return
+  editor.selectedNode.config.streaming = val
+  editor.updateSelectedNodeConfig({ ...editor.selectedNode.config })
+}
 </script>
 
 <template>
@@ -264,6 +283,17 @@ function convertEdge() {
             <el-form-item :label="t('edgeEditor.to')">
               <el-input :model-value="editor.selectedEdge.to" disabled />
             </el-form-item>
+            <el-form-item :label="t('edgeEditor.parallel')">
+              <el-switch :model-value="edgeIsParallel" @update:model-value="onParallelChange" />
+              <span class="hint" style="margin-left: 8px;">{{ t('edgeEditor.parallelHint') }}</span>
+            </el-form-item>
+            <el-form-item v-if="edgeIsParallel" :label="t('edgeEditor.aggregation')">
+              <el-select :model-value="edgeAggregation" @update:model-value="onAggregationChange" style="width: 100%;">
+                <el-option :label="t('edgeEditor.aggregationNone')" value="" />
+                <el-option :label="t('edgeEditor.aggregationAllOf')" value="ALL_OF" />
+                <el-option :label="t('edgeEditor.aggregationAnyOf')" value="ANY_OF" />
+              </el-select>
+            </el-form-item>
             <el-alert :title="t('edgeEditor.noConditional')" type="info" :closable="false" />
             <el-form-item>
               <el-button size="small" @click="convertEdge">{{ t('edgeEditor.convert') }}</el-button>
@@ -306,12 +336,19 @@ function convertEdge() {
                 <el-button type="primary" size="small" @click="editor.enterSubgraph(editor.selectedNode.nodeId)">
                   {{ t('propertyPanel.enterSubgraph') }}
                 </el-button>
+                <el-button size="small" @click="editor.openSubgraphPreview(editor.selectedNode.nodeId)">
+                  {{ t('propertyPanel.previewSubgraph') }}
+                </el-button>
                 <span class="hint" style="margin-left: 8px;">{{ t('propertyPanel.enterSubgraphHint') }}</span>
               </el-form-item>
             </template>
             <el-divider />
             <el-form-item :label="t('propertyPanel.origin')">
               <el-tag size="small" type="warning">STRUCTURAL</el-tag>
+            </el-form-item>
+            <el-form-item :label="t('propertyPanel.streaming')">
+              <el-switch :model-value="nodeIsStreaming" @update:model-value="onStreamingChange" />
+              <span class="hint" style="margin-left: 8px;">{{ t('propertyPanel.streamingHint') }}</span>
             </el-form-item>
           </el-form>
 
@@ -372,7 +409,12 @@ function convertEdge() {
                 />
               </el-form-item>
             </template>
-            <el-empty v-if="configSchemaEntries.length === 0" :description="t('propertyPanel.noConfig')" :image-size="40" />
+            <el-divider />
+            <el-form-item :label="t('propertyPanel.streaming')">
+              <el-switch :model-value="nodeIsStreaming" @update:model-value="onStreamingChange" />
+              <span class="hint" style="margin-left: 8px;">{{ t('propertyPanel.streamingHint') }}</span>
+            </el-form-item>
+            <el-empty v-if="configSchemaEntries.length === 0 && !nodeIsStreaming" :description="t('propertyPanel.noConfig')" :image-size="40" />
           </el-form>
         </template>
         <el-empty v-else :description="t('propertyPanel.clickNode')" :image-size="60" />
@@ -457,11 +499,62 @@ function convertEdge() {
         <el-empty v-else :description="t('propertyPanel.previewHint')" :image-size="60" />
       </el-tab-pane>
     </el-tabs>
+
+    <!-- 嵌套子图预览弹窗 -->
+    <el-dialog
+      v-model="editor.subgraphPreviewOpen"
+      :title="t('propertyPanel.previewSubgraphTitle') + '：' + editor.subgraphPreviewTitle"
+      width="760px"
+      top="5vh"
+      append-to-body
+      @close="editor.closeSubgraphPreview"
+    >
+      <div v-if="editor.subgraphPreviewLoading" class="mp-loading">
+        <el-icon class="is-loading"><Loading /></el-icon>
+        <span style="margin-left: 6px;">{{ t('propertyPanel.previewLoading') }}</span>
+      </div>
+      <template v-else>
+        <el-alert
+          v-if="editor.subgraphPreviewError"
+          type="error"
+          :closable="false"
+          :title="t('propertyPanel.previewLoadFailed') + editor.subgraphPreviewError"
+          style="margin-bottom: 8px;"
+        />
+        <template v-else>
+          <el-tag v-if="editor.subgraphPreviewIsCompiled" size="small" type="success" effect="plain">
+            {{ t('propertyPanel.previewCompiledNote') }}
+          </el-tag>
+          <el-tag v-else size="small" type="warning" effect="plain">
+            {{ t('propertyPanel.previewFallbackNote') }}
+          </el-tag>
+          <div style="margin-top: 8px;">
+            <MermaidPreview :source="editor.subgraphPreviewMermaid" />
+          </div>
+          <el-empty v-if="editor.subgraphPreviewEmpty" :description="t('propertyPanel.previewEmpty')" :image-size="50" />
+        </template>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
 <style scoped>
 .property-panel { padding: 12px; }
+.mp-loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 40px 0;
+  color: var(--agd-color-text-secondary, #909399);
+  font-size: 13px;
+}
+.mp-loading .is-loading {
+  animation: agd-spin 1s linear infinite;
+}
+@keyframes agd-spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
 .property-panel--embedded {
   padding: 8px 10px 10px;
 }

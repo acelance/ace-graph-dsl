@@ -23,7 +23,11 @@ onMounted(async () => {
 <template>
   <div class="designer-layout">
     <Toolbar @save="editor.save()" @validate="editor.validate()" @preview="editor.loadPlantUml()"
-             @publish="editor.publishCurrent()" :canvas-ref="canvasRef" />
+             @publish="editor.publishCurrent()"
+             @create-group="canvasRef?.createGroup()"
+             @toggle-box-select="canvasRef?.toggleSelectionSelect()"
+             @extract-subgraph="canvasRef?.extractSelectionToSubgraph()"
+             :canvas-ref="canvasRef" />
     <div v-if="editor.isDrilledIn" class="breadcrumb-bar">
       <span
         v-for="(c, idx) in editor.breadcrumb"

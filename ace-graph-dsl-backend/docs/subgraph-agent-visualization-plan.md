@@ -134,7 +134,7 @@ stateGraph.addNode(ref.nodeId(), AsyncNodeAction.of(loop), Map.of());
 | **P1 子图可视化+下钻** | SUBGRAPH 节点渲染、scope 栈、面包屑、catalog 选择器、构建器 addNode(subSg)、递归反向提取、环检测、"提取为子图" | 3–5 d | 🔴 头号 | ✅ 已完成（"提取为子图" 快捷操作未做；catalog 选择器复用 `listGraphIds`/`getLatestDefinition`） |
 | **P2 并行显式化** | 并行块视觉分组 + 边 parallel 标记 + 聚合策略配置（低风险路线） | 2–3 d | 🟠 | ⚠️ 部分完成（仅隐式 fan-out；`ParallelNode`/聚合策略/并行块视觉分组/扇形分离未做） |
 | **P3 Agent/Command 节点** | AGENT 节点 + Command 自环构建 + 调度 + 反向提取 | 4–6 d | 🟠（若 agent 在范围） | ✅ 已完成（code-island 折中：前端仅记录节点与配置，自环由后端注册 `RegisteredAgentNode` 接线） |
-| **P4 补齐与优化** | G5 keyStrategy 导入标注、G6 ERROR 异常边、预览嵌套渲染、懒加载性能、回归测试 | 2–3 d | 🟡 | ✅ 部分完成（G5/G6 完成；预览嵌套渲染/懒加载/回归测试未做） |
+| **P4 补齐与优化** | G5 keyStrategy 导入标注、G6 ERROR 异常边、预览嵌套渲染、懒加载性能、回归测试、G7 流式区分 | 2–3 d | 🟡 | ✅ 已完成（G5/G6 完成；#20 嵌套预览、#23 懒加载、#25 G7 流式区分均已完成） |
 
 **合计约 12–19 人日**。建议从 **P0 + P1** 起步——它直接回答你"子图/嵌套/subagent"的核心诉求，且子图 + agent 循环组合即可表达 subagent。
 
@@ -201,8 +201,7 @@ stateGraph.addNode(ref.nodeId(), AsyncNodeAction.of(loop), Map.of());
    - 预览嵌套渲染依赖库 `getGraph(MERMAID/PLANTUML)`（构建器支持子图后即自动正确），未单独另写渲染器。
    - 懒加载、round-trip 回归测试未覆盖，建议后续补。
 
-### 10.3 未实现项（G4 / G7）
-- **G4 子图内 HITL**：子图下钻已通，但 `ResumableSubGraphAction` 中断/恢复未接入。
-- **G7 流式/异步区分**：节点同步/流式未做可视化区分。
+### 10.3 未实现项（仅余 G4；G7 / 懒加载 已完成）
+- **G4 子图内 HITL**：子图下钻已通，但 `ResumableSubGraphAction` 中断/恢复未接入（高风险、必要性中，往后安排）。
 
 > 结论：本次以"低风险优先 + 高风险折中"策略完成了核心诉求（子图作为可跳转节点 + 下钻展开、Agent 入口、异常边），高风险的高保真并行与 Agent 自环以可补全方式落地，用户知情权与功能完整性均得到保障。

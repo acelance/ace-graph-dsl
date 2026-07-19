@@ -22,7 +22,7 @@ const props = defineProps({
   showActions: { type: Boolean, default: true },
   readOnly: { type: Boolean, default: false }
 })
-const emit = defineEmits(['save', 'validate', 'preview', 'publish', 'undo', 'redo', 'dryRun', 'importDsl', 'exportDsl', 'topology', 'zoomIn', 'zoomOut', 'fit', 'resetZoom', 'autoLayout', 'toggleMinimap', 'createGroup', 'toggleBoxSelect'])
+const emit = defineEmits(['save', 'validate', 'preview', 'publish', 'undo', 'redo', 'dryRun', 'importDsl', 'exportDsl', 'topology', 'zoomIn', 'zoomOut', 'fit', 'resetZoom', 'autoLayout', 'toggleMinimap', 'createGroup', 'toggleBoxSelect', 'extractSubgraph'])
 
 const showVersionHistory = ref(false)
 
@@ -311,6 +311,15 @@ async function onPublish() {
           @click="emit('createGroup')"
         >
           {{ t('toolbar.group') }}
+        </el-button>
+        <el-button
+          v-if="!readOnly"
+          :icon="Crop"
+          size="small"
+          :title="t('toolbar.extractSubgraphHint')"
+          @click="emit('extractSubgraph')"
+        >
+          {{ t('toolbar.extractSubgraph') }}
         </el-button>
         <!-- TODO: 自动布局功能待完善，暂时隐藏 -->
         <!-- <el-button v-if="!readOnly && perm.can(MENU.GRAPH_VALIDATE)" :icon="MagicStick" size="small" @click="emit('autoLayout')">

@@ -144,7 +144,7 @@ public class DynamicGraphBuilder {
         // 1. 注册节点
         for (NodeRef ref : def.nodes()) {
             // 子图节点：递归构建内部 StateGraph 并作为子图挂载（graph-in-graph）
-            if (ref.isSubgraph()) {
+            if (ref.hasSubgraph()) {
                 GraphDefinition subDef = resolveSubgraph(ref);
                 if (subDef == null) {
                     throw new GraphStateException("子图未定义（subgraph 与 subgraphRef 均为空）: " + ref.nodeId());
@@ -160,7 +160,7 @@ public class DynamicGraphBuilder {
 
             // Agent 节点：用 CommandAction 包装，形成续轮/退出循环（subagent 内核）。
             // 按类别解析实现（而非 nodeId），允许 Agent 节点自定义业务 ID。
-            if (ref.isAgent() || "AGENT".equals(ref.category())) {
+            if (ref.hasAgent() || "AGENT".equals(ref.category())) {
                 RegisteredAgentNode agentNode = nodeRegistry.getAgentNode();
                 if (agentNode == null) {
                     throw new GraphStateException("未注册 AGENT 节点实现（需要 agent:script）: " + ref.nodeId());

@@ -42,15 +42,20 @@ public record NodeRef(
         this(nodeId, null, config, x, y, null, null, null);
     }
 
-    /** 是否子图节点（类别或携带子图数据任一满足）。非 JSON 属性，避免与 subgraph 组件冲突。 */
+    /**
+     * 是否子图节点（类别或携带子图数据任一满足）。
+     * 注意：方法名不能叫 isSubgraph()，否则会与 record 组件访问器 subgraph() 在
+     * Jackson 中冲突为同一 JSON 属性 "subgraph"，导致 @JsonIgnore 把真正的
+     * subgraph 字段一并丢弃（内联子图保存后丢失）。故命名为 hasSubgraph()。
+     */
     @com.fasterxml.jackson.annotation.JsonIgnore
-    public boolean isSubgraph() {
+    public boolean hasSubgraph() {
         return "SUBGRAPH".equals(category) || subgraph != null || subgraphRef != null;
     }
 
-    /** 是否 agent 节点（类别或携带 agent 配置任一满足）。非 JSON 属性，避免与 agent 组件冲突。 */
+    /** 是否 agent 节点（类别或携带 agent 配置任一满足）。同理避免与 agent 组件冲突，命名为 hasAgent()。 */
     @com.fasterxml.jackson.annotation.JsonIgnore
-    public boolean isAgent() {
+    public boolean hasAgent() {
         return "AGENT".equals(category) || agent != null;
     }
 }

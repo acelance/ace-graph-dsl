@@ -60,7 +60,7 @@
 | **G4** | 子图内 HITL（`ResumableSubGraphAction`） | HITL 仅顶层 `interruptBefore` | 不支持嵌套图里的中断/恢复 | **🟡 中（依赖 G1）** |
 | **G5** | KeyStrategy（REPLACE/**APPEND**/MERGE） | 模型存了、构建时用，反向提取**已修复** | `StateGraph.getKeyStrategyFactory().apply()` 返回全量映射，`fromStateGraph` 现完整提取；`toStrategy` 补 MERGE + 未知策略降级（不再抛异常） | **✅ 已修复** |
 | **G6** | 边语义丰富度（并行条件边 / 异常边 / 边级 Command） | ✅ 部分实现 | **异常边已实现**：新增 ERROR 保留节点（`lf_error`↔`__ERROR__`）+ 红色虚线 `error` 边，前端渲染 + 校验豁免（参数可达性、拓扑识别均跳过 ERROR）。**未实现**并行条件边与边级 Command | **🟡 中** |
-| **G7** | 流式/异步区分（`AsyncGenerator`、`ParallelGraphFlux`、`StreamMode`） | 不区分同步/流式节点 | 可视化无法表达 streaming 节点 | **🟢 低** |
+| **G7** | 流式/异步区分（`AsyncGenerator`、`ParallelGraphFlux`、`StreamMode`） | 不区分同步/流式节点 | 节点通过 `config.streaming` 标记，画布以右上角脉冲徽标 + 图例区分；属性面板可开关 | **✅ 已实现（#25）** |
 
 ### 关于 "subagent" 的落地建议（最关键）
 库没有 SubAgent 节点，所以 DSL 若要做 "subagent 可视化"，正确路径是 **G1（子图）+ G3（agent 节点）的组合**：
@@ -97,6 +97,6 @@
 | **G5 KeyStrategy** | ✅ 已修复 | `getKeyStrategyFactory()` 完整提取 + `toStrategy` 补 MERGE + 未知策略降级 |
 | **G6 异常边** | ✅ 部分实现 | ERROR 保留节点 + 红色虚线 `error` 边已实现并豁免校验；并行条件边、边级 Command 未实现 |
 | **G4 子图内 HITL** | ❌ 未实现（依赖 G1，已具备基础） | 子图下钻已通，但 `ResumableSubGraphAction` 中断/恢复未接入 |
-| **G7 流式/异步** | ❌ 未实现 | 节点同步/流式区分未做 |
+| **G7 流式/异步** | ✅ 已实现（#25） | 节点 `config.streaming` 开关驱动画布脉冲徽标 + 图例；低风险（纯前端标记，不触及运行时语义） |
 
 **用户告知要点（高风险折中）**：G3 Agent 与 G2 并行高保真属于高风险/高复杂度项，本次以折中方式落地（code-island + 隐式并行），**功能均可经后端代码或手动 DSL 编排完整实现**；前端可视化已提供入口与跳转能力，不影响整体可用性。

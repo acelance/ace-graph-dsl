@@ -37,6 +37,24 @@ function getColors(category, theme) {
   return themes[category] || themes.NORMAL
 }
 
+/** 流式 / 异步节点标记：右上角脉冲小徽标（≋ 波纹），由 Canvas 的 CSS 驱动动画 */
+function streamingBadge(cx, cy) {
+  const streamColor = '#06b6d4'
+  return [
+    h('circle', {
+      class: 'dsp-streaming',
+      cx, cy, r: 11,
+      fill: '#ffffff', stroke: streamColor, 'stroke-width': 2,
+    }),
+    h('path', {
+      class: 'dsp-streaming-wave',
+      d: `M ${cx - 6} ${cy} q 2 -5 4 0 q 2 5 4 0 q 2 -5 4 0`,
+      fill: 'none', stroke: streamColor, 'stroke-width': 1.8, 'stroke-linecap': 'round',
+    }),
+    h('title', {}, '流式 / 异步节点'),
+  ]
+}
+
 /** 水平六边形（扁平顶底），用于路由/分支节点 */
 function routerHexPoints(x, y, width, height) {
   const hw = width / 2
@@ -100,6 +118,7 @@ class DspRectView extends RectNode {
         'stroke-linecap': 'round',
         'stroke-linejoin': 'round',
       }),
+      ...(model.properties?.config?.streaming ? streamingBadge(x + width / 2 - 14, y - height / 2) : []),
     ])
   }
 }
@@ -182,6 +201,7 @@ class DspRouterView extends RectNode {
         'stroke-opacity': 0.4,
         'stroke-dasharray': '3 3',
       }),
+      ...(model.properties?.config?.streaming ? streamingBadge(x + width / 2 - 14, y - height / 2) : []),
     ])
   }
 }

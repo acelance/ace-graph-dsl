@@ -1,9 +1,10 @@
 import { defineStore } from 'pinia'
 import { ref, reactive, computed } from 'vue'
-import { saveDraft, validateDefinition, previewPlantUml, publish, getLatestDefinition, listVersions, getEnabled } from '../api/graph'
+import { saveDraft, validateDefinition, previewPlantUml, previewMermaid, publish, getLatestDefinition, listVersions, getEnabled } from '../api/graph'
 import { canonicalContent, bumpPatchVersion, maxSemver, compareSemver } from '../utils/graphContent'
 import { validateEdgeParamReachability } from '../utils/edgeParamValidation'
 import { validateTopology } from '../utils/topologyValidation'
+import { graphDefinitionToMermaid } from '../utils/generateMermaid'
 
 export const useGraphEditorStore = defineStore('aceGraphEditor', () => {
   const graphId = ref('')
@@ -38,8 +39,22 @@ export const useGraphEditorStore = defineStore('aceGraphEditor', () => {
 
   // ── 子图下钻（scope stack）：每个条目是父级作用域的快照 ──
   const scopeStack = ref([])
+  /** 引用型子图下钻时的异步拉取状态（懒加载指示） */
+  const subgraphLoading = ref(false)
+  /** 引用型子图定义缓存：避免反复下钻同一图时重复网络请求（懒加载 + 会话内复用） */
+  const defCache = new Map()
   const rerenderToken = ref(0)
   const graphIds = ref([])
+
+  // ── 嵌套子图预览（Mermaid） ──
+  const subgraphPreviewOpen = ref(false)
+  const subgraphPreviewNodeId = ref('')
+  const subgraphPreviewTitle = ref('')
+  const subgraphPreviewMermaid = ref('')
+  const subgraphPreviewLoading = ref(false)
+  const subgraphPreviewError = ref('')
+  const subgraphPreviewIsCompiled = ref(false)
+  const subgraphPreviewEmpty = ref(false)
 
   const RESERVED_NODE_IDS = new Set(['__START__', '__END__', 'lf_start', 'lf_end'])
 
@@ -99,7 +114,9 @@ export const useGraphEditorStore = defineStore('aceGraphEditor', () => {
       const to = normalizeToken(e.to)
       if (from === to) continue
       const type = e.type === 'error' ? 'error' : 'normal'
-      normalEdges.push({ from, to, type })
+      const parallel = type === 'normal' && e.parallel === true
+      const aggregation = type === 'normal' ? (e.aggregation || null) : null
+      normalEdges.push({ from, to, type, parallel, aggregation })
     }
 
     return {
@@ -123,6 +140,7 @@ export const useGraphEditorStore = defineStore('aceGraphEditor', () => {
 
   function applyDefinition(def) {
     const normalized = normalizeDefinition(def)
+    defCache.clear()
     version.value = normalized.version || version.value
     displayName.value = normalized.displayName || ''
     description.value = normalized.description || ''
@@ -198,7 +216,9 @@ export const useGraphEditorStore = defineStore('aceGraphEditor', () => {
       const to = normalizeToken(nodeIdMap[e.targetNodeId] || e.targetNodeId)
       if (from === to) continue
       const type = e.properties?.type === 'error' ? 'error' : 'normal'
-      normalEdges.push({ from, to, type })
+      const parallel = type === 'normal' && e.properties?.parallel === true
+      const aggregation = type === 'normal' ? (e.properties?.aggregation || null) : null
+      normalEdges.push({ from, to, type, parallel, aggregation })
     }
 
     edges.value = normalizeDefinition({
@@ -264,6 +284,7 @@ export const useGraphEditorStore = defineStore('aceGraphEditor', () => {
       baselineVersion.value = def.version
       snapshotBaseline(result.definition || def)
       await fetchVersions()
+      defCache.clear()
       return { ok: true, unchanged: false, result, collapsedToRoot }
     } finally {
       saving.value = false
@@ -448,6 +469,35 @@ export const useGraphEditorStore = defineStore('aceGraphEditor', () => {
     selectedEdge.value = null
   }
 
+  /** 切换选中边的并行标记：作用于「同源节点」的全部普通边（并行块语义） */
+  function updateSelectedEdgeParallel(parallel) {
+    const e = selectedEdge.value
+    if (!e) return
+    const from = e.from
+    edges.value.forEach(edge => {
+      if ((edge.type === 'normal' || !edge.type) && edge.from === from) {
+        edge.parallel = parallel === true
+      }
+    })
+    if (selectedEdge.value) selectedEdge.value = { ...selectedEdge.value, parallel: parallel === true }
+    requestRerender()
+  }
+
+  /** 设置选中边的聚合策略（ALL_OF/ANY_OF）：作用于「同源节点」的全部普通边 */
+  function updateSelectedEdgeAggregation(aggregation) {
+    const e = selectedEdge.value
+    if (!e) return
+    const from = e.from
+    const val = aggregation || null
+    edges.value.forEach(edge => {
+      if ((edge.type === 'normal' || !edge.type) && edge.from === from) {
+        edge.aggregation = val
+      }
+    })
+    if (selectedEdge.value) selectedEdge.value = { ...selectedEdge.value, aggregation: val }
+    requestRerender()
+  }
+
   /** 请求画布按补丁重建条件边分组（conditionEngine / condition / mapping） */
   function requestEdgeEdit(cmd) {
     edgeEditCommand.value = { ...cmd, _t: Date.now() }
@@ -548,6 +598,14 @@ export const useGraphEditorStore = defineStore('aceGraphEditor', () => {
     clearSelectedEdge()
   }
 
+  /** 带缓存的引用型子图定义拉取（懒加载：仅在首次下钻时请求网络，会话内复用） */
+  async function fetchDefinition(refId) {
+    if (defCache.has(refId)) return defCache.get(refId)
+    const def = await getLatestDefinition(refId)
+    defCache.set(refId, def)
+    return def
+  }
+
   /** 进入子图节点：内联子图切到子作用域；引用型子图加载被引用图作为独立作用域 */
   async function enterSubgraph(nodeId) {
     const node = nodes.value.find(n => n.nodeId === nodeId)
@@ -558,11 +616,14 @@ export const useGraphEditorStore = defineStore('aceGraphEditor', () => {
     if (node.subgraph) {
       childDef = node.subgraph
     } else if (node.subgraphRef) {
+      subgraphLoading.value = true
       try {
-        childDef = await getLatestDefinition(node.subgraphRef)
+        childDef = await fetchDefinition(node.subgraphRef)
       } catch (e) {
         console.warn('[graphEditor] load subgraph ref failed:', node.subgraphRef, e)
         childDef = { graphId: node.subgraphRef, displayName: node.subgraphRef, version: '1.0.0', nodes: [], edges: [] }
+      } finally {
+        subgraphLoading.value = false
       }
     } else {
       childDef = { graphId: nodeId, displayName: node.displayName || node.nodeId, version: '1.0.0', nodes: [], edges: [] }
@@ -677,21 +738,71 @@ export const useGraphEditorStore = defineStore('aceGraphEditor', () => {
     }
   }
 
+  /**
+   * 打开嵌套子图预览：解析子图定义（内联 subgraph / 引用 subgraphRef / 空壳），
+   * 优先用服务端编译视图（previewMermaid，权威），失败则回退为本地结构视图。
+   * 结果写入 subgraphPreview* 系列状态，由 PropertyPanel 的弹窗消费。
+   */
+  async function openSubgraphPreview(nodeId) {
+    const node = nodes.value.find(n => n.nodeId === nodeId)
+    if (!node || node.category !== 'SUBGRAPH') return
+    subgraphPreviewOpen.value = true
+    subgraphPreviewNodeId.value = nodeId
+    subgraphPreviewTitle.value = node.displayName || nodeId
+    subgraphPreviewLoading.value = true
+    subgraphPreviewError.value = ''
+    subgraphPreviewMermaid.value = ''
+    subgraphPreviewIsCompiled.value = false
+    subgraphPreviewEmpty.value = false
+    try {
+      let childDef
+      if (node.subgraph) {
+        childDef = node.subgraph
+      } else if (node.subgraphRef) {
+        childDef = await fetchDefinition(node.subgraphRef)
+      } else {
+        childDef = { graphId: nodeId, displayName: node.displayName || nodeId, version: '1.0.0', nodes: [], edges: [] }
+      }
+      subgraphPreviewEmpty.value = (childDef?.nodes || []).length === 0
+      try {
+        subgraphPreviewMermaid.value = await previewMermaid(graphId.value, childDef)
+        subgraphPreviewIsCompiled.value = true
+      } catch (e) {
+        // 服务端编译失败（部分子图 / 离线 / 无权限）→ 本地结构视图兜底
+        subgraphPreviewMermaid.value = graphDefinitionToMermaid(childDef)
+        subgraphPreviewIsCompiled.value = false
+      }
+    } catch (e) {
+      subgraphPreviewError.value = String(e?.message || e)
+      subgraphPreviewMermaid.value = graphDefinitionToMermaid({ graphId: nodeId, displayName: node.displayName || nodeId, nodes: [], edges: [] })
+      subgraphPreviewIsCompiled.value = false
+    } finally {
+      subgraphPreviewLoading.value = false
+    }
+  }
+
+  function closeSubgraphPreview() {
+    subgraphPreviewOpen.value = false
+  }
+
   return {
     graphId, version, displayName, description, keyStrategies,
     nodes, edges, interruptBefore, saver,
     validationErrors, edgeParamIssues, plantUmlContent, versions, enabledVersion, baselineVersion,
     saving, publishing,     selectedNode, selectedLfNodeId, selectedEdge, edgeEditCommand, edgeConvertCommand,
     canUndo, canRedo, conditionalDrawMode, topologyIssues, minimapVisible, groups,
-    scopeStack, rerenderToken, graphIds,
+    scopeStack, rerenderToken, graphIds, subgraphLoading,
     isDrilledIn, currentScopeKind, breadcrumb, rootGraphId, rootDisplayName,
+    subgraphPreviewOpen, subgraphPreviewNodeId, subgraphPreviewTitle, subgraphPreviewMermaid,
+    subgraphPreviewLoading, subgraphPreviewError, subgraphPreviewIsCompiled, subgraphPreviewEmpty,
     setFromLfData, applyDefinition, normalizeDefinition, buildDefinition, save, validate, loadPlantUml,
     refreshEdgeParamValidation,
     hasContentChanged, needsVersionBump, suggestNextVersion, snapshotBaseline, loadVersionAsBaseline, validateTopologyNow,
     maxKnownVersion, versionExists,
     publishCurrent, loadLatest, loadEnabledVersion, fetchVersions, selectGraph, initNewGraph, resetEditor,
     setSelectedNode, clearSelectedNode, updateSelectedNodeConfig,
-    setSelectedEdge, clearSelectedEdge, requestEdgeEdit, requestEdgeConvert, clearEdgeCommands,
-    enterSubgraph, exitSubgraph, goToBreadcrumb, updateSubgraphNodeMeta, renameSelectedNode, requestRerender, loadGraphIds
+    setSelectedEdge, clearSelectedEdge, updateSelectedEdgeParallel, updateSelectedEdgeAggregation, requestEdgeEdit, requestEdgeConvert, clearEdgeCommands,
+    enterSubgraph, exitSubgraph, goToBreadcrumb, updateSubgraphNodeMeta, renameSelectedNode, requestRerender, loadGraphIds,
+    openSubgraphPreview, closeSubgraphPreview
   }
 })

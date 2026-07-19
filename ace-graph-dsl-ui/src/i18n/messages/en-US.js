@@ -42,6 +42,8 @@ export default {
     groupCollapse: 'Collapse',
     groupExpand: 'Expand',
     groupUngroup: 'Ungroup',
+    extractSubgraph: 'Extract as subgraph',
+    extractSubgraphHint: 'Select nodes (Ctrl+click to multi-select, or enable box-select), then fold them into a subgraph node',
     groupEmpty: 'No sub-flow groups yet',
     groupCount: '{n} nodes',
     importSuccess: 'Imported DSL ({graphId} v{version}) — remember to save',
@@ -117,7 +119,11 @@ export default {
     deleteSelectionHint: 'Delete selected node or edge (Delete / Backspace)',
     copied: 'Copied {n} node(s)',
     pasteHint: 'Ctrl+C copy selected node / Ctrl+V paste',
-    autoLayoutFailed: 'Auto layout failed'
+    autoLayoutFailed: 'Auto layout failed',
+    extractNeedNodes: 'Select at least 1 business node first (Ctrl+click to multi-select, or enable box-select)',
+    extractSuccess: 'Extracted {n} nodes into a subgraph',
+    legendStreaming: 'Streaming / async node',
+    loadingSubgraph: 'Loading subgraph…'
   },
   nodePanel: {
     title: 'Node Panel',
@@ -181,7 +187,13 @@ export default {
     applyOk: 'Edge settings applied',
     unknownEngine: 'Script engine unavailable: {engine} (not in the current engine list; please reselect)',
     convert: 'Convert to conditional',
-    noConditional: 'Normal edges do not support conditional routing. Click "Convert to conditional" to enable it.'
+    noConditional: 'Normal edges do not support conditional routing. Click "Convert to conditional" to enable it.',
+    parallel: 'Parallel',
+    parallelHint: 'Mark as a parallel branch (same source → multiple targets = parallel block); executed concurrently by StateGraph by default',
+    aggregation: 'Aggregation',
+    aggregationNone: 'None (default)',
+    aggregationAllOf: 'ALL_OF (all complete)',
+    aggregationAnyOf: 'ANY_OF (any complete)'
   },
   propertyPanel: {
     title: 'Properties',
@@ -215,7 +227,16 @@ export default {
     reference: 'Reference',
     subgraphRef: 'Referenced graph ID',
     enterSubgraph: 'Open subgraph',
-    enterSubgraphHint: 'Double-click a subgraph node on canvas to open it'
+    enterSubgraphHint: 'Double-click a subgraph node on canvas to open it',
+    previewSubgraph: 'Preview subgraph',
+    previewSubgraphTitle: 'Subgraph topology preview',
+    previewLoading: 'Generating preview…',
+    previewEmpty: 'This subgraph has no nodes yet',
+    previewCompiledNote: 'Compiled view (server-generated)',
+    previewFallbackNote: 'Server generation failed; fell back to structural view',
+    previewLoadFailed: 'Preview generation failed: ',
+    streaming: 'Streaming output',
+    streamingHint: 'Mark as a streaming / async node: output is produced as a stream (token-by-token) or asynchronously; the canvas shows a pulsing badge at the node top-right'
   },
   scriptEditor: {
     title: 'New script node',

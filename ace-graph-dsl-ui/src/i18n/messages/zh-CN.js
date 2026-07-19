@@ -42,6 +42,8 @@ export default {
     groupCollapse: '折叠',
     groupExpand: '展开',
     groupUngroup: '解组',
+    extractSubgraph: '提取为子图',
+    extractSubgraphHint: '选中节点（Ctrl+点击多选，或开「框选」拖选）后，将其折叠为一个子图节点',
     groupEmpty: '暂无子流程分组',
     groupCount: '{n} 个节点',
     importSuccess: '已导入 DSL（{graphId} v{version}），记得保存',
@@ -68,6 +70,16 @@ export default {
     versionBumpTitle: '请升级版本号',
     versionBumpMessage: '检测到 DSL 内容已变更。版本号 {current} 已存在或未大于最大版本 {max}，须使用新版本号保存。是否自动升级为 {suggested}？',
     versionBumpConfirm: '升级为 {suggested}'
+  },
+  canvas: {
+    extractNeedNodes: '请先选中至少 1 个业务节点（Ctrl+点击多选，或开「框选」拖选）',
+    extractSuccess: '已将 {n} 个节点提取为子图',
+    deleteSelectionHint: '删除选中元素',
+    isolatedNodes: '存在孤立节点',
+    autoLayoutFailed: '自动布局失败',
+    copied: '已复制 {n} 个节点',
+    legendStreaming: '流式 / 异步节点',
+    loadingSubgraph: '正在加载子图…'
   },
   manager: {
     title: 'Graph DSL 管理中心',
@@ -181,7 +193,13 @@ export default {
     applyOk: '边配置已应用',
     unknownEngine: '脚本引擎不可用: {engine}（不在当前可用引擎列表中，请重新选择）',
     convert: '转为条件边',
-    noConditional: '普通边不支持条件路由。点击「转为条件边」可启用条件路由配置。'
+    noConditional: '普通边不支持条件路由。点击「转为条件边」可启用条件路由配置。',
+    parallel: '并行',
+    parallelHint: '标记为并行分支（同源多目标 = 并行块）；运行时由 StateGraph 默认并发执行',
+    aggregation: '聚合策略',
+    aggregationNone: '无（默认）',
+    aggregationAllOf: 'ALL_OF（全部完成）',
+    aggregationAnyOf: 'ANY_OF（任一完成）'
   },
   propertyPanel: {
     title: '属性面板',
@@ -215,7 +233,16 @@ export default {
     reference: '引用',
     subgraphRef: '引用图 ID',
     enterSubgraph: '进入子图',
-    enterSubgraphHint: '双击画布上的子图节点也可进入'
+    enterSubgraphHint: '双击画布上的子图节点也可进入',
+    previewSubgraph: '预览子图',
+    previewSubgraphTitle: '子图拓扑预览',
+    previewLoading: '正在生成预览…',
+    previewEmpty: '该子图暂无节点',
+    previewCompiledNote: '编译视图（服务端生成）',
+    previewFallbackNote: '服务端生成失败，已回退为结构视图',
+    previewLoadFailed: '预览生成失败：',
+    streaming: '流式输出',
+    streamingHint: '标记为流式 / 异步节点：输出以流式（逐 token）或异步方式产生，画布节点右上角将以脉冲徽标区分'
   },
   scriptEditor: {
     title: '新建脚本节点',
