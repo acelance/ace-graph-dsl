@@ -3,6 +3,7 @@
 > 配套调研：`spring-ai-alibaba-graph-dsl-gap-analysis.md`（缺口清单 G1–G7）
 > 库版本：`spring-ai-alibaba-graph-core:1.1.2.2`
 > 结论先行：**方案可行**。库已原生支持子图嵌套（`StateGraph.addNode(id, StateGraph/CompiledGraph)`）、子图内 HITL、显式并行与 Agent 循环；当前 ace-graph-dsl 缺的是"把这些能力映射到 DSL 数据模型 + 构建器 + 前端下钻"的工程实现，而非底层能力缺失。
+> 📌 实施状态（2026-07-19）：本方案已**部分落地**——P0 数据模型 + P1 子图下钻 + G6 异常边 + G3 Agent（code-island 折中）均已实现；P2 并行仅以隐式 fan-out 低风险路线实现（未做 `ParallelNode` 高保真）；P3 Agent 自环、P4 预览嵌套等以折中/部分失真方式落地。详见文末「十、实施状态与折中说明（2026-07-19 落实）」。
 
 ---
 
@@ -14,7 +15,7 @@
 | 子图内 HITL | ✅ 可实现 | `ResumableSubGraphAction` + `SubGraphInterruptionException` |
 | Agent 循环（subagent 内核） | ✅ 可实现但风险较高 | 需手动构造 `AsyncCommandAction`，用 `Command(gotoNode)` 自环实现 agent loop |
 | 显式并行块 | ✅ 低风险实现 | 当前已用 fan-out 边隐式表达；可升级为可视化"并行块" + 聚合策略 |
-| KeyStrategy 导入 | ⚠️ 部分限制 | 反射拿不到 `KeyStrategyFactory`；导入态接受默认 REPLACE，提供 UI 补录 |
+| KeyStrategy 导入 | ✅ 已修复 | `StateGraph.getKeyStrategyFactory()` 为 public、`apply()` 返回全量映射；`fromStateGraph` 现完整提取，`toStrategy` 补 MERGE + 未知策略降级（不再抛异常） |
 
 **核心约束**：DSL 持久化模型是递归友好的（`GraphDefinition` 本身是 record，JSON 天然可嵌套），所以最自然的做法是**让子图成为一等公民的节点引用**，而非当前纯视觉的 GROUP 容器。
 
@@ -84,7 +85,7 @@ AsyncCommandAction loop = (state, cfg) -> {
 };
 stateGraph.addNode(ref.nodeId(), AsyncNodeAction.of(loop), Map.of());
 ```
-> 库已提供 `Command`/`MultiCommand` 原语与 `AgentInstructionMessage`/`AgentStateFactory`，无需自造机制，只需正确接线。
+> 库已提供 `Command`/`MultiCommand` 原语与 `AgentStateFactory`（`AgentInstructionMessage` 经 jar 核验**不存在**，内核实为 `CommandAction` 自环模式），无需自造机制，只需正确接线。
 
 ### 3.3 并行（Phase 2，两种路线）
 - **低风险的"并行块"**：维持现有 fan-out 边，但给边打 `parallel=true` 并在 MERGE 目标存 `aggregation`，前端渲染为并行视觉块。构建时等价于现在的隐式并行，零语义风险。
@@ -99,7 +100,7 @@ stateGraph.addNode(ref.nodeId(), AsyncNodeAction.of(loop), Map.of());
 改造要点：
 1. **递归**：遇到 `SubGraphNode` 实现类时，调用其公开的 `subGraph()` 递归提取嵌套 `GraphDefinition`，写入 `NodeRef.subgraph` + `category=SUBGRAPH` + `subgraphRef`。
 2. **并行识别**：同一 `from` 的多条 `EdgeValue`（targets 全部 value==null）识别为 `parallel=true` 扇出；`ParallelNode` 内部目标回写为并行边。
-3. **KeyStrategy**（G5）：反射拿不到 `KeyStrategyFactory`，采用"导入态默认 REPLACE + UI 补录 + 可选 `@GraphMeta(keyStrategies=...)` 注解"三选一缓解。
+3. **KeyStrategy**（G5）：`StateGraph.getKeyStrategyFactory().apply()` 返回全量 `Map<String, KeyStrategy>`，`fromStateGraph` 已改为完整提取（内置 REPLACE/APPEND/MERGE 经 `instanceof` 映射为字符串；自定义策略留空走兜底）。`toStrategy` 补 MERGE 分支并对未知策略降级（日志告警 + 默认 REPLACE）而非抛异常。无需 `@GraphMeta` 注解或 UI 补录兜底。
 4. **ERROR 保留节点**（G6）：补识别 `StateGraph.ERROR`，生成异常/兜底边。
 
 ---
@@ -127,13 +128,13 @@ stateGraph.addNode(ref.nodeId(), AsyncNodeAction.of(loop), Map.of());
 
 ## 六、分阶段路线图（估算）
 
-| 阶段 | 内容 | 工作量 | 优先级 |
-|------|------|--------|--------|
-| **P0 奠基** | `NodeRef`/`GraphEdge` 字段扩展 + 序列化兼容 + 校验豁免（子图节点不进扁平 nodes） | 1–2 d | 🔴 |
-| **P1 子图可视化+下钻** | SUBGRAPH 节点渲染、scope 栈、面包屑、catalog 选择器、构建器 addNode(subSg)、递归反向提取、环检测、"提取为子图" | 3–5 d | 🔴 头号 |
-| **P2 并行显式化** | 并行块视觉分组 + 边 parallel 标记 + 聚合策略配置（低风险路线） | 2–3 d | 🟠 |
-| **P3 Agent/Command 节点** | AGENT 节点 + Command 自环构建 + AgentInstructionMessage + 调度 + 反向提取 | 4–6 d | 🟠（若 agent 在范围） |
-| **P4 补齐与优化** | G5 keyStrategy 导入标注、G6 ERROR 异常边、预览嵌套渲染、懒加载性能、回归测试 | 2–3 d | 🟡 |
+| 阶段 | 内容 | 工作量 | 优先级 | 落实状态（2026-07-19） |
+|------|------|--------|--------|----------------------|
+| **P0 奠基** | `NodeRef`/`GraphEdge` 字段扩展 + 序列化兼容 + 校验豁免（子图节点不进扁平 nodes） | 1–2 d | 🔴 | ✅ 已完成 |
+| **P1 子图可视化+下钻** | SUBGRAPH 节点渲染、scope 栈、面包屑、catalog 选择器、构建器 addNode(subSg)、递归反向提取、环检测、"提取为子图" | 3–5 d | 🔴 头号 | ✅ 已完成（"提取为子图" 快捷操作未做；catalog 选择器复用 `listGraphIds`/`getLatestDefinition`） |
+| **P2 并行显式化** | 并行块视觉分组 + 边 parallel 标记 + 聚合策略配置（低风险路线） | 2–3 d | 🟠 | ⚠️ 部分完成（仅隐式 fan-out；`ParallelNode`/聚合策略/并行块视觉分组/扇形分离未做） |
+| **P3 Agent/Command 节点** | AGENT 节点 + Command 自环构建 + 调度 + 反向提取 | 4–6 d | 🟠（若 agent 在范围） | ✅ 已完成（code-island 折中：前端仅记录节点与配置，自环由后端注册 `RegisteredAgentNode` 接线） |
+| **P4 补齐与优化** | G5 keyStrategy 导入标注、G6 ERROR 异常边、预览嵌套渲染、懒加载性能、回归测试 | 2–3 d | 🟡 | ✅ 部分完成（G5/G6 完成；预览嵌套渲染/懒加载/回归测试未做） |
 
 **合计约 12–19 人日**。建议从 **P0 + P1** 起步——它直接回答你"子图/嵌套/subagent"的核心诉求，且子图 + agent 循环组合即可表达 subagent。
 
@@ -157,9 +158,51 @@ stateGraph.addNode(ref.nodeId(), AsyncNodeAction.of(loop), Map.of());
 | R2 Agent 自环语义错误 | P3 单独验证 Command/gotoNode 收口条件，配集成测试；可先交付 P1/P2 不阻塞 |
 | R3 跨作用域环/校验复杂度 | P1 即引入引用图环检测 + 版本漂移检查 |
 | R4 画布下钻 UX（状态保存/恢复/缩放） | 作用域栈 + 面包屑，复用现有 MiniMap；逐 scope 重置 |
-| R5 KeyStrategy 反射不可得 | 导入态默认 REPLACE + UI 补录 + 可选 `@GraphMeta` 注解 |
+| R5 KeyStrategy（已修复） | 经 `getKeyStrategyFactory()` 完整提取；`toStrategy` 补 MERGE + 未知策略降级，不再抛异常 |
 
 ---
 
 ## 九、一句话总结
 库能力齐备，**落地只需把"子图/agent/并行"映射进 DSL 的 NodeRef/GraphEdge 模型，并在构建器与前端分别补上"挂载子图"和"下钻渲染"两端**。最高 ROI 路径是 **P0 数据模型 + P1 子图可视化下钻**，它本身就是 subagent 表达能力的基石；Agent 节点（P3）在其之上叠加 agent 循环即构成完整 subagent。
+
+---
+
+## 十、实施状态与折中说明（2026-07-19 落实）
+
+> 落实原则（用户约定）：**优先级高的先做、低风险的先做；高风险项避开风险点，以折中/部分失真方式实现，并明确告知用户可经其他方式补全功能。**
+
+### 10.1 已落地（对照缺口 G1/G3/G6 + 奠基 P0）
+
+| 项 | 落地方式 | 备注 |
+|----|----------|------|
+| **P0 数据模型** | `NodeRef` 新增 `category`/`subgraphRef`/`subgraph`；`GraphEdge` 新增 `type=error`；`@JsonIgnore` 自描述方法 | 后端编译通过 |
+| **G1 子图可视化 + 下钻** | SUBGRAPH 自定义节点（`DspSubgraphNode`）+ 作用域栈（`scopeStack`）+ 面包屑；双击下钻到子图、保存折叠回根图；构建器 `addNode(id, subStateGraph)` 递归；反向提取递归 `SubGraphNode.subGraph()` | 满足"在同一图内不展开子图、点击跳转到另一张图展开"的诉求 |
+| **G3 Agent 节点（code-island）** | AGENT 自定义节点（`DspAgentNode`）；可拖入、改名、配 `subgraphRef`；属性面板标注"code-island"提示 | 前端不实现自环，仅记录与配置 |
+| **G6 异常边** | ERROR 保留节点（`lf_error`↔`__ERROR__`）+ 红色虚线 `error` 边；`edgeParamValidation`/`topologyValidation` 均跳过 ERROR | 与后端校验豁免一致 |
+| **G5 KeyStrategy** | `fromStateGraph` 完整提取 + `toStrategy` MERGE/降级 | 已修复 |
+
+### 10.2 折中与部分失真（高风险项，需告知用户）
+
+1. **G3 Agent 自环 = code-island（部分失真）**
+   - 前端只负责"放置 AGENT 节点 + 记录配置"，**不实现** `AsyncCommandAction` 自环编排。
+   - 运行时由后端已注册的 `RegisteredAgentNode`（同 `category`）接线 `Command(gotoNode)` 自环，功能可经后端完整补全。
+   - **用户告知**：Agent 循环逻辑需在后端注册节点实现，前端提供可视化入口与配置载体，不影响整体可用性。
+
+2. **G2 并行 = 隐式 fan-out（低风险路线，未做高保真）**
+   - 沿用多条 normal 边表达 fan-out（库原生支持，零语义风险）。
+   - **未实现**：`ParallelNode` 并发上限/聚合（ALL_OF/ANY_OF）、`addParallelConditionalEdges`、可视化"并行块"分组、以及**并行边的视觉扇形分离**（多条并行边在画布上沿同一路径重叠，未散开）。
+   - **用户告知**：高保真并行编排可经后端直接构造 `ParallelNode` 或在 DSL 中手动描述多条边实现；前端后续可补"并行块"视觉分组与扇形布局。
+
+3. **内联子图保存折叠回根图（`collapsedToRoot`）**
+   - 在子图 scope 内保存时，所有内联子图内容回写父节点 `subgraph` 字段后**折叠回根图**持久化，不保留逐 scope 独立保存态。
+   - 引用子图（`subgraphRef` 已设）则始终作为独立 scope 经 `getLatestDefinition` 加载，与父图分离。
+
+4. **预览嵌套 / 懒加载 / 回归测试（P4 未做项）**
+   - 预览嵌套渲染依赖库 `getGraph(MERMAID/PLANTUML)`（构建器支持子图后即自动正确），未单独另写渲染器。
+   - 懒加载、round-trip 回归测试未覆盖，建议后续补。
+
+### 10.3 未实现项（G4 / G7）
+- **G4 子图内 HITL**：子图下钻已通，但 `ResumableSubGraphAction` 中断/恢复未接入。
+- **G7 流式/异步区分**：节点同步/流式未做可视化区分。
+
+> 结论：本次以"低风险优先 + 高风险折中"策略完成了核心诉求（子图作为可跳转节点 + 下钻展开、Agent 入口、异常边），高风险的高保真并行与 Agent 自环以可补全方式落地，用户知情权与功能完整性均得到保障。

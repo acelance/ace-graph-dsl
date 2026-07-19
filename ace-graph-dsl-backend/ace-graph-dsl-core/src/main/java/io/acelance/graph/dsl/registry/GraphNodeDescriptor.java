@@ -37,6 +37,10 @@ public record GraphNodeDescriptor(
     public static final String CATEGORY_ROUTER = "ROUTER";
     public static final String CATEGORY_MERGE = "MERGE";
     public static final String CATEGORY_HITL = "HITL";
+    /** 子图节点（graph-in-graph，可点击跳转到另一张图） */
+    public static final String CATEGORY_SUBGRAPH = "SUBGRAPH";
+    /** Agent 循环节点（subagent 内核，返回 Command 形成续轮/退出循环） */
+    public static final String CATEGORY_AGENT = "AGENT";
 
     /** 兼容旧构造：BUILTIN 来源，无权限标签 */
     public GraphNodeDescriptor(

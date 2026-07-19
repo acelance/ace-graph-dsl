@@ -9,9 +9,11 @@ import io.acelance.graph.dsl.definition.NodeRef;
 import io.acelance.graph.dsl.observability.GraphExecutionListener;
 import io.acelance.graph.dsl.observability.GraphLifecycleListenerBridge;
 import io.acelance.graph.dsl.persistence.DynamicNodeDefinitionRepository;
+import io.acelance.graph.dsl.persistence.GraphDefinitionRepository;
 import io.acelance.graph.dsl.registry.EdgeDispatcherRegistry;
 import io.acelance.graph.dsl.registry.GraphNodeRegistry;
 import io.acelance.graph.dsl.registry.NodeRuntimeContext;
+import io.acelance.graph.dsl.registry.RegisteredAgentNode;
 import io.acelance.graph.dsl.registry.RegisteredGraphNode;
 import io.acelance.graph.dsl.script.ScriptEdgeActionFactory;
 import io.acelance.graph.dsl.script.ScriptNodeFactory;
@@ -22,9 +24,13 @@ import com.alibaba.cloud.ai.graph.KeyStrategyFactory;
 import com.alibaba.cloud.ai.graph.StateGraph;
 import com.alibaba.cloud.ai.graph.checkpoint.config.SaverConfig;
 import com.alibaba.cloud.ai.graph.exception.GraphStateException;
+import com.alibaba.cloud.ai.graph.action.AsyncCommandAction;
 import com.alibaba.cloud.ai.graph.action.AsyncEdgeAction;
+import com.alibaba.cloud.ai.graph.action.Command;
+import com.alibaba.cloud.ai.graph.action.CommandAction;
 import com.alibaba.cloud.ai.graph.action.EdgeAction;
 import com.alibaba.cloud.ai.graph.state.strategy.AppendStrategy;
+import com.alibaba.cloud.ai.graph.state.strategy.MergeStrategy;
 import com.alibaba.cloud.ai.graph.state.strategy.ReplaceStrategy;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -56,6 +62,7 @@ public class DynamicGraphBuilder {
     private final List<GraphExecutionListener> executionListeners;
     private final DynamicNodeDefinitionRepository nodeDefRepository;
     private final ScriptNodeFactory scriptNodeFactory;
+    private final GraphDefinitionRepository definitionRepository;
 
     public DynamicGraphBuilder(GraphNodeRegistry nodeRegistry,
                                EdgeDispatcherRegistry dispatcherRegistry,
@@ -65,7 +72,8 @@ public class DynamicGraphBuilder {
                                ScriptEdgeActionFactory scriptEdgeActionFactory,
                                List<GraphExecutionListener> executionListeners,
                                DynamicNodeDefinitionRepository nodeDefRepository,
-                               ScriptNodeFactory scriptNodeFactory) {
+                               ScriptNodeFactory scriptNodeFactory,
+                               GraphDefinitionRepository definitionRepository) {
         this.nodeRegistry = nodeRegistry;
         this.dispatcherRegistry = dispatcherRegistry;
         this.validator = validator;
@@ -75,6 +83,7 @@ public class DynamicGraphBuilder {
         this.executionListeners = executionListeners != null ? executionListeners : List.of();
         this.nodeDefRepository = nodeDefRepository;
         this.scriptNodeFactory = scriptNodeFactory;
+        this.definitionRepository = definitionRepository;
     }
 
     /**
@@ -134,10 +143,48 @@ public class DynamicGraphBuilder {
 
         // 1. 注册节点
         for (NodeRef ref : def.nodes()) {
-            RegisteredGraphNode node = nodeRegistry.get(ref.nodeId());
+            // 子图节点：递归构建内部 StateGraph 并作为子图挂载（graph-in-graph）
+            if (ref.isSubgraph()) {
+                GraphDefinition subDef = resolveSubgraph(ref);
+                if (subDef == null) {
+                    throw new GraphStateException("子图未定义（subgraph 与 subgraphRef 均为空）: " + ref.nodeId());
+                }
+                StateGraph subSg = doBuildStateGraph(subDef);
+                stateGraph.addNode(ref.nodeId(), subSg);
+                continue;
+            }
+
             NodeRuntimeContext nodeCtx = ref.config() != null && !ref.config().isEmpty()
                     ? new NodeRuntimeContext(applicationContext, ref.config())
                     : ctx;
+
+            // Agent 节点：用 CommandAction 包装，形成续轮/退出循环（subagent 内核）。
+            // 按类别解析实现（而非 nodeId），允许 Agent 节点自定义业务 ID。
+            if (ref.isAgent() || "AGENT".equals(ref.category())) {
+                RegisteredAgentNode agentNode = nodeRegistry.getAgentNode();
+                if (agentNode == null) {
+                    throw new GraphStateException("未注册 AGENT 节点实现（需要 agent:script）: " + ref.nodeId());
+                }
+                CommandAction raw = agentNode.toCommandAction(nodeCtx);
+                String nodeId = ref.nodeId();
+                // 解析 "__SELF__" 为节点自身 ID；保留 START/END/ERROR 等保留字
+                CommandAction resolved = (state, rc) -> {
+                    Command c = raw.apply(state, rc);
+                    String gotoNode = c.gotoNode();
+                    if (GraphDefinition.START.equals(gotoNode) || GraphDefinition.END.equals(gotoNode)
+                            || GraphDefinition.ERROR.equals(gotoNode)) {
+                        return c;
+                    }
+                    if ("__SELF__".equals(gotoNode)) {
+                        return new Command(nodeId, c.update());
+                    }
+                    return c;
+                };
+                stateGraph.addNode(ref.nodeId(), AsyncCommandAction.node_async(resolved), Map.of());
+                continue;
+            }
+
+            RegisteredGraphNode node = nodeRegistry.get(ref.nodeId());
             stateGraph.addNode(ref.nodeId(), node_async(node.toAction(nodeCtx)));
         }
 
@@ -220,7 +267,7 @@ public class DynamicGraphBuilder {
     }
 
     /**
-     * 将 DSL 保留字 __START__ / __END__ 转为 StateGraph.START / StateGraph.END。
+     * 将 DSL 保留字 __START__ / __END__ / __ERROR__ 转为 StateGraph 对应常量。
      */
     private String resolveToken(String token) {
         if (GraphDefinition.START.equals(token)) {
@@ -229,7 +276,32 @@ public class DynamicGraphBuilder {
         if (GraphDefinition.END.equals(token)) {
             return StateGraph.END;
         }
+        if (GraphDefinition.ERROR.equals(token)) {
+            return StateGraph.ERROR;
+        }
         return token;
+    }
+
+    /**
+     * 解析子图节点指向的 {@link GraphDefinition}：优先内嵌 {@code ref.subgraph()}，
+     * 其次按 {@code ref.subgraphRef()} 从仓库加载最新版本。两者皆空返回 {@code null}。
+     */
+    private GraphDefinition resolveSubgraph(NodeRef ref) {
+        if (ref.subgraph() != null) {
+            return ref.subgraph();
+        }
+        if (ref.subgraphRef() != null && !ref.subgraphRef().isBlank()) {
+            try {
+                GraphDefinition loaded = definitionRepository.loadLatest(ref.subgraphRef());
+                if (loaded != null) {
+                    return loaded;
+                }
+                log.warn("子图引用未找到最新版本, subgraphRef={}", ref.subgraphRef());
+            } catch (Exception e) {
+                log.warn("子图引用加载失败, subgraphRef={}, error={}", ref.subgraphRef(), e.getMessage());
+            }
+        }
+        return null;
     }
 
     private KeyStrategyFactory createKeyStrategyFactory(GraphDefinition def) {
@@ -246,7 +318,11 @@ public class DynamicGraphBuilder {
         return switch (name) {
             case "REPLACE" -> new ReplaceStrategy();
             case "APPEND" -> new AppendStrategy();
-            default -> throw new IllegalArgumentException("未知 KeyStrategy: " + name);
+            case "MERGE" -> new MergeStrategy();
+            default -> {
+                log.warn("未知 KeyStrategy: {}, 回退为 REPLACE", name);
+                yield new ReplaceStrategy();
+            }
         };
     }
 

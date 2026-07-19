@@ -59,8 +59,27 @@ public class GraphValidator {
             return ValidationResult.fail(errors);
         }
 
-        // 1. 节点存在性
+        // 1. 节点存在性（子图 / Agent 节点不走普通注册表）
         for (NodeRef ref : def.nodes()) {
+            if (ref.isSubgraph()) {
+                // 子图节点：校验其指向的子图定义（内嵌则递归校验；引用型由构建期解析）
+                if (ref.subgraph() != null) {
+                    ValidationResult subResult = validate(ref.subgraph());
+                    if (!subResult.ok()) {
+                        errors.add("子图 '" + ref.nodeId() + "' 内部校验失败: "
+                                + String.join("; ", subResult.errors()));
+                    }
+                } else if (ref.subgraphRef() == null || ref.subgraphRef().isBlank()) {
+                    errors.add("子图节点未定义（subgraph 与 subgraphRef 均为空）: " + ref.nodeId());
+                }
+                continue;
+            }
+            if (ref.isAgent() || "AGENT".equals(ref.category())) {
+                if (nodeRegistry.getAgentNode() == null) {
+                    errors.add("未注册 AGENT 节点实现（需要 agent:script）: " + ref.nodeId());
+                }
+                continue;
+            }
             if (!nodeRegistry.contains(ref.nodeId())) {
                 errors.add("节点未注册: " + ref.nodeId());
             }
@@ -70,6 +89,7 @@ public class GraphValidator {
         Set<String> nodeIds = def.nodes().stream().map(NodeRef::nodeId).collect(Collectors.toSet());
         nodeIds.add(GraphDefinition.START);
         nodeIds.add(GraphDefinition.END);
+        nodeIds.add(GraphDefinition.ERROR);
 
         List<GraphEdge> edges = def.edges() != null ? def.edges() : List.of();
         for (GraphEdge edge : edges) {
@@ -208,7 +228,8 @@ public class GraphValidator {
         Set<String> visited = new HashSet<>();
         Set<String> recursion = new HashSet<>();
         for (String node : adj.keySet()) {
-            if (GraphDefinition.START.equals(node) || GraphDefinition.END.equals(node)) {
+            if (GraphDefinition.START.equals(node) || GraphDefinition.END.equals(node)
+                    || GraphDefinition.ERROR.equals(node)) {
                 continue;
             }
             if (dfsCycle(node, adj, visited, recursion)) {
@@ -249,6 +270,7 @@ public class GraphValidator {
                 : def.nodes().stream().map(NodeRef::nodeId).collect(Collectors.toSet());
         nodeIds.add(GraphDefinition.START);
         nodeIds.add(GraphDefinition.END);
+        nodeIds.add(GraphDefinition.ERROR);
 
         Map<String, Set<String>> adj = new HashMap<>();
         Map<String, Set<String>> rev = new HashMap<>();
@@ -265,11 +287,13 @@ public class GraphValidator {
             }
         }
 
-        // END 可达性（从 START BFS，END 视为终止节点不再向外扩展）
+        // END 可达性（从 START / ERROR BFS，END 视为终止节点不再向外扩展）
         Set<String> reachable = new HashSet<>();
         Deque<String> queue = new ArrayDeque<>();
         reachable.add(GraphDefinition.START);
+        reachable.add(GraphDefinition.ERROR);
         queue.add(GraphDefinition.START);
+        queue.add(GraphDefinition.ERROR);
         while (!queue.isEmpty()) {
             String cur = queue.poll();
             if (GraphDefinition.END.equals(cur)) continue;
@@ -282,7 +306,8 @@ public class GraphValidator {
         }
 
         for (String id : nodeIds) {
-            if (GraphDefinition.START.equals(id) || GraphDefinition.END.equals(id)) continue;
+            if (GraphDefinition.START.equals(id) || GraphDefinition.END.equals(id)
+                    || GraphDefinition.ERROR.equals(id)) continue;
             if (!reachable.contains(id)) {
                 errors.add("不可达节点（从 START 无法到达）: " + id);
             }

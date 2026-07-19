@@ -81,4 +81,20 @@ public class GraphNodeRegistry {
     public boolean contains(String nodeId) {
         return nodesById.containsKey(nodeId);
     }
+
+    /**
+     * 返回第一个已注册的 {@link RegisteredAgentNode} 实现（全图唯一 agent 内核）。
+     *
+     * <p>Agent 节点的业务 nodeId 由 DSL 自由命名（非固定 {@code agent:script}），
+     * 编译/校验时通过类别解析实现，而非按 nodeId 查表。当前仅 {@code ScriptAgentNode}
+     * 一种实现，故返回首个匹配即可。</p>
+     */
+    public RegisteredAgentNode getAgentNode() {
+        for (RegisteredGraphNode node : nodesById.values()) {
+            if (node instanceof RegisteredAgentNode agent) {
+                return agent;
+            }
+        }
+        return null;
+    }
 }

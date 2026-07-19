@@ -1,5 +1,6 @@
 const START = '__START__'
 const END = '__END__'
+const ERROR = '__ERROR__'
 
 /**
  * 整体拓扑校验：环检测、END 可达性、不可达节点、孤立节点。
@@ -18,6 +19,7 @@ export function validateTopology(def) {
   const nodeIds = new Set((def.nodes || []).map(n => n.nodeId).filter(id => id && !reserved.has(id)))
   nodeIds.add(START)
   nodeIds.add(END)
+  nodeIds.add(ERROR)
 
   const adj = new Map()
   const rev = new Map()
@@ -49,8 +51,8 @@ export function validateTopology(def) {
     })
   }
 
-  // 2. END 可达性（从 START BFS）
-  const reachable = bfs(START, adj)
+  // 2. END 可达性（从 START / ERROR BFS；错误边目标视为可达，避免误报）
+  const reachable = new Set([...bfs(START, adj), ...bfs(ERROR, adj)])
   if (!reachable.has(END)) {
     issues.push({
       level: 'error',
@@ -64,7 +66,7 @@ export function validateTopology(def) {
   const unreachable = []
   const isolated = []
   for (const id of nodeIds) {
-    if (id === START || id === END) continue
+    if (id === START || id === END || id === ERROR) continue
     if (!reachable.has(id)) unreachable.push(id)
     const hasIn = (rev.get(id) && rev.get(id).size > 0)
     const hasOut = (adj.get(id) && adj.get(id).size > 0)

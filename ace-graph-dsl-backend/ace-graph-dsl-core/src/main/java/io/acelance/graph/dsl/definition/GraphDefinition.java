@@ -1,16 +1,21 @@
 package io.acelance.graph.dsl.definition;
 
 import com.alibaba.cloud.ai.graph.StateGraph;
+import com.alibaba.cloud.ai.graph.SubGraphNode;
 import com.alibaba.cloud.ai.graph.internal.edge.Edge;
 import com.alibaba.cloud.ai.graph.internal.edge.EdgeCondition;
 import com.alibaba.cloud.ai.graph.internal.edge.EdgeValue;
 import com.alibaba.cloud.ai.graph.internal.node.Node;
+import com.alibaba.cloud.ai.graph.state.strategy.AppendStrategy;
+import com.alibaba.cloud.ai.graph.state.strategy.MergeStrategy;
+import com.alibaba.cloud.ai.graph.state.strategy.ReplaceStrategy;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.lang.reflect.Field;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -46,6 +51,8 @@ public record GraphDefinition(
     public static final String START = "__START__";
     /** 保留字：终点 */
     public static final String END = "__END__";
+    /** 保留字：错误节点（StateGraph.ERROR 映射为字符串） */
+    public static final String ERROR = "__ERROR__";
 
     /**
      * 从 spring-ai-alibaba-graph 的 {@link StateGraph} 提取拓扑，
@@ -78,15 +85,8 @@ public record GraphDefinition(
         List<NodeRef> nodeRefs = new ArrayList<>();
         List<GraphEdge> graphEdges = new ArrayList<>();
 
-        // 1. 提取节点
-        Set<Node> internalNodes = getNodes(stateGraph);
-        if (internalNodes != null) {
-            for (Node n : internalNodes) {
-                nodeRefs.add(new NodeRef(n.id(), Map.of(), null, null));
-            }
-        }
-
-        // 2. 提取边
+        // 1. 先抽取边，识别自环（best-effort 标记 agent 循环）与错误边
+        Set<String> selfLoopNodes = new LinkedHashSet<>();
         List<Edge> internalEdges = getEdges(stateGraph);
         if (internalEdges != null) {
             for (Edge e : internalEdges) {
@@ -97,7 +97,11 @@ public record GraphDefinition(
                 if (targets.stream().allMatch(tv -> tv.value() == null)) {
                     // 普通边（单条或多条并行）
                     for (EdgeValue tv : targets) {
-                        graphEdges.add(new GraphEdge(from, tv.id(),
+                        String targetId = StateGraph.ERROR.equals(tv.id()) ? ERROR : tv.id();
+                        if (from.equals(targetId)) {
+                            selfLoopNodes.add(from); // 自环：疑似 agent 循环
+                        }
+                        graphEdges.add(new GraphEdge(from, targetId,
                                 GraphEdge.TYPE_NORMAL, null, null, null, null));
                     }
                 } else {
@@ -115,8 +119,24 @@ public record GraphDefinition(
             }
         }
 
+        // 2. 抽取节点（子图递归 / agent 自环 best-effort 标记）
+        Set<Node> internalNodes = getNodes(stateGraph);
+        if (internalNodes != null) {
+            for (Node n : internalNodes) {
+                if (n instanceof SubGraphNode sgn) {
+                    // 子图：递归提取内部拓扑，作为内嵌 GraphDefinition
+                    GraphDefinition inner = fromStateGraph(sgn.subGraph(),
+                            n.id(), n.id(), "1.0.0", "subgraph", null, null);
+                    nodeRefs.add(new NodeRef(n.id(), "SUBGRAPH", Map.of(), null, null, inner, null, null));
+                } else {
+                    String category = selfLoopNodes.contains(n.id()) ? "AGENT" : null;
+                    nodeRefs.add(new NodeRef(n.id(), category, Map.of(), null, null, null, null, null));
+                }
+            }
+        }
+
         return new GraphDefinition(graphId, displayName, version, description,
-                Map.of(), // keyStrategies 暂不传递（反射无法获取 KeyStrategyFactory 内容）
+                extractKeyStrategies(stateGraph),
                 List.copyOf(nodeRefs), List.copyOf(graphEdges),
                 new CompileConfigDto(interruptBefore, saver), true);
     }
@@ -149,5 +169,42 @@ public record GraphDefinition(
             log.debug("反射提取 StateGraph 边失败: {}", e.getMessage());
             return null;
         }
+    }
+
+    /**
+     * 从 StateGraph 提取 key→策略 映射。
+     *
+     * <p>{@code StateGraph.getKeyStrategyFactory()} 为 public，其 {@code apply()}
+     * 返回全量 {@code Map<String, KeyStrategy>}，因此 KeyStrategy 可被完整提取；
+     * 此前版本误判为"反射无法获取"，实际是 {@code fromStateGraph} 未读取该入口。</p>
+     */
+    @SuppressWarnings("unchecked")
+    private static Map<String, String> extractKeyStrategies(StateGraph sg) {
+        Map<String, String> strategies = new LinkedHashMap<>();
+        try {
+            var factory = sg.getKeyStrategyFactory();
+            if (factory == null) {
+                return strategies;
+            }
+            for (var entry : factory.apply().entrySet()) {
+                Object value = entry.getValue();
+                String name;
+                if (value instanceof ReplaceStrategy) {
+                    name = "REPLACE";
+                } else if (value instanceof AppendStrategy) {
+                    name = "APPEND";
+                } else if (value instanceof MergeStrategy) {
+                    name = "MERGE";
+                } else {
+                    name = null; // 自定义策略无法序列化为字符串，留空走兜底
+                }
+                if (name != null) {
+                    strategies.put(entry.getKey(), name);
+                }
+            }
+        } catch (Exception e) {
+            log.debug("提取 KeyStrategy 失败: {}", e.getMessage());
+        }
+        return strategies;
     }
 }

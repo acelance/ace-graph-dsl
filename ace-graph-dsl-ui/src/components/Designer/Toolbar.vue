@@ -153,6 +153,11 @@ async function onSave() {
       ElMessage.info(t('toolbar.saveUnchanged'))
       return
     }
+    if (result.collapsedToRoot) {
+      ElMessage.success(t('toolbar.saveCollapsed'))
+      emit('save')
+      return
+    }
     ElMessage.success(t('toolbar.saveSuccess'))
     emit('save')
   } catch (e) {

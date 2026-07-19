@@ -7,22 +7,24 @@ const EDGE_COLORS = {
   light: {
     normal: { stroke: '#8b9cb3', hover: '#5b8def', selected: '#409eff' },
     conditional: { stroke: '#e6a23c', hover: '#f59e0b', selected: '#d48806' },
+    error: { stroke: '#ef4444', hover: '#f87171', selected: '#dc2626' },
     invalid: { stroke: '#f56c6c', hover: '#f78989', selected: '#f56c6c' },
-    text: { normal: '#606266', conditional: '#b88230', invalid: '#f56c6c' },
+    text: { normal: '#606266', conditional: '#b88230', error: '#ef4444', invalid: '#f56c6c' },
     textBg: '#ffffff',
   },
   dark: {
     normal: { stroke: '#6b7d93', hover: '#60a5fa', selected: '#3b82f6' },
     conditional: { stroke: '#fbbf24', hover: '#fcd34d', selected: '#f59e0b' },
+    error: { stroke: '#f87171', hover: '#fca5a5', selected: '#ef4444' },
     invalid: { stroke: '#f56c6c', hover: '#f78989', selected: '#f56c6c' },
-    text: { normal: '#c0c4cc', conditional: '#fcd34d', invalid: '#f78989' },
+    text: { normal: '#c0c4cc', conditional: '#fcd34d', error: '#fca5a5', invalid: '#f78989' },
     textBg: '#1d1e1f',
   },
 }
 
 function edgePalette(properties) {
   const theme = properties?.theme === 'dark' ? 'dark' : 'light'
-  const kind = properties?.type === 'conditional' ? 'conditional' : 'normal'
+  const kind = properties?.type === 'conditional' ? 'conditional' : (properties?.type === 'error' ? 'error' : 'normal')
   return { theme: EDGE_COLORS[theme], kind }
 }
 
@@ -34,7 +36,8 @@ class DspBezierModel extends BezierEdgeModel {
     return {
       ...style,
       stroke: colors.stroke,
-      strokeWidth: this.properties?.paramInvalid ? 2 : (kind === 'conditional' ? 2 : 1.5),
+      strokeWidth: this.properties?.paramInvalid ? 2 : (kind === 'conditional' ? 2 : (kind === 'error' ? 2 : 1.5)),
+      strokeDasharray: kind === 'error' ? '6 4' : undefined,
       hoverStroke: colors.hover,
       selectedStroke: colors.selected,
     }

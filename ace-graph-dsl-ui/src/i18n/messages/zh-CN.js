@@ -59,6 +59,7 @@ export default {
     publishSuccess: '发布成功，版本 {version}',
     publishFailed: '发布失败: {msg}',
     saveUnchanged: '相对基线版本无内容变更，未生成新版本',
+    saveCollapsed: '已保存（含内联子图），已回到根图',
     readOnly: '内置图 · 只读',
     statusRunning: '运行中 v{version}',
     statusDraft: '目标 v{version}',
@@ -130,7 +131,10 @@ export default {
     delete: '删除',
     deleteConfirm: '确认删除脚本节点 "{name}"？',
     referenceWarning: '以下图引用了此节点，删除后将无法编译:',
-    empty: '无节点'
+    empty: '无节点',
+    structural: '结构节点',
+    subgraph: '子图',
+    agent: 'Agent 节点'
   },
   edgeValidation: {
     title: '连线参数校验',
@@ -204,7 +208,14 @@ export default {
     strategy: '策略',
     addKey: '新增 Key',
     validationOk: '校验通过',
-    previewHint: '点击工具栏「预览」生成 PlantUML'
+    previewHint: '点击工具栏「预览」生成 PlantUML',
+    agentNote: 'Agent 节点为代码岛式节点：运行时由后端注册的同类 Agent 动作处理，前端仅记录节点与配置。',
+    subgraphMode: '子图模式',
+    inline: '内联',
+    reference: '引用',
+    subgraphRef: '引用图 ID',
+    enterSubgraph: '进入子图',
+    enterSubgraphHint: '双击画布上的子图节点也可进入'
   },
   scriptEditor: {
     title: '新建脚本节点',

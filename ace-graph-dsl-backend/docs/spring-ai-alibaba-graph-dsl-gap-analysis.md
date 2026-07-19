@@ -3,6 +3,8 @@
 > 调研日期：2026-07-19
 > 库版本：`com.alibaba.cloud.ai:spring-ai-alibaba-graph-core:1.1.2.2`
 > 方法：反编译本地 jar（`javap`）+ 通读 `ace-graph-dsl` 后端/前端源码 + demo `spring-ai-alibaba-demo-graph`
+> 📌 修订（2026-07-19）：G5 KeyStrategy **已修复**（见缺口行 G5）；`AgentInstructionMessage` 类经 jar 核验**不存在**，Agent 内核实为 `CommandAction` 自环模式。
+> 📌 落实（2026-07-19）：**G1 子图下钻 / G2 并行边（隐式 fan-out）/ G3 Agent 节点（code-island 折中）/ G6 异常边 已落地实现**。原则：高风险项以折中/部分失真实现，并明确告知用户可经其他方式补全功能。详见文末「六、实施状态总览」。
 
 ---
 
@@ -15,7 +17,7 @@
 | **graph 嵌套 graph（子图）** | ✅ 支持 | `StateGraph.addNode(String, StateGraph)` 与 `addNode(String, CompiledGraph)`；对应 `SubGraphNode` 接口，实现类 `SubStateGraphNode` / `SubCompiledGraphNode` |
 | **子图内 HITL（可中断/恢复）** | ✅ 支持 | `ResumableSubGraphAction` + `SubGraphInterruptionException` |
 | **并行（fan-out / fan-in）** | ✅ 支持 | `addEdge(String, List<String>)`、`addEdge(List<String>, String)`；`addParallelConditionalEdges(...)`；`ParallelNode`（含 `MAX_CONCURRENCY_KEY` 并发控制 + `NodeAggregationStrategy` ALL_OF/ANY_OF 聚合）；`ConditionalParallelNode` |
-| **Agent（智能体循环/工具调用）** | ✅ 支持（但非独立节点） | `Command` / `MultiCommand` 动作记录（gotoNode + update）；`AsyncCommandAction` / `AsyncMultiCommandAction` 节点动作；`AgentInstructionMessage`、`AgentStateFactory`、`ScheduledAgentManager` |
+| **Agent（智能体循环/工具调用）** | ✅ 支持（但非独立节点） | `Command` / `MultiCommand` 动作记录（gotoNode + update）；`AsyncCommandAction` / `AsyncMultiCommandAction` 节点动作；`AgentStateFactory`、`ScheduledAgentManager`（注：`AgentInstructionMessage` 经 jar 核验**不存在**，内核实为 `CommandAction` 自环模式） |
 | **SubAgent（子智能体，一等公民节点）** | ❌ 不支持 | jar 中**不存在** `SubAgent` / `SubAgentNode` 类。所谓 "subagent" 是**组合出来的模式**：用 (a) 一个运行 agent 循环的 StateGraph 作为子图嵌套进来，或 (b) 把另一个 `CompiledGraph`/`StateGraph` 当作节点 `addNode` 进来。库本身没有专门的 "子智能体" 节点类型。 |
 
 **结论：**
@@ -42,9 +44,9 @@
 - 并行在 DSL 里是**隐式**的：从同一源拉多条 normal 边 = fan-out；汇到同一目标是 fan-in。没有"并行块"概念。
 
 ### 模型与构建
-- `GraphEdge` 仅 `normal` / `conditional` 两种类型，无并行/聚合字段。
-- `DynamicGraphBuilder.doBuildStateGraph()` **只**调用 `stateGraph.addNode(id, node_async(NodeAction))`，即只生成 `AsyncNodeAction`。不会生成子图节点、Command 节点、ParallelNode。
-- `GraphDefinition.fromStateGraph()`（反向提取）只遍历**顶层** nodes/edges，且注释明确：`keyStrategies 暂不传递（反射无法获取 KeyStrategyFactory 内容）`。子图节点会被当作一个无类别的普通节点，且其**内部拓扑完全丢失**。
+- `GraphEdge` 支持 `normal` / `conditional` / `error` 三种类型（`error` 即异常边，指向 `__ERROR__`）；并行/聚合字段（低风险路线）暂未落地。
+- `DynamicGraphBuilder.doBuildStateGraph()` 现已支持 `SUBGRAPH`（`addNode(id, subStateGraph)` 递归构建）与 `AGENT`（后端注册节点接线 Command 自环）；业务节点仍走 `node_async(NodeAction)`。`ParallelNode` 高保真路线未实现。
+- `GraphDefinition.fromStateGraph()`（反向提取）现已支持递归提取子图（`SubGraphNode.subGraph()`），`keyStrategies` 经 `getKeyStrategyFactory()` 完整提取（G5 已修复）；`ERROR` 保留节点识别为异常边（G6）。子图内部拓扑不再丢失。
 
 ---
 
@@ -52,12 +54,12 @@
 
 | # | 库能力 | DSL 现状 | 缺口描述 | 优先级 |
 |---|--------|----------|----------|--------|
-| **G1** | 子图嵌套（graph-in-graph，`SubGraphNode`） | 仅 GROUP 视觉容器 | 无法表达"节点 = 一个嵌套图"、无法下钻/折叠子图内部、反向提取不进子图、预览无法渲染嵌套 | **🔴 高** |
-| **G2** | 显式并行 `ParallelNode`（并发上限 + ALL_OF/ANY_OF 聚合）、`addParallelConditionalEdges` | 仅用多条 normal 边隐式表达 fan-out | 丢失并发控制与聚合策略；并行+条件组合边无法与纯条件边区分 | **🟠 中高** |
-| **G3** | Agent 循环节点（`AsyncCommandAction`/`AsyncMultiCommandAction`、Command/MultiCommand） | 构建器只支持 `AsyncNodeAction`；无 Command 节点类型 | 无法可视化/编排 agent 工具循环、无 AgentInstructionMessage、无 `ScheduledAgentManager` 调度 | **🔴 高（若 agent 场景在范围）** |
+| **G1** | 子图嵌套（graph-in-graph，`SubGraphNode`） | ✅ 已实现（含折中） | SUBGRAPH 节点 + 作用域栈下钻 + 面包屑 + 构建器 `addNode(subGraph)` + 反向提取递归。**折中**：内联子图保存时**折叠回根图**（`collapsedToRoot`），不保留逐 scope 独立保存态；引用子图走 `getLatestDefinition` 独立 scope；预览嵌套渲染依赖库 `getGraph(MERMAID/PLANTUML)` | **✅ 已实现** |
+| **G2** | 显式并行 `ParallelNode`（并发上限 + ALL_OF/ANY_OF 聚合）、`addParallelConditionalEdges` | ⚠️ 部分实现（低风险路线） | 仍用多条 normal 边隐式表达 fan-out（库原生支持，零语义风险），**未实现** `ParallelNode` 高保真并发/聚合与 `addParallelConditionalEdges`。**折中**：并行边在画布上可叠加但**未做视觉扇形分离**（多沿同一路径重叠）；可视化"并行块"分组 + `parallel`/`aggregation` 字段未落地 | **🟠 中高** |
+| **G3** | Agent 循环节点（`AsyncCommandAction`/`AsyncMultiCommandAction`、Command/MultiCommand） | ✅ 已实现（code-island 折中） | AGENT 节点可拖入画布、可改名/配 `subgraphRef`。**折中（code-island）**：前端**不实现** agent 自环逻辑，仅记录节点与配置，运行时由后端已注册的 `RegisteredAgentNode`（同 category）接线 Command 自环；功能可由后端方式完整实现 | **✅ 已实现（折中）** |
 | **G4** | 子图内 HITL（`ResumableSubGraphAction`） | HITL 仅顶层 `interruptBefore` | 不支持嵌套图里的中断/恢复 | **🟡 中（依赖 G1）** |
-| **G5** | KeyStrategy（REPLACE/APPEND） | 模型里存了、构建时也用，但**反向提取丢失** | `fromStateGraph` 拿不到 KeyStrategyFactory 内容；无逐 key 策略的可视标注 | **🟡 中** |
-| **G6** | 边语义丰富度（并行条件边 / 异常边 / 边级 Command） | 仅 normal/conditional | 无 ERROR 保留节点（库有 `StateGraph.ERROR`）的异常/错误处理边；无并行条件边类型 | **🟡 中** |
+| **G5** | KeyStrategy（REPLACE/**APPEND**/MERGE） | 模型存了、构建时用，反向提取**已修复** | `StateGraph.getKeyStrategyFactory().apply()` 返回全量映射，`fromStateGraph` 现完整提取；`toStrategy` 补 MERGE + 未知策略降级（不再抛异常） | **✅ 已修复** |
+| **G6** | 边语义丰富度（并行条件边 / 异常边 / 边级 Command） | ✅ 部分实现 | **异常边已实现**：新增 ERROR 保留节点（`lf_error`↔`__ERROR__`）+ 红色虚线 `error` 边，前端渲染 + 校验豁免（参数可达性、拓扑识别均跳过 ERROR）。**未实现**并行条件边与边级 Command | **🟡 中** |
 | **G7** | 流式/异步区分（`AsyncGenerator`、`ParallelGraphFlux`、`StreamMode`） | 不区分同步/流式节点 | 可视化无法表达 streaming 节点 | **🟢 低** |
 
 ### 关于 "subagent" 的落地建议（最关键）
@@ -79,4 +81,22 @@
 ---
 
 ## 五、一句话总结
-`spring-ai-alibaba-graph 1.1.2.2` **正式支持子图嵌套、子图内 HITL、多种并行形态和 Agent 循环能力**；但 **ace-graph-dsl 目前只覆盖 NORMAL/ROUTER/MERGE/HITL 四类节点 + 普通/条件两类边**，子图（graph-in-graph）、显式并行块、Agent/Command 节点、KeyStrategy 导入、异常边**均未纳入可视化与构建实现**——其中"子图"和"Agent 节点"是和 subagent 诉求直接相关的两块最大缺口。
+`spring-ai-alibaba-graph 1.1.2.2` **正式支持子图嵌套、子图内 HITL、多种并行形态和 Agent 循环能力**；**ace-graph-dsl 现已覆盖 NORMAL/ROUTER/MERGE/HITL 四类节点 + 普通/条件/异常三类边**，并新增 **SUBGRAPH（可下钻跳转）/ AGENT（code-island）** 两类结构节点——其中 G1 子图下钻、G3 Agent 节点、G6 异常边已落地（G2 并行仍以隐式 fan-out 表达）。KeyStrategy 导入**已修复**（`fromStateGraph` 现可完整提取并重建）。**高风险项（G3 Agent 自环、G2 `ParallelNode`）以折中/部分失真方式实现，功能均可经后端代码或手动 DSL 编排完整补全**——其中"子图"和"Agent 节点"是和 subagent 诉求直接相关的两块最大缺口，本次已打通可视化入口与跳转能力。
+
+---
+
+## 六、实施状态总览（2026-07-19 落实）
+
+> 原则：优先级高 + 低风险先做；高风险项避开风险点、以折中/部分失真实现，并明确告知用户可经其他方式补全功能。
+
+| 缺口 | 落实状态 | 关键折中 / 失真 |
+|------|----------|----------------|
+| **G1 子图** | ✅ 已实现 | 子图 = 可点击跳转节点（双击下钻到另一张图展开）；内联子图保存时**折叠回根图**（`collapsedToRoot`），不保留逐 scope 独立保存态；引用子图经 `getLatestDefinition` 独立 scope |
+| **G2 并行** | ⚠️ 部分实现 | 仅复用多条 normal 边隐式 fan-out（零语义风险）；`ParallelNode` 高保真并发/聚合、`addParallelConditionalEdges`、可视化"并行块"、**并行边视觉扇形分离**均未做（多沿边重叠） |
+| **G3 Agent** | ✅ 已实现（code-island） | 前端只记录 AGENT 节点与配置，**不实现**自环逻辑；运行时由后端已注册 `RegisteredAgentNode` 接线 Command 自环；功能可经后端完整补全 |
+| **G5 KeyStrategy** | ✅ 已修复 | `getKeyStrategyFactory()` 完整提取 + `toStrategy` 补 MERGE + 未知策略降级 |
+| **G6 异常边** | ✅ 部分实现 | ERROR 保留节点 + 红色虚线 `error` 边已实现并豁免校验；并行条件边、边级 Command 未实现 |
+| **G4 子图内 HITL** | ❌ 未实现（依赖 G1，已具备基础） | 子图下钻已通，但 `ResumableSubGraphAction` 中断/恢复未接入 |
+| **G7 流式/异步** | ❌ 未实现 | 节点同步/流式区分未做 |
+
+**用户告知要点（高风险折中）**：G3 Agent 与 G2 并行高保真属于高风险/高复杂度项，本次以折中方式落地（code-island + 隐式并行），**功能均可经后端代码或手动 DSL 编排完整实现**；前端可视化已提供入口与跳转能力，不影响整体可用性。

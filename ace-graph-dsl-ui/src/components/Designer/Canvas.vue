@@ -9,7 +9,7 @@ import '@logicflow/extension/lib/style/index.css'
 import { useNodeRegistryStore } from '../../stores/nodeRegistry'
 import { useGraphEditorStore } from '../../stores/graphEditor'
 import { useI18n } from '../../i18n'
-import { DspRectNode, DspDiamondNode, DspCircleNode, DspGroupNode, resolveNodeType } from './DspNode.js'
+import { DspRectNode, DspDiamondNode, DspCircleNode, DspGroupNode, DspSubgraphNode, DspAgentNode, resolveNodeType } from './DspNode.js'
 import { DspBezierEdge } from './DspEdge.js'
 
 const nodeStore = useNodeRegistryStore()
@@ -66,6 +66,11 @@ watch(() => editor.edgeConvertCommand, (lfEdgeId) => {
   if (lfEdgeId) convertEdgeToConditional(lfEdgeId)
 })
 
+// 子图下钻 / 结构型节点元信息变更后，由 store 触发整图重渲染
+watch(() => editor.rerenderToken, () => {
+  if (lf) renderFromDefinition(editor.buildDefinition())
+})
+
 function detectCanvasTheme() {
   const root = containerRef.value?.closest('.ace-graph-dsl-designer, .ace-graph-dsl-manager')
   if (root?.classList.contains('dark') || document.documentElement.classList.contains('dark')) {
@@ -79,13 +84,14 @@ function baseProperties(extra = {}) {
 }
 
 function isReservedLfNodeId(id) {
-  return id === 'lf_start' || id === 'lf_end'
+  return id === 'lf_start' || id === 'lf_end' || id === 'lf_error'
 }
 
 function isReservedNodeData(data) {
   return isReservedLfNodeId(data?.id)
     || data?.properties?.kind === 'START'
     || data?.properties?.kind === 'END'
+    || data?.properties?.kind === 'ERROR'
 }
 
 function refreshSelectionState() {
@@ -274,6 +280,8 @@ function registerCustomElements() {
   lf.register(DspDiamondNode)
   lf.register(DspCircleNode)
   lf.register(DspGroupNode)
+  lf.register(DspSubgraphNode)
+  lf.register(DspAgentNode)
   lf.register(DspBezierEdge)
   lf.setDefaultEdgeType('dsp-bezier')
   applyLfTheme()
@@ -316,11 +324,17 @@ function initLf() {
   lf.on('node:click', ({ data }) => {
     refreshSelectionState()
     editor.clearSelectedEdge()
-    if (data.properties?.kind === 'START' || data.properties?.kind === 'END') {
+    if (data.properties?.kind === 'START' || data.properties?.kind === 'END' || data.properties?.kind === 'ERROR') {
       editor.clearSelectedNode()
       return
     }
-    editor.setSelectedNode(data.id, data.properties?.nodeId || data.id, data.properties?.config || {})
+    editor.setSelectedNode(data.id, data.properties?.nodeId || data.id, data.properties?.config || {}, data.properties?.category)
+  })
+  lf.on('node:dblclick', ({ data }) => {
+    // 双击子图节点进入下钻（单点击仅选中，便于配置引用/内联）
+    if (data.properties?.category === 'SUBGRAPH') {
+      editor.enterSubgraph(data.properties?.nodeId || data.id)
+    }
   })
   lf.on('edge:click', ({ data }) => {
     editor.clearSelectedNode()
@@ -388,6 +402,7 @@ function resolveLfTarget(token, idMap) {
   if (!token) return ''
   if (token === '__START__' || token === 'lf_start') return 'lf_start'
   if (token === '__END__' || token === 'lf_end') return 'lf_end'
+  if (token === '__ERROR__' || token === 'lf_error') return 'lf_error'
   return idMap[token] || token
 }
 
@@ -422,6 +437,7 @@ function lfNodeToDslId(node) {
   if (!node) return ''
   if (node.id === 'lf_start' || node.properties?.kind === 'START') return '__START__'
   if (node.id === 'lf_end' || node.properties?.kind === 'END') return '__END__'
+  if (node.id === 'lf_error' || node.properties?.kind === 'ERROR') return '__ERROR__'
   return node.properties?.nodeId || node.id.replace(/^lf_/, '')
 }
 
@@ -469,21 +485,30 @@ function ensureStartEndNodes() {
 }
 
 function onNodeDrag(descriptor) {
-  const category = descriptor.category || 'NORMAL'
-  const id = `${descriptor.nodeId}_${Date.now()}`
+  let category = descriptor.category || 'NORMAL'
+  let nodeId = descriptor.nodeId
+  let displayName = descriptor.displayName
+  if (descriptor.isStructural) {
+    const base = category === 'SUBGRAPH' ? 'subgraph' : category === 'AGENT' ? 'agent' : category.toLowerCase()
+    nodeId = `${base}_${Date.now()}`
+    displayName = descriptor.displayName || nodeId
+  }
+  const id = `${nodeId}_${Date.now()}`
   lf.addNode({
     id,
     type: resolveNodeType(category),
     x: 300,
     y: 200,
-    text: descriptor.displayName,
+    text: displayName,
     properties: baseProperties({
-      nodeId: descriptor.nodeId,
-      displayName: descriptor.displayName,
+      nodeId,
+      displayName,
       category,
-      inputKeys: descriptor.inputKeys,
-      outputKeys: descriptor.outputKeys,
-      config: {}
+      inputKeys: descriptor.inputKeys || [],
+      outputKeys: descriptor.outputKeys || [],
+      config: {},
+      subgraphRef: '',
+      subgraph: null
     })
   })
 }
@@ -503,7 +528,7 @@ function renderFromDefinition(def) {
 
   businessNodes.forEach((n, i) => {
     const desc = nodeStore.nodes.find(d => d.nodeId === n.nodeId)
-    const category = desc?.category || 'NORMAL'
+    const category = n.category || desc?.category || 'NORMAL'
     // 同名节点（相同 nodeId）需保证 LF id 唯一，避免拖拽/选中相互干扰
     const id = `lf_${n.nodeId}_${i}`
     // 优先使用已保存的画布坐标；无坐标（历史数据/新建）时回退到分层网格，避免每次进入都重排成格子
@@ -514,14 +539,16 @@ function renderFromDefinition(def) {
       type: resolveNodeType(category),
       x: px,
       y: py,
-      text: desc?.displayName || n.nodeId,
+      text: n.displayName || desc?.displayName || n.nodeId,
       properties: baseProperties({
         nodeId: n.nodeId,
-        displayName: desc?.displayName,
+        displayName: n.displayName || desc?.displayName || '',
         category,
         config: n.config || {},
         inputKeys: desc?.inputKeys || [],
-        outputKeys: desc?.outputKeys || []
+        outputKeys: desc?.outputKeys || [],
+        subgraphRef: n.subgraphRef || '',
+        subgraph: n.subgraph || null
       })
     })
   })
@@ -531,8 +558,13 @@ function renderFromDefinition(def) {
     properties: baseProperties({ kind: 'END' })
   })
 
+  lfNodes.push({
+    id: 'lf_error', type: 'dsp-circle', x: 1040, y: 200, text: 'ERROR',
+    properties: baseProperties({ kind: 'ERROR' })
+  })
+
   const lfNodeIds = new Set(lfNodes.map(n => n.id))
-  const idMap = { '__START__': 'lf_start', '__END__': 'lf_end', lf_start: 'lf_start', lf_end: 'lf_end' }
+  const idMap = { '__START__': 'lf_start', '__END__': 'lf_end', '__ERROR__': 'lf_error', lf_start: 'lf_start', lf_end: 'lf_end', lf_error: 'lf_error' }
   businessNodes.forEach((n, i) => { idMap[n.nodeId] = `lf_${n.nodeId}_${i}` })
 
   ;(def.edges || []).forEach((e, i) => {
@@ -564,12 +596,13 @@ function renderFromDefinition(def) {
 
     const targetNodeId = resolveLfTarget(e.to, idMap)
     if (!lfNodeIds.has(targetNodeId)) return
+    const edgeType = e.type === 'error' ? 'error' : 'normal'
     lfEdges.push({
       id: `lf_edge_${i}`,
       sourceNodeId: source,
       targetNodeId,
       type: 'dsp-bezier',
-      properties: baseProperties({ type: 'normal' })
+      properties: baseProperties({ type: edgeType })
     })
   })
 

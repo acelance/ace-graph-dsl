@@ -1,5 +1,5 @@
 import { defineStore } from 'pinia'
-import { ref, reactive } from 'vue'
+import { ref, reactive, computed } from 'vue'
 import { saveDraft, validateDefinition, previewPlantUml, publish, getLatestDefinition, listVersions, getEnabled } from '../api/graph'
 import { canonicalContent, bumpPatchVersion, maxSemver, compareSemver } from '../utils/graphContent'
 import { validateEdgeParamReachability } from '../utils/edgeParamValidation'
@@ -36,6 +36,11 @@ export const useGraphEditorStore = defineStore('aceGraphEditor', () => {
   const minimapVisible = ref(true)
   const groups = ref([])
 
+  // ── 子图下钻（scope stack）：每个条目是父级作用域的快照 ──
+  const scopeStack = ref([])
+  const rerenderToken = ref(0)
+  const graphIds = ref([])
+
   const RESERVED_NODE_IDS = new Set(['__START__', '__END__', 'lf_start', 'lf_end'])
 
   function isStartNode(n) {
@@ -49,6 +54,7 @@ export const useGraphEditorStore = defineStore('aceGraphEditor', () => {
   function normalizeToken(id) {
     if (id === 'lf_start' || id === '__START__') return '__START__'
     if (id === 'lf_end' || id === '__END__') return '__END__'
+    if (id === 'lf_error' || id === '__ERROR__') return '__ERROR__'
     return id
   }
 
@@ -92,7 +98,8 @@ export const useGraphEditorStore = defineStore('aceGraphEditor', () => {
       }
       const to = normalizeToken(e.to)
       if (from === to) continue
-      normalEdges.push({ from, to, type: 'normal' })
+      const type = e.type === 'error' ? 'error' : 'normal'
+      normalEdges.push({ from, to, type })
     }
 
     return {
@@ -138,14 +145,25 @@ export const useGraphEditorStore = defineStore('aceGraphEditor', () => {
     nodes.value = lfData.nodes
       .filter(n => !isStartNode(n) && !isEndNode(n))
       .filter(n => n.properties?.kind !== 'GROUP')
+      .filter(n => n.id !== 'lf_error' && n.properties?.kind !== 'ERROR')
       .map(n => {
         const nodeId = n.properties?.nodeId || n.id
         nodeIdMap[n.id] = nodeId
-        return { nodeId, config: n.properties?.config || {}, x: n.x, y: n.y }
+        return {
+          nodeId,
+          category: n.properties?.category || 'NORMAL',
+          displayName: n.properties?.displayName || '',
+          subgraphRef: n.properties?.subgraphRef || '',
+          subgraph: n.properties?.subgraph || null,
+          config: n.properties?.config || {},
+          x: n.x,
+          y: n.y
+        }
       })
       .filter(n => !isReservedNodeId(n.nodeId))
     if (startNode) nodeIdMap[startNode.id] = '__START__'
     if (endNode) nodeIdMap[endNode.id] = '__END__'
+    nodeIdMap['lf_error'] = '__ERROR__'
 
     const normalEdges = []
     const conditionalByKey = new Map()
@@ -179,7 +197,8 @@ export const useGraphEditorStore = defineStore('aceGraphEditor', () => {
       }
       const to = normalizeToken(nodeIdMap[e.targetNodeId] || e.targetNodeId)
       if (from === to) continue
-      normalEdges.push({ from, to, type: 'normal' })
+      const type = e.properties?.type === 'error' ? 'error' : 'normal'
+      normalEdges.push({ from, to, type })
     }
 
     edges.value = normalizeDefinition({
@@ -224,16 +243,28 @@ export const useGraphEditorStore = defineStore('aceGraphEditor', () => {
 
   async function save() {
     saving.value = true
+    let collapsedToRoot = false
     try {
+      // 内联子图作用域下保存：先把所有内联子图刷新回父节点，再回到根图保存（引用型子图则直接保存被引用图）
+      if (scopeStack.value.length) {
+        const top = scopeStack.value[scopeStack.value.length - 1]
+        if (top.kind === 'inline') {
+          flushAllSubgraphs()
+          if (scopeStack.value.length) restoreFrame(scopeStack.value[0])
+          scopeStack.value = []
+          collapsedToRoot = true
+          requestRerender()
+        }
+      }
       const def = buildDefinition()
       const result = await saveDraft(graphId.value, def, baselineVersion.value || def.version)
       if (!result.changed) {
-        return { ok: true, unchanged: true, result }
+        return { ok: true, unchanged: true, result, collapsedToRoot }
       }
       baselineVersion.value = def.version
       snapshotBaseline(result.definition || def)
       await fetchVersions()
-      return { ok: true, unchanged: false, result }
+      return { ok: true, unchanged: false, result, collapsedToRoot }
     } finally {
       saving.value = false
     }
@@ -326,6 +357,7 @@ export const useGraphEditorStore = defineStore('aceGraphEditor', () => {
     canRedo.value = false
     topologyIssues.value = []
     groups.value = []
+    scopeStack.value = []
   }
 
   async function loadLatest() {
@@ -354,6 +386,7 @@ export const useGraphEditorStore = defineStore('aceGraphEditor', () => {
   function selectGraph(id) {
     graphId.value = id
     resetGraphScopeState()
+    scopeStack.value = []
   }
 
   function initNewGraph(id, meta = {}) {
@@ -367,6 +400,7 @@ export const useGraphEditorStore = defineStore('aceGraphEditor', () => {
     edges.value = []
     interruptBefore.value = meta.interruptBefore || []
     saver.value = meta.saver || 'memory'
+    scopeStack.value = []
     Object.keys(keyStrategies).forEach(k => delete keyStrategies[k])
     snapshotBaseline(buildDefinition())
   }
@@ -388,6 +422,7 @@ export const useGraphEditorStore = defineStore('aceGraphEditor', () => {
     topologyIssues.value = []
     minimapVisible.value = true
     groups.value = []
+    scopeStack.value = []
     Object.keys(keyStrategies).forEach(k => delete keyStrategies[k])
   }
 
@@ -395,9 +430,9 @@ export const useGraphEditorStore = defineStore('aceGraphEditor', () => {
     versions.value = await listVersions(graphId.value)
   }
 
-  function setSelectedNode(lfNodeId, nodeId, config) {
+  function setSelectedNode(lfNodeId, nodeId, config, category) {
     selectedLfNodeId.value = lfNodeId
-    selectedNode.value = { nodeId, config: config ? { ...config } : {} }
+    selectedNode.value = { nodeId, config: config ? { ...config } : {}, category: category || null }
   }
 
   function clearSelectedNode() {
@@ -441,18 +476,222 @@ export const useGraphEditorStore = defineStore('aceGraphEditor', () => {
     return normalized
   }
 
+  // ── 子图下钻（drill-down） ──
+  const rootGraphId = computed(() => scopeStack.value.length ? scopeStack.value[0].graphId : graphId.value)
+  const rootDisplayName = computed(() => scopeStack.value.length ? scopeStack.value[0].displayName : displayName.value)
+  const isDrilledIn = computed(() => scopeStack.value.length > 0)
+  const currentScopeKind = computed(() => scopeStack.value.length ? scopeStack.value[scopeStack.value.length - 1].kind : 'root')
+  const breadcrumb = computed(() => {
+    const items = [{ kind: 'root', graphId: rootGraphId.value, label: rootDisplayName.value, level: 0 }]
+    scopeStack.value.forEach((f, i) => {
+      items.push({
+        kind: f.kind,
+        graphId: f.graphId,
+        owningNodeId: f.owningNodeId,
+        subgraphRef: f.subgraphRef,
+        label: f.label,
+        level: i + 1
+      })
+    })
+    return items
+  })
+
+  function requestRerender() {
+    rerenderToken.value++
+  }
+
+  function captureFrame(kind, owningNodeId, subgraphRef, label) {
+    return {
+      graphId: graphId.value,
+      version: version.value,
+      displayName: displayName.value,
+      description: description.value,
+      keyStrategies: { ...keyStrategies },
+      nodes: nodes.value,
+      edges: edges.value,
+      interruptBefore: interruptBefore.value,
+      saver: saver.value,
+      baselineVersion: baselineVersion.value,
+      baselineCanonical: baselineCanonical.value,
+      kind, owningNodeId, subgraphRef, label
+    }
+  }
+
+  function restoreFrame(f) {
+    graphId.value = f.graphId
+    version.value = f.version
+    displayName.value = f.displayName
+    description.value = f.description
+    Object.keys(keyStrategies).forEach(k => delete keyStrategies[k])
+    Object.assign(keyStrategies, f.keyStrategies || {})
+    nodes.value = f.nodes
+    edges.value = f.edges
+    interruptBefore.value = f.interruptBefore
+    saver.value = f.saver
+    baselineVersion.value = f.baselineVersion
+    baselineCanonical.value = f.baselineCanonical
+  }
+
+  function loadWorkingFromDefinition(def, fallbackId) {
+    const normalized = normalizeDefinition(def)
+    graphId.value = normalized.graphId || fallbackId || graphId.value
+    version.value = normalized.version || '1.0.0'
+    displayName.value = normalized.displayName || ''
+    description.value = normalized.description || ''
+    Object.keys(keyStrategies).forEach(k => delete keyStrategies[k])
+    Object.assign(keyStrategies, normalized.keyStrategies || {})
+    nodes.value = normalized.nodes || []
+    edges.value = normalized.edges || []
+    interruptBefore.value = normalized.compile?.interruptBefore || []
+    saver.value = normalized.compile?.saver || 'memory'
+    clearSelectedNode()
+    clearSelectedEdge()
+  }
+
+  /** 进入子图节点：内联子图切到子作用域；引用型子图加载被引用图作为独立作用域 */
+  async function enterSubgraph(nodeId) {
+    const node = nodes.value.find(n => n.nodeId === nodeId)
+    if (!node || node.category !== 'SUBGRAPH') return
+    const kind = node.subgraphRef ? 'reference' : 'inline'
+    scopeStack.value.push(captureFrame(kind, nodeId, node.subgraphRef || '', node.displayName || node.nodeId))
+    let childDef
+    if (node.subgraph) {
+      childDef = node.subgraph
+    } else if (node.subgraphRef) {
+      try {
+        childDef = await getLatestDefinition(node.subgraphRef)
+      } catch (e) {
+        console.warn('[graphEditor] load subgraph ref failed:', node.subgraphRef, e)
+        childDef = { graphId: node.subgraphRef, displayName: node.subgraphRef, version: '1.0.0', nodes: [], edges: [] }
+      }
+    } else {
+      childDef = { graphId: nodeId, displayName: node.displayName || node.nodeId, version: '1.0.0', nodes: [], edges: [] }
+    }
+    loadWorkingFromDefinition(childDef, nodeId)
+    requestRerender()
+  }
+
+  /** 将当前作用域（内联子图）的最新编辑写回父节点的 subgraph 字段 */
+  function flushCurrentIntoParent() {
+    const top = scopeStack.value[scopeStack.value.length - 1]
+    if (!top || top.kind !== 'inline') return
+    const def = buildDefinition()
+    const parentNodes = top.nodes
+    const node = parentNodes.find(n => n.nodeId === top.owningNodeId)
+    if (node) {
+      node.subgraph = def
+      node.subgraphRef = ''
+    }
+  }
+
+  /** 退出一级子图：刷新内联子图、恢复父作用域 */
+  function exitSubgraph() {
+    if (!scopeStack.value.length) return
+    flushCurrentIntoParent()
+    const popped = scopeStack.value.pop()
+    if (scopeStack.value.length) {
+      restoreFrame(scopeStack.value[scopeStack.value.length - 1])
+    } else {
+      restoreFrame(popped)
+    }
+    requestRerender()
+  }
+
+  /** 跳转到面包屑指定层级（level 0 = 根图） */
+  function goToBreadcrumb(level) {
+    while (scopeStack.value.length > level) exitSubgraph()
+  }
+
+  /** 保存前将所有内联子图逐级刷新回根图节点 */
+  function flushAllSubgraphs() {
+    let curDef = buildDefinition()
+    let curOwningNodeId = scopeStack.value.length ? scopeStack.value[scopeStack.value.length - 1].owningNodeId : null
+    for (let k = scopeStack.value.length - 1; k >= 0; k--) {
+      const frame = scopeStack.value[k]
+      if (frame.kind === 'inline' && curOwningNodeId) {
+        const node = frame.nodes.find(n => n.nodeId === curOwningNodeId)
+        if (node) { node.subgraph = curDef; node.subgraphRef = '' }
+      }
+      curDef = normalizeDefinition({
+        graphId: frame.graphId,
+        displayName: frame.displayName,
+        version: frame.version,
+        description: frame.description,
+        keyStrategies: frame.keyStrategies || {},
+        nodes: frame.nodes,
+        edges: frame.edges,
+        compile: { interruptBefore: frame.interruptBefore, saver: frame.saver }
+      })
+      curOwningNodeId = frame.owningNodeId
+    }
+  }
+
+  /** 修改子图节点的元信息（名称 / 引用 / 内联模式） */
+  function updateSubgraphNodeMeta({ nodeId, displayName, subgraphRef, mode }) {
+    const node = nodes.value.find(n => n.nodeId === nodeId)
+    if (!node) return
+    if (displayName !== undefined) node.displayName = displayName
+    if (mode === 'reference') {
+      node.subgraphRef = subgraphRef || ''
+      node.subgraph = null
+    } else if (mode === 'inline') {
+      node.subgraphRef = ''
+      if (!node.subgraph) {
+        node.subgraph = {
+          graphId: nodeId,
+          displayName: node.displayName || nodeId,
+          version: '1.0.0',
+          nodes: [],
+          edges: []
+        }
+      }
+    }
+    requestRerender()
+  }
+
+  /** 重命名当前选中的结构型节点（子图 / Agent），同步更新相关边 */
+  function renameSelectedNode(newId) {
+    if (!selectedNode.value) return
+    const oldId = selectedNode.value.nodeId
+    if (!newId || newId === oldId) return
+    const node = nodes.value.find(n => n.nodeId === oldId)
+    if (node) node.nodeId = newId
+    edges.value.forEach(e => {
+      if (e.from === oldId) e.from = newId
+      if (e.to === oldId) e.to = newId
+      if (e.type === 'conditional' && e.mapping) {
+        for (const k of Object.keys(e.mapping)) {
+          if (e.mapping[k] === oldId) e.mapping[k] = newId
+        }
+      }
+    })
+    selectedNode.value = { ...selectedNode.value, nodeId: newId }
+    requestRerender()
+  }
+
+  async function loadGraphIds() {
+    try {
+      graphIds.value = await listGraphIds()
+    } catch (e) {
+      graphIds.value = []
+    }
+  }
+
   return {
     graphId, version, displayName, description, keyStrategies,
     nodes, edges, interruptBefore, saver,
     validationErrors, edgeParamIssues, plantUmlContent, versions, enabledVersion, baselineVersion,
     saving, publishing,     selectedNode, selectedLfNodeId, selectedEdge, edgeEditCommand, edgeConvertCommand,
     canUndo, canRedo, conditionalDrawMode, topologyIssues, minimapVisible, groups,
+    scopeStack, rerenderToken, graphIds,
+    isDrilledIn, currentScopeKind, breadcrumb, rootGraphId, rootDisplayName,
     setFromLfData, applyDefinition, normalizeDefinition, buildDefinition, save, validate, loadPlantUml,
     refreshEdgeParamValidation,
     hasContentChanged, needsVersionBump, suggestNextVersion, snapshotBaseline, loadVersionAsBaseline, validateTopologyNow,
     maxKnownVersion, versionExists,
     publishCurrent, loadLatest, loadEnabledVersion, fetchVersions, selectGraph, initNewGraph, resetEditor,
     setSelectedNode, clearSelectedNode, updateSelectedNodeConfig,
-    setSelectedEdge, clearSelectedEdge, requestEdgeEdit, requestEdgeConvert, clearEdgeCommands
+    setSelectedEdge, clearSelectedEdge, requestEdgeEdit, requestEdgeConvert, clearEdgeCommands,
+    enterSubgraph, exitSubgraph, goToBreadcrumb, updateSubgraphNodeMeta, renameSelectedNode, requestRerender, loadGraphIds
   }
 })

@@ -59,6 +59,7 @@ export default {
     publishSuccess: 'Published version {version}',
     publishFailed: 'Publish failed: {msg}',
     saveUnchanged: 'No changes vs baseline — no new version created',
+    saveCollapsed: 'Saved (with inline subgraphs); returned to root graph',
     readOnly: 'Built-in · Read Only',
     statusRunning: 'Running v{version}',
     statusDraft: 'Target v{version}',
@@ -130,7 +131,10 @@ export default {
     delete: 'Delete',
     deleteConfirm: 'Delete script node "{name}"?',
     referenceWarning: 'The following graphs reference this node and will fail to compile after deletion:',
-    empty: 'No nodes'
+    empty: 'No nodes',
+    structural: 'Structural',
+    subgraph: 'Subgraph',
+    agent: 'Agent node'
   },
   edgeValidation: {
     title: 'Edge parameter validation',
@@ -204,7 +208,14 @@ export default {
     strategy: 'Strategy',
     addKey: 'Add key',
     validationOk: 'Validation passed',
-    previewHint: 'Click Preview in toolbar to generate PlantUML'
+    previewHint: 'Click Preview in toolbar to generate PlantUML',
+    agentNote: 'Agent node is a code-island node: at runtime it is handled by the backend-registered Agent action of the same category; the frontend only records the node and its config.',
+    subgraphMode: 'Subgraph mode',
+    inline: 'Inline',
+    reference: 'Reference',
+    subgraphRef: 'Referenced graph ID',
+    enterSubgraph: 'Open subgraph',
+    enterSubgraphHint: 'Double-click a subgraph node on canvas to open it'
   },
   scriptEditor: {
     title: 'New script node',

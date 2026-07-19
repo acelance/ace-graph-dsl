@@ -29,6 +29,12 @@ const filteredNodes = computed(() => {
   return list
 })
 
+/** 结构型节点（不在注册表中）：子图 / Agent，从面板拖入画布 */
+const structuralNodes = computed(() => ([
+  { nodeId: '', category: 'SUBGRAPH', displayName: t('nodePanel.subgraph'), isStructural: true, inputKeys: [], outputKeys: [] },
+  { nodeId: '', category: 'AGENT', displayName: t('nodePanel.agent'), isStructural: true, inputKeys: [], outputKeys: [] }
+]))
+
 function onDragStart(e, n) {
   e.dataTransfer.effectAllowed = 'copy'
   e.dataTransfer.setData('application/node', JSON.stringify(n))
@@ -36,7 +42,7 @@ function onDragStart(e, n) {
 }
 
 function categoryTagType(c) {
-  return { NORMAL: 'info', ROUTER: 'warning', MERGE: 'success', HITL: '' }[c] || 'info'
+  return { NORMAL: 'info', ROUTER: 'warning', MERGE: 'success', HITL: '', SUBGRAPH: 'primary', AGENT: 'success' }[c] || 'info'
 }
 
 function isHitlCategory(c) {
@@ -89,6 +95,24 @@ async function onDelete(node) {
 <template>
   <div class="node-panel" :class="{ 'node-panel--embedded': props.embedded }" v-loading="nodeStore.loading">
     <div class="panel-header">{{ t('nodePanel.title') }}</div>
+    <div class="structural-section">
+      <div class="structural-title">{{ t('nodePanel.structural') }}</div>
+      <div
+        v-for="s in structuralNodes"
+        :key="s.category"
+        class="node-item"
+        draggable="true"
+        @dragstart="onDragStart($event, s)"
+        @click="emit('node-drag', s)"
+      >
+        <div class="node-row node-row--top">
+          <div class="node-info">
+            <span class="node-name">{{ s.displayName }}</span>
+            <el-tag size="small" :type="categoryTagType(s.category)" style="margin-left: 4px;">{{ s.category }}</el-tag>
+          </div>
+        </div>
+      </div>
+    </div>
     <el-alert :title="t('nodePanel.canvasHint')" type="info" :closable="false" show-icon class="canvas-hint" />
     <el-input v-model="keyword" :placeholder="t('nodePanel.search')" clearable size="small" style="margin-bottom: 8px;" />
     <el-tabs v-model="activeTab" size="small" style="margin-bottom: 8px;">
@@ -151,6 +175,15 @@ async function onDelete(node) {
 }
 .canvas-hint {
   margin-bottom: 8px;
+}
+.structural-section {
+  margin-bottom: 8px;
+  padding: 0 2px;
+}
+.structural-title {
+  font-size: 12px;
+  color: var(--agd-color-text-secondary, #909399);
+  margin-bottom: 4px;
 }
 .node-item {
   display: flex; flex-direction: column;

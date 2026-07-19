@@ -23,9 +23,58 @@ watch(() => editor.keyStrategies, (ks) => {
   keyStrategyRows.value = Object.entries(ks || {}).map(([k, v]) => ({ key: k, strategy: v }))
 }, { immediate: true, deep: true })
 
+const STRUCTURAL_DESCRIPTORS = {
+  SUBGRAPH: { nodeId: '', displayName: 'Subgraph', category: 'SUBGRAPH', origin: 'STRUCTURAL', inputKeys: [], outputKeys: [], configurableProps: {} },
+  AGENT: { nodeId: '', displayName: 'Agent', category: 'AGENT', origin: 'STRUCTURAL', inputKeys: [], outputKeys: [], configurableProps: {} }
+}
+
 const selectedDescriptor = computed(() => {
   if (!editor.selectedNode) return null
-  return nodeStore.nodes.find(n => n.nodeId === editor.selectedNode.nodeId) || null
+  const d = nodeStore.nodes.find(n => n.nodeId === editor.selectedNode.nodeId)
+  if (d) return d
+  const cat = editor.selectedNode.category
+  if (cat === 'SUBGRAPH' || cat === 'AGENT') return STRUCTURAL_DESCRIPTORS[cat]
+  return null
+})
+
+/** 当前选中节点在 store 中的完整元信息（含子图的 displayName / subgraphRef / subgraph） */
+const selectedNodeMeta = computed(() => {
+  if (!editor.selectedNode) return null
+  return editor.nodes.find(n => n.nodeId === editor.selectedNode.nodeId) || null
+})
+
+const isStructuralSelected = computed(() =>
+  editor.selectedNode?.category === 'SUBGRAPH' || editor.selectedNode?.category === 'AGENT'
+)
+const isSubgraphSelected = computed(() => editor.selectedNode?.category === 'SUBGRAPH')
+const isAgentSelected = computed(() => editor.selectedNode?.category === 'AGENT')
+
+/** 子图模式：有 subgraphRef 视为引用型，否则内联型 */
+const subgraphMode = computed(() => (selectedNodeMeta.value?.subgraphRef ? 'reference' : 'inline'))
+
+function onRenameNode(val) {
+  if (!editor.selectedNode) return
+  const next = (val || '').trim()
+  if (next && next !== editor.selectedNode.nodeId) editor.renameSelectedNode(next)
+}
+
+function onRenameDisplayName(val) {
+  if (!editor.selectedNode) return
+  editor.updateSubgraphNodeMeta({ nodeId: editor.selectedNode.nodeId, displayName: val || '' })
+}
+
+function onSubgraphModeChange(val) {
+  if (!editor.selectedNode) return
+  editor.updateSubgraphNodeMeta({ nodeId: editor.selectedNode.nodeId, mode: val })
+}
+
+function onSubgraphRefChange(val) {
+  if (!editor.selectedNode) return
+  editor.updateSubgraphNodeMeta({ nodeId: editor.selectedNode.nodeId, mode: 'reference', subgraphRef: val || '' })
+}
+
+watch(() => editor.selectedNode?.category, (cat) => {
+  if (cat === 'SUBGRAPH') editor.loadGraphIds()
 })
 
 const configSchemaEntries = computed(() => {
@@ -227,7 +276,47 @@ function convertEdge() {
     <el-tabs v-else v-model="activeTab" :class="{ 'embedded-tabs': embedded }">
       <el-tab-pane :label="t('propertyPanel.tabNode')" name="node">
         <template v-if="editor.selectedNode && selectedDescriptor">
-          <el-form label-width="100px" size="small">
+          <!-- 结构型节点：子图 / Agent -->
+          <el-form v-if="isStructuralSelected" label-width="100px" size="small">
+            <el-alert v-if="isAgentSelected" :title="t('propertyPanel.agentNote')" type="info" :closable="false" style="margin-bottom: 8px;" />
+            <el-form-item :label="t('propertyPanel.nodeId')">
+              <el-input :model-value="editor.selectedNode.nodeId" @update:model-value="onRenameNode" />
+            </el-form-item>
+            <el-form-item :label="t('propertyPanel.displayName')">
+              <el-input :model-value="selectedNodeMeta?.displayName || ''" @update:model-value="onRenameDisplayName" />
+            </el-form-item>
+            <template v-if="isSubgraphSelected">
+              <el-form-item :label="t('propertyPanel.subgraphMode')">
+                <el-radio-group :model-value="subgraphMode" @update:model-value="onSubgraphModeChange">
+                  <el-radio value="inline">{{ t('propertyPanel.inline') }}</el-radio>
+                  <el-radio value="reference">{{ t('propertyPanel.reference') }}</el-radio>
+                </el-radio-group>
+              </el-form-item>
+              <el-form-item v-if="subgraphMode === 'reference'" :label="t('propertyPanel.subgraphRef')">
+                <el-select
+                  :model-value="selectedNodeMeta?.subgraphRef || ''"
+                  filterable allow-create
+                  @update:model-value="onSubgraphRefChange"
+                  style="width: 100%;"
+                >
+                  <el-option v-for="gid in editor.graphIds" :key="gid" :label="gid" :value="gid" />
+                </el-select>
+              </el-form-item>
+              <el-form-item>
+                <el-button type="primary" size="small" @click="editor.enterSubgraph(editor.selectedNode.nodeId)">
+                  {{ t('propertyPanel.enterSubgraph') }}
+                </el-button>
+                <span class="hint" style="margin-left: 8px;">{{ t('propertyPanel.enterSubgraphHint') }}</span>
+              </el-form-item>
+            </template>
+            <el-divider />
+            <el-form-item :label="t('propertyPanel.origin')">
+              <el-tag size="small" type="warning">STRUCTURAL</el-tag>
+            </el-form-item>
+          </el-form>
+
+          <!-- 普通 / 脚本节点 -->
+          <el-form v-else label-width="100px" size="small">
             <el-form-item :label="t('propertyPanel.nodeId')">
               <el-input :model-value="editor.selectedNode.nodeId" disabled />
             </el-form-item>
