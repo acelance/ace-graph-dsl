@@ -140,7 +140,8 @@ export default {
     empty: 'No nodes',
     structural: 'Structural',
     subgraph: 'Subgraph',
-    agent: 'Agent node'
+    agent: 'Agent node',
+    genericAgent: 'Generic Agent node'
   },
   edgeValidation: {
     title: 'Edge parameter validation',
@@ -236,7 +237,30 @@ export default {
     previewFallbackNote: 'Server generation failed; fell back to structural view',
     previewLoadFailed: 'Preview generation failed: ',
     streaming: 'Streaming output',
-    streamingHint: 'Mark as a streaming / async node: output is produced as a stream (token-by-token) or asynchronously; the canvas shows a pulsing badge at the node top-right'
+    streamingHint: 'Mark as a streaming / async node: output is produced as a stream (token-by-token) or asynchronously; the canvas shows a pulsing badge at the node top-right',
+    genericAgentNote: 'Generic Agent node is metadata-driven: fill in model / prompt / skill / mcp / tools metadata and the backend template node will execute the model call directly — no embedded code required.',
+    agentSpec: {
+      modelBaseUrl: 'Model Base URL',
+      modelApiKey: 'API Key',
+      modelApiKeyMasked: 'API Key (masked)',
+      modelApiKeyMaskedHint: 'The persisted API Key only keeps the last 4 chars. To update, type a new key; leave empty to keep the current value.',
+      modelId: 'Model ID',
+      prompt: 'Prompt (inline)',
+      promptKey: 'Prompt Key',
+      promptHint: 'Choose either inline prompt or prompt-key. prompt-key loads a template from PromptRepository; inline prompt is used as the template text directly.',
+      skill: 'Skill',
+      skillKey: 'Skill Key',
+      skillHint: 'skill / skill-key load skill resources from SkillRegistry. Both can be empty.',
+      mcp: 'MCP',
+      mcpKey: 'MCP Key',
+      mcpHint: 'mcp / mcp-key load MCP toolsets from McpToolProvider.',
+      tools: 'Tools',
+      toolsHint: 'Comma-separated tool names (local AgentTool names); resolved by name at runtime.',
+      inputKeys: 'Input Keys',
+      inputKeysHint: 'Comma-separated; these state keys are read as variables for the model call.',
+      outputKey: 'Output Key',
+      outputKeyHint: 'State key where the model reply is written; defaults to agent_result.'
+    }
   },
   scriptEditor: {
     title: 'New script node',
@@ -287,5 +311,22 @@ export default {
     empty: 'Run to see per-node output trace',
     error: 'Dry run failed',
     mockError: 'Invalid mockState JSON'
+  },
+  execution: {
+    title: 'Execution (SSE + HITL)',
+    hint: 'Stream-execute the published graph via /execution endpoints. Supports top-level HITL and subgraph HITL (G4): fill in updates and click resume when paused.',
+    inputs: 'Input State (JSON)',
+    inputsError: 'Invalid input JSON',
+    run: 'Execute',
+    stop: 'Stop',
+    trace: 'Execution Trace',
+    error: 'Execution error',
+    empty: 'Execute to see per-node output events',
+    hitlPaused: 'HITL Paused — awaiting human input',
+    subgraphPaused: 'Subgraph {parent} node {node} paused',
+    topLevelPaused: 'Top-level node {node} paused',
+    resumeUpdates: 'Resume Updates (JSON)',
+    resume: 'Resume',
+    updatesError: 'Invalid updates JSON'
   }
 }

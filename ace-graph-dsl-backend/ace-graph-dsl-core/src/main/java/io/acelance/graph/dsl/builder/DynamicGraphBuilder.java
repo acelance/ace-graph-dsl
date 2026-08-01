@@ -11,12 +11,14 @@ import io.acelance.graph.dsl.observability.GraphLifecycleListenerBridge;
 import io.acelance.graph.dsl.persistence.DynamicNodeDefinitionRepository;
 import io.acelance.graph.dsl.persistence.GraphDefinitionRepository;
 import io.acelance.graph.dsl.registry.EdgeDispatcherRegistry;
+import io.acelance.graph.dsl.registry.GraphNodeDescriptor;
 import io.acelance.graph.dsl.registry.GraphNodeRegistry;
 import io.acelance.graph.dsl.registry.NodeRuntimeContext;
 import io.acelance.graph.dsl.registry.RegisteredAgentNode;
 import io.acelance.graph.dsl.registry.RegisteredGraphNode;
 import io.acelance.graph.dsl.script.ScriptEdgeActionFactory;
 import io.acelance.graph.dsl.script.ScriptNodeFactory;
+import io.acelance.graph.dsl.agent.GenericAgentNode;
 import com.alibaba.cloud.ai.graph.CompileConfig;
 import com.alibaba.cloud.ai.graph.CompiledGraph;
 import com.alibaba.cloud.ai.graph.KeyStrategy;
@@ -143,14 +145,15 @@ public class DynamicGraphBuilder {
 
         // 1. 注册节点
         for (NodeRef ref : def.nodes()) {
-            // 子图节点：递归构建内部 StateGraph 并作为子图挂载（graph-in-graph）
+            // 子图节点：递归编译为 CompiledGraph 并挂载（graph-in-graph）
+            // 走 SubCompiledGraphNode 路径（而非 SubStateGraphNode），支持子图内 HITL（G4）
             if (ref.hasSubgraph()) {
                 GraphDefinition subDef = resolveSubgraph(ref);
                 if (subDef == null) {
                     throw new GraphStateException("子图未定义（subgraph 与 subgraphRef 均为空）: " + ref.nodeId());
                 }
-                StateGraph subSg = doBuildStateGraph(subDef);
-                stateGraph.addNode(ref.nodeId(), subSg);
+                CompiledGraph subCompiled = doBuild(subDef);
+                stateGraph.addNode(ref.nodeId(), subCompiled);
                 continue;
             }
 
@@ -181,6 +184,18 @@ public class DynamicGraphBuilder {
                     return c;
                 };
                 stateGraph.addNode(ref.nodeId(), AsyncCommandAction.node_async(resolved), Map.of());
+                continue;
+            }
+
+            // 通用 agent 节点（GENERIC_AGENT）：据元数据动态装配模板节点，无需内嵌代码
+            if (ref.hasAgentSpec() || GraphNodeDescriptor.CATEGORY_GENERIC_AGENT.equals(ref.category())) {
+                if (ref.agentSpec() == null) {
+                    throw new GraphStateException("通用 agent 节点缺少 agentSpec 元数据: " + ref.nodeId());
+                }
+                GenericAgentNode agentNode = new GenericAgentNode(
+                        ref.nodeId(), def.graphId(), ref.agentSpec(), applicationContext);
+                nodeRegistry.registerDynamic(agentNode);
+                stateGraph.addNode(ref.nodeId(), node_async(agentNode.toAction(nodeCtx)));
                 continue;
             }
 

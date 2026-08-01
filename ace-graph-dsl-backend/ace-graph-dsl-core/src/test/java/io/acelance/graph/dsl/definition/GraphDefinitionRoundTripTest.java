@@ -101,8 +101,8 @@ class GraphDefinitionRoundTripTest {
                 List.of(),
                 new CompileConfigDto(List.of(), "memory"), null);
 
-        NodeRef subRef = new NodeRef("subA", "SUBGRAPH", Map.of(), null, null, inner, null, null);
-        NodeRef agentRef = new NodeRef("agentX", "AGENT", Map.of(), null, null, null, null, null);
+        NodeRef subRef = new NodeRef("subA", "SUBGRAPH", Map.of(), null, null, inner, null, null, null);
+        NodeRef agentRef = new NodeRef("agentX", "AGENT", Map.of(), null, null, null, null, null, null);
         NodeRef normalRef = new NodeRef("n1", Map.of(), null, null);
 
         // 并行扇出：n1 → n2 / n3，标记 parallel + 聚合

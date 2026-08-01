@@ -74,7 +74,41 @@ export function createGraphApi(options = '/') {
       definition,
       inputs: inputs || {}
     }).then(r => r.data),
-    getMenuPermissions: () => http.get(`${p}/permissions/menus`).then(r => r.data)
+    getMenuPermissions: () => http.get(`${p}/permissions/menus`).then(r => r.data),
+
+    // ── 图执行 API（/execution/* 端点，需后端开启 ace.graph.dsl.web.execution.enabled=true）──
+
+    /** 查询顶层图断点状态（HITL 暂停节点 + state 快照）。 */
+    getExecutionState: (graphId, threadId) => http.get(`/execution/${graphId}/state/${threadId}`).then(r => r.data),
+
+    /** 查询子图断点状态（G4 子图内 HITL）。 */
+    getSubgraphState: (graphId, threadId, nodeId) => http.get(`/execution/${graphId}/state/${threadId}/subgraph/${nodeId}`).then(r => r.data),
+
+    /**
+     * 流式执行图（SSE），解析 SSE 事件并回调。
+     * @param graphId 图 ID
+     * @param inputs 输入 state
+     * @param threadId 可选 threadId
+     * @param handlers { onEvent, onSubgraphInterrupted, onError, onComplete }
+     * @returns AbortController（可调 .abort() 取消）
+     */
+    streamGraph: (graphId, inputs, threadId, handlers = {}) => {
+      return streamSse(`/execution/${graphId}/stream`, { inputs: inputs || {}, threadId }, handlers, http)
+    },
+
+    /**
+     * HITL 恢复执行（SSE）。
+     * @param graphId 图 ID
+     * @param threadId 父图 threadId
+     * @param updates 写回 state
+     * @param subgraphNodeId 子图节点 ID（子图内 HITL resume 时填写）
+     * @param handlers { onEvent, onSubgraphInterrupted, onError, onComplete }
+     * @returns AbortController
+     */
+    resumeGraph: (graphId, threadId, updates, subgraphNodeId, handlers = {}) => {
+      const body = { threadId, updates: updates || {}, subgraphNodeId: subgraphNodeId || null }
+      return streamSse(`/execution/${graphId}/resume`, body, handlers, http)
+    }
   }
 }
 
@@ -127,3 +161,90 @@ export const rollback = (...args) => defaultApi.rollback(...args)
 export const getEnabled = (...args) => defaultApi.getEnabled(...args)
 export const dryRunGraph = (...args) => defaultApi.dryRunGraph(...args)
 export const getMenuPermissions = (...args) => defaultApi.getMenuPermissions(...args)
+export const getExecutionState = (...args) => defaultApi.getExecutionState(...args)
+export const getSubgraphState = (...args) => defaultApi.getSubgraphState(...args)
+export const streamGraph = (...args) => defaultApi.streamGraph(...args)
+export const resumeGraph = (...args) => defaultApi.resumeGraph(...args)
+
+/**
+ * POST + SSE 流式解析：用 fetch 发起 POST 请求，解析 text/event-stream 响应。
+ *
+ * <p>SSE 事件格式：<code>event: xxx\ndata: {...}\n\n</code>。支持 named event
+ *（如 <code>subgraph-interrupted</code>）与默认 data 事件。</p>
+ *
+ * @param url 请求 URL
+ * @param body POST body（JSON 序列化）
+ * @param handlers { onEvent, onSubgraphInterrupted, onError, onComplete }
+ * @param http axios 实例（用于读取 baseURL / headers）
+ * @returns AbortController（可调 .abort() 取消）
+ */
+function streamSse(url, body, handlers, http) {
+  const controller = new AbortController()
+  const { onEvent, onSubgraphInterrupted, onError, onComplete } = handlers
+
+  // 从 axios 实例提取 baseURL + 鉴权头
+  const baseURL = (http?.defaults?.baseURL) || '/'
+  const commonHeaders = http?.defaults?.headers?.common || {}
+  const fullUrl = baseURL.replace(/\/+$/, '') + url
+
+  fetch(fullUrl, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...commonHeaders },
+    body: JSON.stringify(body),
+    signal: controller.signal
+  }).then(async (response) => {
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}: ${response.statusText}`)
+    }
+    const reader = response.body.getReader()
+    const decoder = new TextDecoder()
+    let buffer = ''
+
+    while (true) {
+      const { done, value } = await reader.read()
+      if (done) break
+      buffer += decoder.decode(value, { stream: true })
+
+      // SSE 事件以 \n\n 分隔
+      let sepIdx
+      while ((sepIdx = buffer.indexOf('\n\n')) >= 0) {
+        const rawEvent = buffer.slice(0, sepIdx)
+        buffer = buffer.slice(sepIdx + 2)
+        const parsed = parseSseEvent(rawEvent)
+        if (!parsed) continue
+
+        if (parsed.event === 'subgraph-interrupted') {
+          onSubgraphInterrupted?.(parsed.data)
+        } else {
+          onEvent?.(parsed)
+        }
+      }
+    }
+    onComplete?.()
+  }).catch((err) => {
+    if (err.name === 'AbortError') return
+    onError?.(err)
+  })
+
+  return controller
+}
+
+/** 解析单个 SSE 事件文本为 { event, data } 对象 */
+function parseSseEvent(raw) {
+  const lines = raw.split('\n')
+  let event = 'message'
+  let dataStr = ''
+  for (const line of lines) {
+    if (line.startsWith('event:')) {
+      event = line.slice(6).trim()
+    } else if (line.startsWith('data:')) {
+      dataStr += line.slice(5).trim()
+    }
+  }
+  if (!dataStr) return null
+  try {
+    return { event, data: JSON.parse(dataStr) }
+  } catch {
+    return { event, data: dataStr }
+  }
+}

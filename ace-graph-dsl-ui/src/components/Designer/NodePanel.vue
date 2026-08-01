@@ -32,7 +32,8 @@ const filteredNodes = computed(() => {
 /** 结构型节点（不在注册表中）：子图 / Agent，从面板拖入画布 */
 const structuralNodes = computed(() => ([
   { nodeId: '', category: 'SUBGRAPH', displayName: t('nodePanel.subgraph'), isStructural: true, inputKeys: [], outputKeys: [] },
-  { nodeId: '', category: 'AGENT', displayName: t('nodePanel.agent'), isStructural: true, inputKeys: [], outputKeys: [] }
+  { nodeId: '', category: 'AGENT', displayName: t('nodePanel.agent'), isStructural: true, inputKeys: [], outputKeys: [] },
+  { nodeId: '', category: 'GENERIC_AGENT', displayName: t('nodePanel.genericAgent'), isStructural: true, inputKeys: [], outputKeys: [] }
 ]))
 
 function onDragStart(e, n) {
@@ -42,7 +43,7 @@ function onDragStart(e, n) {
 }
 
 function categoryTagType(c) {
-  return { NORMAL: 'info', ROUTER: 'warning', MERGE: 'success', HITL: '', SUBGRAPH: 'primary', AGENT: 'success' }[c] || 'info'
+  return { NORMAL: 'info', ROUTER: 'warning', MERGE: 'success', HITL: '', SUBGRAPH: 'primary', AGENT: 'success', GENERIC_AGENT: 'danger' }[c] || 'info'
 }
 
 function isHitlCategory(c) {

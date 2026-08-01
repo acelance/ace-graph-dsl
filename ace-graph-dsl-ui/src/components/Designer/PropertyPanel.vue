@@ -26,7 +26,8 @@ watch(() => editor.keyStrategies, (ks) => {
 
 const STRUCTURAL_DESCRIPTORS = {
   SUBGRAPH: { nodeId: '', displayName: 'Subgraph', category: 'SUBGRAPH', origin: 'STRUCTURAL', inputKeys: [], outputKeys: [], configurableProps: {} },
-  AGENT: { nodeId: '', displayName: 'Agent', category: 'AGENT', origin: 'STRUCTURAL', inputKeys: [], outputKeys: [], configurableProps: {} }
+  AGENT: { nodeId: '', displayName: 'Agent', category: 'AGENT', origin: 'STRUCTURAL', inputKeys: [], outputKeys: [], configurableProps: {} },
+  GENERIC_AGENT: { nodeId: '', displayName: 'Generic Agent', category: 'GENERIC_AGENT', origin: 'STRUCTURAL', inputKeys: [], outputKeys: [], configurableProps: {} }
 }
 
 const selectedDescriptor = computed(() => {
@@ -34,7 +35,7 @@ const selectedDescriptor = computed(() => {
   const d = nodeStore.nodes.find(n => n.nodeId === editor.selectedNode.nodeId)
   if (d) return d
   const cat = editor.selectedNode.category
-  if (cat === 'SUBGRAPH' || cat === 'AGENT') return STRUCTURAL_DESCRIPTORS[cat]
+  if (cat === 'SUBGRAPH' || cat === 'AGENT' || cat === 'GENERIC_AGENT') return STRUCTURAL_DESCRIPTORS[cat]
   return null
 })
 
@@ -45,10 +46,11 @@ const selectedNodeMeta = computed(() => {
 })
 
 const isStructuralSelected = computed(() =>
-  editor.selectedNode?.category === 'SUBGRAPH' || editor.selectedNode?.category === 'AGENT'
+  editor.selectedNode?.category === 'SUBGRAPH' || editor.selectedNode?.category === 'AGENT' || editor.selectedNode?.category === 'GENERIC_AGENT'
 )
 const isSubgraphSelected = computed(() => editor.selectedNode?.category === 'SUBGRAPH')
 const isAgentSelected = computed(() => editor.selectedNode?.category === 'AGENT')
+const isGenericAgentSelected = computed(() => editor.selectedNode?.category === 'GENERIC_AGENT')
 
 /** 子图模式：有 subgraphRef 视为引用型，否则内联型 */
 const subgraphMode = computed(() => (selectedNodeMeta.value?.subgraphRef ? 'reference' : 'inline'))
@@ -101,6 +103,48 @@ function onConfigChange(key, value) {
   if (!editor.selectedNode) return
   editor.selectedNode.config[key] = value
   editor.updateSelectedNodeConfig({ ...editor.selectedNode.config })
+}
+
+/* ───────── 通用 Agent 节点 agentSpec 编辑 ───────── */
+// 从 selectedNodeMeta（store 中完整节点对象）读取 agentSpec，而不从 selectedNode（浅引用）读取。
+// 原因：setSelectedNode 只透传 nodeId/config/category，不携带 agentSpec；完整节点在 editor.nodes 中。
+const currentAgentSpec = computed(() => selectedNodeMeta.value?.agentSpec || null)
+
+/** 掩码态下 API Key 输入框留空（避免把掩码字符串当真实 key 回写）；非掩码态显示真实值 */
+const agentSpecApiKeyDisplay = computed(() => {
+  const s = currentAgentSpec.value
+  if (!s) return ''
+  return s.apiKeyMasked ? '' : (s.modelApiKey || '')
+})
+
+function onAgentSpecField(field, value) {
+  const s = currentAgentSpec.value
+  if (!s) return
+  const next = { ...s, [field]: value }
+  editor.updateSelectedAgentSpec(next)
+}
+
+/** API Key 输入：掩码态下留空表示保持原值；输入非空值则覆盖并清除掩码标记 */
+function onAgentSpecApiKeyInput(val) {
+  const s = currentAgentSpec.value
+  if (!s) return
+  if (s.apiKeyMasked && (val === '' || val == null)) return // 保持原掩码值
+  const next = { ...s, modelApiKey: val ?? '', apiKeyMasked: false }
+  editor.updateSelectedAgentSpec(next)
+}
+
+/** tools 数组 ↔ 逗号分隔文本 */
+const agentSpecToolsText = computed(() => {
+  const s = currentAgentSpec.value
+  if (!s || !Array.isArray(s.tools)) return ''
+  return s.tools.join(', ')
+})
+
+function onAgentSpecToolsInput(text) {
+  const s = currentAgentSpec.value
+  if (!s) return
+  const arr = (text || '').split(',').map(x => x.trim()).filter(Boolean)
+  editor.updateSelectedAgentSpec({ ...s, tools: arr })
 }
 
 function addKey() {
@@ -306,9 +350,10 @@ function onStreamingChange(val) {
     <el-tabs v-else v-model="activeTab" :class="{ 'embedded-tabs': embedded }">
       <el-tab-pane :label="t('propertyPanel.tabNode')" name="node">
         <template v-if="editor.selectedNode && selectedDescriptor">
-          <!-- 结构型节点：子图 / Agent -->
-          <el-form v-if="isStructuralSelected" label-width="100px" size="small">
+          <!-- 结构型节点：子图 / Agent / 通用 Agent -->
+          <el-form v-if="isStructuralSelected" label-width="120px" size="small">
             <el-alert v-if="isAgentSelected" :title="t('propertyPanel.agentNote')" type="info" :closable="false" style="margin-bottom: 8px;" />
+            <el-alert v-if="isGenericAgentSelected" :title="t('propertyPanel.genericAgentNote')" type="info" :closable="false" style="margin-bottom: 8px;" />
             <el-form-item :label="t('propertyPanel.nodeId')">
               <el-input :model-value="editor.selectedNode.nodeId" @update:model-value="onRenameNode" />
             </el-form-item>
@@ -342,6 +387,119 @@ function onStreamingChange(val) {
                 <span class="hint" style="margin-left: 8px;">{{ t('propertyPanel.enterSubgraphHint') }}</span>
               </el-form-item>
             </template>
+
+            <!-- 通用 Agent 节点 agentSpec 配置区 -->
+            <template v-if="isGenericAgentSelected && currentAgentSpec">
+              <el-divider content-position="left">{{ t('propertyPanel.agentSpec.modelId') }}</el-divider>
+              <el-form-item :label="t('propertyPanel.agentSpec.modelBaseUrl')">
+                <el-input
+                  :model-value="currentAgentSpec.modelBaseUrl || ''"
+                  @update:model-value="onAgentSpecField('modelBaseUrl', $event)"
+                  placeholder="https://api.example.com/v1"
+                />
+              </el-form-item>
+              <el-form-item :label="currentAgentSpec.apiKeyMasked ? t('propertyPanel.agentSpec.modelApiKeyMasked') : t('propertyPanel.agentSpec.modelApiKey')">
+                <el-input
+                  type="password"
+                  show-password
+                  :model-value="agentSpecApiKeyDisplay"
+                  @update:model-value="onAgentSpecApiKeyInput"
+                  :placeholder="currentAgentSpec.apiKeyMasked ? '******' : 'sk-...'"
+                />
+                <span v-if="currentAgentSpec.apiKeyMasked" class="hint" style="display:block; margin-top:4px;">
+                  {{ t('propertyPanel.agentSpec.modelApiKeyMaskedHint') }}
+                </span>
+              </el-form-item>
+              <el-form-item :label="t('propertyPanel.agentSpec.modelId')">
+                <el-input
+                  :model-value="currentAgentSpec.modelId || ''"
+                  @update:model-value="onAgentSpecField('modelId', $event)"
+                  placeholder="gpt-4o / qwen-max / ..."
+                />
+              </el-form-item>
+
+              <el-divider content-position="left">{{ t('propertyPanel.agentSpec.prompt') }}</el-divider>
+              <el-form-item :label="t('propertyPanel.agentSpec.prompt')">
+                <el-input
+                  type="textarea"
+                  :rows="4"
+                  :model-value="currentAgentSpec.prompt || ''"
+                  @update:model-value="onAgentSpecField('prompt', $event)"
+                  placeholder="You are a helpful assistant..."
+                />
+              </el-form-item>
+              <el-form-item :label="t('propertyPanel.agentSpec.promptKey')">
+                <el-input
+                  :model-value="currentAgentSpec.promptKey || ''"
+                  @update:model-value="onAgentSpecField('promptKey', $event)"
+                  placeholder="prompts:consult_v2"
+                />
+                <span class="hint" style="display:block; margin-top:4px;">{{ t('propertyPanel.agentSpec.promptHint') }}</span>
+              </el-form-item>
+
+              <el-divider content-position="left">{{ t('propertyPanel.agentSpec.skill') }}</el-divider>
+              <el-form-item :label="t('propertyPanel.agentSpec.skill')">
+                <el-input
+                  :model-value="currentAgentSpec.skill || ''"
+                  @update:model-value="onAgentSpecField('skill', $event)"
+                  placeholder="skill:tax_calc"
+                />
+              </el-form-item>
+              <el-form-item :label="t('propertyPanel.agentSpec.skillKey')">
+                <el-input
+                  :model-value="currentAgentSpec.skillKey || ''"
+                  @update:model-value="onAgentSpecField('skillKey', $event)"
+                  placeholder="skills:tax_calc"
+                />
+                <span class="hint" style="display:block; margin-top:4px;">{{ t('propertyPanel.agentSpec.skillHint') }}</span>
+              </el-form-item>
+
+              <el-divider content-position="left">{{ t('propertyPanel.agentSpec.mcp') }}</el-divider>
+              <el-form-item :label="t('propertyPanel.agentSpec.mcp')">
+                <el-input
+                  :model-value="currentAgentSpec.mcp || ''"
+                  @update:model-value="onAgentSpecField('mcp', $event)"
+                  placeholder="mcp:filesystem"
+                />
+              </el-form-item>
+              <el-form-item :label="t('propertyPanel.agentSpec.mcpKey')">
+                <el-input
+                  :model-value="currentAgentSpec.mcpKey || ''"
+                  @update:model-value="onAgentSpecField('mcpKey', $event)"
+                  placeholder="mcps:filesystem"
+                />
+                <span class="hint" style="display:block; margin-top:4px;">{{ t('propertyPanel.agentSpec.mcpHint') }}</span>
+              </el-form-item>
+
+              <el-divider content-position="left">{{ t('propertyPanel.agentSpec.tools') }}</el-divider>
+              <el-form-item :label="t('propertyPanel.agentSpec.tools')">
+                <el-input
+                  :model-value="agentSpecToolsText"
+                  @update:model-value="onAgentSpecToolsInput"
+                  placeholder="search, calculator, ..."
+                />
+                <span class="hint" style="display:block; margin-top:4px;">{{ t('propertyPanel.agentSpec.toolsHint') }}</span>
+              </el-form-item>
+
+              <el-divider content-position="left">{{ t('propertyPanel.inputKeys') }}</el-divider>
+              <el-form-item :label="t('propertyPanel.agentSpec.inputKeys')">
+                <el-input
+                  :model-value="currentAgentSpec.inputKeys || ''"
+                  @update:model-value="onAgentSpecField('inputKeys', $event)"
+                  placeholder="user_query, context"
+                />
+                <span class="hint" style="display:block; margin-top:4px;">{{ t('propertyPanel.agentSpec.inputKeysHint') }}</span>
+              </el-form-item>
+              <el-form-item :label="t('propertyPanel.agentSpec.outputKey')">
+                <el-input
+                  :model-value="currentAgentSpec.outputKey || ''"
+                  @update:model-value="onAgentSpecField('outputKey', $event)"
+                  placeholder="agent_result"
+                />
+                <span class="hint" style="display:block; margin-top:4px;">{{ t('propertyPanel.agentSpec.outputKeyHint') }}</span>
+              </el-form-item>
+            </template>
+
             <el-divider />
             <el-form-item :label="t('propertyPanel.origin')">
               <el-tag size="small" type="warning">STRUCTURAL</el-tag>

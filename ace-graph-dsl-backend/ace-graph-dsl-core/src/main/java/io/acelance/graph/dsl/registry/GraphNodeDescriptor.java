@@ -41,6 +41,8 @@ public record GraphNodeDescriptor(
     public static final String CATEGORY_SUBGRAPH = "SUBGRAPH";
     /** Agent 循环节点（subagent 内核，返回 Command 形成续轮/退出循环） */
     public static final String CATEGORY_AGENT = "AGENT";
+    /** 通用 agent 节点（声明式模型调用：模型/prompt/skill/mcp/tools 元数据驱动，无需内嵌代码） */
+    public static final String CATEGORY_GENERIC_AGENT = "GENERIC_AGENT";
 
     /** 兼容旧构造：BUILTIN 来源，无权限标签 */
     public GraphNodeDescriptor(

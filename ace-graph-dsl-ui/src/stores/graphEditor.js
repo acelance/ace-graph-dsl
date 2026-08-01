@@ -173,6 +173,7 @@ export const useGraphEditorStore = defineStore('aceGraphEditor', () => {
           displayName: n.properties?.displayName || '',
           subgraphRef: n.properties?.subgraphRef || '',
           subgraph: n.properties?.subgraph || null,
+          agentSpec: n.properties?.agentSpec || null,
           config: n.properties?.config || {},
           x: n.x,
           y: n.y
@@ -519,6 +520,22 @@ export const useGraphEditorStore = defineStore('aceGraphEditor', () => {
     }
   }
 
+  /** 将属性面板编辑的 agentSpec 写回选中节点（store 层）；Canvas.vue 会监听并同步到 lf properties。
+   *
+   * <p>直接更新 {@code nodes.value} 中的完整节点对象，而非 {@code selectedNode} 浅引用——
+   * 后者由 {@code setSelectedNode} 创建时只透传 {@code nodeId/config/category}，不含
+   * agentSpec 字段。{@code selectedNodeMeta}（{@code editor.nodes.find(...)}）是完整节点。</p>
+   */
+  function updateSelectedAgentSpec(spec) {
+    const target = selectedNode.value
+    if (!target) return
+    const idx = nodes.value.findIndex(n => n.nodeId === target.nodeId)
+    if (idx < 0) return
+    const current = nodes.value[idx]
+    const next = { ...current, agentSpec: spec ? { ...spec } : null }
+    nodes.value.splice(idx, 1, next)
+  }
+
   function loadVersionAsBaseline(def) {
     const normalized = applyDefinition(def)
     baselineVersion.value = normalized.version
@@ -800,7 +817,7 @@ export const useGraphEditorStore = defineStore('aceGraphEditor', () => {
     hasContentChanged, needsVersionBump, suggestNextVersion, snapshotBaseline, loadVersionAsBaseline, validateTopologyNow,
     maxKnownVersion, versionExists,
     publishCurrent, loadLatest, loadEnabledVersion, fetchVersions, selectGraph, initNewGraph, resetEditor,
-    setSelectedNode, clearSelectedNode, updateSelectedNodeConfig,
+    setSelectedNode, clearSelectedNode, updateSelectedNodeConfig, updateSelectedAgentSpec,
     setSelectedEdge, clearSelectedEdge, updateSelectedEdgeParallel, updateSelectedEdgeAggregation, requestEdgeEdit, requestEdgeConvert, clearEdgeCommands,
     enterSubgraph, exitSubgraph, goToBreadcrumb, updateSubgraphNodeMeta, renameSelectedNode, requestRerender, loadGraphIds,
     openSubgraphPreview, closeSubgraphPreview

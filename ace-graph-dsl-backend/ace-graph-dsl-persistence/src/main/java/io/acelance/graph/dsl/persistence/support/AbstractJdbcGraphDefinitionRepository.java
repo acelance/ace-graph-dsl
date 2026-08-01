@@ -65,7 +65,9 @@ public abstract class AbstractJdbcGraphDefinitionRepository implements GraphDefi
 
     private void insertDraft(GraphDefinition def) {
         try {
-            String json = objectMapper.writeValueAsString(def);
+            // api-key 脱敏：落库前将通用 agent 节点的明文 key 掩码
+            GraphDefinition toSave = AgentSecretMasking.mask(def);
+            String json = objectMapper.writeValueAsString(toSave);
             jdbcTemplate.update(
                     "INSERT INTO " + defTable() + " (graph_id, version, display_name, description, content_json, created_at) VALUES (?, ?, ?, ?, ?, ?)",
                     def.graphId(), def.version(), def.displayName(), def.description(), json, Timestamp.from(Instant.now()));

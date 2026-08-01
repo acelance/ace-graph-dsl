@@ -127,10 +127,10 @@ public record GraphDefinition(
                     // 子图：递归提取内部拓扑，作为内嵌 GraphDefinition
                     GraphDefinition inner = fromStateGraph(sgn.subGraph(),
                             n.id(), n.id(), "1.0.0", "subgraph", null, null);
-                    nodeRefs.add(new NodeRef(n.id(), "SUBGRAPH", Map.of(), null, null, inner, null, null));
+                    nodeRefs.add(new NodeRef(n.id(), "SUBGRAPH", Map.of(), null, null, inner, null, null, null));
                 } else {
                     String category = selfLoopNodes.contains(n.id()) ? "AGENT" : null;
-                    nodeRefs.add(new NodeRef(n.id(), category, Map.of(), null, null, null, null, null));
+                    nodeRefs.add(new NodeRef(n.id(), category, Map.of(), null, null, null, null, null, null));
                 }
             }
         }

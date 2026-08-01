@@ -9,7 +9,7 @@ import '@logicflow/extension/lib/style/index.css'
 import { useNodeRegistryStore } from '../../stores/nodeRegistry'
 import { useGraphEditorStore } from '../../stores/graphEditor'
 import { useI18n } from '../../i18n'
-import { DspRectNode, DspDiamondNode, DspCircleNode, DspGroupNode, DspSubgraphNode, DspAgentNode, resolveNodeType } from './DspNode.js'
+import { DspRectNode, DspDiamondNode, DspCircleNode, DspGroupNode, DspSubgraphNode, DspAgentNode, DspGenericAgentNode, resolveNodeType } from './DspNode.js'
 import { DspBezierEdge } from './DspEdge.js'
 
 const nodeStore = useNodeRegistryStore()
@@ -51,6 +51,28 @@ watch(() => editor.selectedNode?.config, (config) => {
   suppressSync = true
   try {
     lf.setProperties(editor.selectedLfNodeId, { ...model.properties, config: { ...config } })
+  } finally {
+    suppressSync = false
+  }
+}, { deep: true })
+
+/** 属性面板编辑 agentSpec 后同步到 lf 节点 properties，保证保存/重渲染时元数据不丢
+ *
+ * <p>监听 store 完整节点中的 agentSpec（{@code editor.nodes.find(...)}），而非
+ * {@code editor.selectedNode} 浅引用——后者由 {@code setSelectedNode} 创建时不含 agentSpec 字段。</p>
+ */
+watch(() => {
+  const sel = editor.selectedNode
+  if (!sel) return null
+  const meta = editor.nodes.find(n => n.nodeId === sel.nodeId)
+  return meta?.agentSpec
+}, (spec) => {
+  if (!lf || !editor.selectedLfNodeId) return
+  const model = lf.getNodeModelById(editor.selectedLfNodeId)
+  if (!model) return
+  suppressSync = true
+  try {
+    lf.setProperties(editor.selectedLfNodeId, { ...model.properties, agentSpec: spec ? { ...spec } : null })
   } finally {
     suppressSync = false
   }
@@ -284,6 +306,7 @@ function registerCustomElements() {
   lf.register(DspGroupNode)
   lf.register(DspSubgraphNode)
   lf.register(DspAgentNode)
+  lf.register(DspGenericAgentNode)
   lf.register(DspBezierEdge)
   lf.setDefaultEdgeType('dsp-bezier')
   applyLfTheme()
@@ -510,7 +533,8 @@ function onNodeDrag(descriptor) {
       outputKeys: descriptor.outputKeys || [],
       config: {},
       subgraphRef: '',
-      subgraph: null
+      subgraph: null,
+      agentSpec: category === 'GENERIC_AGENT' ? { modelBaseUrl: '', modelApiKey: '', apiKeyMasked: false, modelId: '', prompt: '', promptKey: '', skill: '', skillKey: '', mcp: '', mcpKey: '', tools: [], inputKeys: '', outputKey: 'agent_result' } : null
     })
   })
 }
@@ -550,7 +574,8 @@ function renderFromDefinition(def) {
         inputKeys: desc?.inputKeys || [],
         outputKeys: desc?.outputKeys || [],
         subgraphRef: n.subgraphRef || '',
-        subgraph: n.subgraph || null
+        subgraph: n.subgraph || null,
+        agentSpec: n.agentSpec || null
       })
     })
   })
@@ -1117,7 +1142,8 @@ function extractSelectionToSubgraph() {
     x: n.x,
     y: n.y,
     subgraphRef: n.properties?.subgraphRef || '',
-    subgraph: n.properties?.subgraph || null
+    subgraph: n.properties?.subgraph || null,
+    agentSpec: n.properties?.agentSpec || null
   }))
 
   // 内部边（两端都在选中集合）

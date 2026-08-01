@@ -146,7 +146,8 @@ export default {
     empty: '无节点',
     structural: '结构节点',
     subgraph: '子图',
-    agent: 'Agent 节点'
+    agent: 'Agent 节点',
+    genericAgent: '通用 Agent 节点'
   },
   edgeValidation: {
     title: '连线参数校验',
@@ -242,7 +243,30 @@ export default {
     previewFallbackNote: '服务端生成失败，已回退为结构视图',
     previewLoadFailed: '预览生成失败：',
     streaming: '流式输出',
-    streamingHint: '标记为流式 / 异步节点：输出以流式（逐 token）或异步方式产生，画布节点右上角将以脉冲徽标区分'
+    streamingHint: '标记为流式 / 异步节点：输出以流式（逐 token）或异步方式产生，画布节点右上角将以脉冲徽标区分',
+    genericAgentNote: '通用 Agent 节点为元数据驱动：填入模型 / prompt / skill / mcp / tools 等元数据后，后端模板节点即可直接执行模型调用，无需内嵌代码。',
+    agentSpec: {
+      modelBaseUrl: '模型 Base URL',
+      modelApiKey: 'API Key',
+      modelApiKeyMasked: 'API Key（已脱敏）',
+      modelApiKeyMaskedHint: '已落库的 API Key 仅留后 4 位。如需更新请直接输入新 Key，留空则保持原值。',
+      modelId: '模型 ID',
+      prompt: 'Prompt（内联）',
+      promptKey: 'Prompt Key',
+      promptHint: '内联 prompt 与 prompt-key 二选一；prompt-key 用于从 PromptRepository 加载模板，内联 prompt 直接作为模板文本。',
+      skill: 'Skill',
+      skillKey: 'Skill Key',
+      skillHint: 'skill / skill-key 用于从 SkillRegistry 加载技能资源，二者可同时为空。',
+      mcp: 'MCP',
+      mcpKey: 'MCP Key',
+      mcpHint: 'mcp / mcp-key 用于从 McpToolProvider 加载 MCP 工具集。',
+      tools: 'Tools',
+      toolsHint: '逗号分隔的工具名列表（本地 AgentTool 名称），运行时按名查找。',
+      inputKeys: 'Input Keys',
+      inputKeysHint: '逗号分隔，从图状态读取这些 key 作为模型调用的 variables。',
+      outputKey: 'Output Key',
+      outputKeyHint: '模型回复写入图状态的 key，默认 agent_result。'
+    }
   },
   scriptEditor: {
     title: '新建脚本节点',
@@ -293,5 +317,22 @@ export default {
     empty: '运行后展示各节点输出轨迹',
     error: '试运行失败',
     mockError: 'mockState JSON 格式错误'
+  },
+  execution: {
+    title: '图执行（SSE + HITL）',
+    hint: '通过 /execution 端点流式执行已发布图。支持顶层 HITL 与子图内 HITL（G4）：暂停时填写更新值后点恢复续跑。',
+    inputs: '输入 State (JSON)',
+    inputsError: '输入 JSON 格式错误',
+    run: '执行',
+    stop: '停止',
+    trace: '执行轨迹',
+    error: '执行异常',
+    empty: '执行后展示各节点输出事件',
+    hitlPaused: 'HITL 暂停 — 等待人工输入',
+    subgraphPaused: '子图 {parent} 的节点 {node} 已暂停',
+    topLevelPaused: '顶层节点 {node} 已暂停',
+    resumeUpdates: '恢复更新 (JSON)',
+    resume: '恢复执行',
+    updatesError: '更新 JSON 格式错误'
   }
 }
