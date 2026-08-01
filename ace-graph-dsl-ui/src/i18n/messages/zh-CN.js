@@ -74,7 +74,10 @@ export default {
   canvas: {
     extractNeedNodes: '请先选中至少 1 个业务节点（Ctrl+点击多选，或开「框选」拖选）',
     extractSuccess: '已将 {n} 个节点提取为子图',
-    deleteSelectionHint: '删除选中元素',
+    delete: '删除',
+    deleteSelection: '删除选中',
+    deleteSelectionHint: '删除选中的节点或连线（Delete / Backspace）',
+    pasteHint: 'Ctrl+C 复制选中节点 / Ctrl+V 粘贴',
     isolatedNodes: '存在孤立节点',
     autoLayoutFailed: '自动布局失败',
     copied: '已复制 {n} 个节点',
@@ -122,14 +125,6 @@ export default {
     selectVersion: '请选择左侧版本查看详情',
     baseLabel: '当前（编辑器）',
     targetLabel: '选中版本'
-  },
-  canvas: {
-    delete: '删除',
-    deleteSelection: '删除选中',
-    deleteSelectionHint: '删除选中的节点或连线（Delete / Backspace）',
-    copied: '已复制 {n} 个节点',
-    pasteHint: 'Ctrl+C 复制选中节点 / Ctrl+V 粘贴',
-    autoLayoutFailed: '自动布局失败'
   },
   nodePanel: {
     title: '节点面板',
