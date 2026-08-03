@@ -13,14 +13,18 @@ import io.acelance.graph.dsl.execution.GraphExecutionEventAdapter;
 import io.acelance.graph.dsl.observability.GraphExecutionListener;
 import io.acelance.graph.dsl.observability.Slf4jGraphExecutionListener;
 import io.acelance.graph.dsl.persistence.DynamicNodeDefinitionRepository;
+import io.acelance.graph.dsl.persistence.GenericAgentDefinitionRepository;
 import io.acelance.graph.dsl.persistence.GraphDefinitionRepository;
 import io.acelance.graph.dsl.persistence.PersistenceType;
 import io.acelance.graph.dsl.persistence.jdbc.JdbcDynamicNodeDefinitionRepository;
+import io.acelance.graph.dsl.persistence.jdbc.JdbcGenericAgentDefinitionRepository;
 import io.acelance.graph.dsl.persistence.jdbc.JdbcGraphDefinitionRepository;
 import io.acelance.graph.dsl.persistence.memory.InMemoryDynamicNodeDefinitionRepository;
+import io.acelance.graph.dsl.persistence.memory.InMemoryGenericAgentDefinitionRepository;
 import io.acelance.graph.dsl.persistence.memory.InMemoryGraphDefinitionRepository;
 import io.acelance.graph.dsl.persistence.redis.RedisGraphDefinitionRepository;
 import io.acelance.graph.dsl.persistence.sqlite.SqliteDynamicNodeDefinitionRepository;
+import io.acelance.graph.dsl.persistence.sqlite.SqliteGenericAgentDefinitionRepository;
 import io.acelance.graph.dsl.persistence.sqlite.SqliteGraphDefinitionRepository;
 import io.acelance.graph.dsl.script.AviatorScriptEngine;
 import io.acelance.graph.dsl.script.ScriptEngine;
@@ -32,6 +36,7 @@ import io.acelance.graph.dsl.security.menu.GraphMenuAccessControl;
 import io.acelance.graph.dsl.security.menu.GraphMenuCatalog;
 import io.acelance.graph.dsl.security.menu.GraphMenuPermissionResolver;
 import io.acelance.graph.dsl.security.menu.PermissiveGraphMenuAccessControl;
+import io.acelance.graph.dsl.service.GenericAgentNodeService;
 import io.acelance.graph.dsl.service.ScriptNodeService;
 import org.redisson.api.RedissonClient;
 import org.slf4j.Logger;
@@ -187,6 +192,20 @@ public class AceGraphDslAutoConfiguration {
     }
 
     @Bean
+    @ConditionalOnMissingBean(GenericAgentNodeService.class)
+    public GenericAgentNodeService genericAgentNodeService(
+            GenericAgentDefinitionRepository genericAgentDefinitionRepository,
+            io.acelance.graph.dsl.registry.GraphNodeRegistry nodeRegistry,
+            org.springframework.context.ApplicationContext applicationContext,
+            GraphAuditLogger auditLogger) {
+        return new GenericAgentNodeService(
+                genericAgentDefinitionRepository,
+                nodeRegistry,
+                applicationContext,
+                auditLogger);
+    }
+
+    @Bean
     @ConditionalOnMissingBean(DynamicNodeDefinitionRepository.class)
     public DynamicNodeDefinitionRepository dynamicNodeDefinitionRepository(
             AceGraphDslProperties properties,
@@ -216,6 +235,39 @@ public class AceGraphDslAutoConfiguration {
                     objectMapper,
                     tablePrefix);
             default -> new InMemoryDynamicNodeDefinitionRepository();
+        };
+    }
+
+    @Bean
+    @ConditionalOnMissingBean(GenericAgentDefinitionRepository.class)
+    public GenericAgentDefinitionRepository genericAgentDefinitionRepository(
+            AceGraphDslProperties properties,
+            @Qualifier(AceGraphDslBeans.OBJECT_MAPPER) ObjectMapper objectMapper,
+            ObjectProvider<DataSource> dataSourceProvider,
+            ObjectProvider<DataSourceProperties> dataSourcePropertiesProvider,
+            ObjectProvider<DataSource> aceGraphDslSqliteDataSourceProvider) {
+
+        if (!properties.getDynamicNodes().isEnabled()) {
+            return new InMemoryGenericAgentDefinitionRepository();
+        }
+
+        PersistenceType type = resolvePersistenceType(
+                properties, null, dataSourcePropertiesProvider);
+        String tablePrefix = properties.getPersistence().getJdbc().getTablePrefix();
+
+        return switch (type) {
+            case JDBC -> {
+                DataSource ds = dataSourceProvider.getIfAvailable();
+                if (ds == null) {
+                    throw new IllegalStateException("通用 agent 节点持久化需要 DataSource");
+                }
+                yield new JdbcGenericAgentDefinitionRepository(new JdbcTemplate(ds), objectMapper, tablePrefix);
+            }
+            case SQLITE -> new SqliteGenericAgentDefinitionRepository(
+                    new JdbcTemplate(aceGraphDslSqliteDataSourceProvider.getObject()),
+                    objectMapper,
+                    tablePrefix);
+            default -> new InMemoryGenericAgentDefinitionRepository();
         };
     }
 
@@ -288,6 +340,14 @@ public class AceGraphDslAutoConfiguration {
             ScriptNodeService scriptNodeService,
             AceGraphDslProperties properties) {
         return new DynamicNodeBootstrapLoader(scriptNodeService, properties);
+    }
+
+    @Bean
+    @ConditionalOnProperty(prefix = "ace.graph.dsl.dynamic-nodes", name = "enabled", havingValue = "true", matchIfMissing = true)
+    public GenericAgentNodeBootstrapLoader genericAgentNodeBootstrapLoader(
+            GenericAgentNodeService genericAgentNodeService,
+            AceGraphDslProperties properties) {
+        return new GenericAgentNodeBootstrapLoader(genericAgentNodeService, properties);
     }
 
     private PersistenceType resolvePersistenceType(

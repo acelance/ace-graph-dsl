@@ -4,6 +4,7 @@ import io.acelance.graph.dsl.definition.GraphDefinition;
 import io.acelance.graph.dsl.definition.GraphEdge;
 import io.acelance.graph.dsl.definition.NodeRef;
 import io.acelance.graph.dsl.registry.EdgeDispatcherRegistry;
+import io.acelance.graph.dsl.registry.GraphNodeDescriptor;
 import io.acelance.graph.dsl.registry.GraphNodeRegistry;
 import io.acelance.graph.dsl.script.ScriptEdgeActionFactory;
 import org.springframework.stereotype.Component;
@@ -80,6 +81,13 @@ public class GraphValidator {
                 }
                 continue;
             }
+            // 通用 agent 节点：双通道——内联 agentSpec 自带元数据，或引用已入库的 agent 节点定义
+            if (ref.hasAgentSpec() || GraphNodeDescriptor.CATEGORY_GENERIC_AGENT.equals(ref.category())) {
+                if (ref.agentSpec() == null && !nodeRegistry.contains(ref.nodeId())) {
+                    errors.add("通用 agent 节点既无内联 agentSpec，也未找到已入库定义: " + ref.nodeId());
+                }
+                continue;
+            }
             if (!nodeRegistry.contains(ref.nodeId())) {
                 errors.add("节点未注册: " + ref.nodeId());
             }
@@ -111,7 +119,12 @@ public class GraphValidator {
                 .filter(ref -> nodeRegistry.contains(ref.nodeId()))
                 .map(ref -> nodeRegistry.get(ref.nodeId()).descriptor().outputKeys())
                 .flatMap(Set::stream)
-                .collect(Collectors.toSet());
+                .collect(Collectors.toCollection(HashSet::new));
+        // 内联通用 agent 节点不在注册表内，其 outputKey 需单独纳入 KeyStrategy 覆盖性检查
+        def.nodes().stream()
+                .filter(ref -> ref.agentSpec() != null)
+                .map(ref -> ref.agentSpec().effectiveOutputKey())
+                .forEach(neededKeys::add);
         for (String key : neededKeys) {
             if (!declaredKeys.contains(key)) {
                 errors.add("KeyStrategy 缺失: " + key);

@@ -54,6 +54,18 @@ export function createGraphApi(options = '/') {
     validateScript: (body) => http.post(`${p}/nodes/validate-script`, body).then(r => r.data),
     testRunScriptNode: (nodeId, body) => http.post(`${p}/nodes/${nodeId}/test-run`, body).then(r => r.data),
     testRunDraft: (body) => http.post(`${p}/nodes/test-run`, body).then(r => r.data),
+
+    // ── 通用 Agent 节点（双通道：注册式定义 CRUD + 内联草稿校验/试跑）──
+    listAgentDefinitions: () => http.get(`${p}/agents/definitions`).then(r => r.data),
+    getAgentDefinition: (nodeId) => http.get(`${p}/agents/definitions/${nodeId}`).then(r => r.data),
+    listAgentReferences: (nodeId) => http.get(`${p}/agents/references`, { params: { nodeId } }).then(r => r.data),
+    listAgentOrphans: () => http.get(`${p}/agents/orphans`).then(r => r.data),
+    createAgentNode: (body) => http.post(`${p}/agents`, body).then(r => r.data),
+    updateAgentNode: (nodeId, body) => http.put(`${p}/agents/${nodeId}`, body).then(r => r.data),
+    deleteAgentNode: (nodeId) => http.delete(`${p}/agents/${nodeId}`).then(r => r.data),
+    validateAgentNode: (body) => http.post(`${p}/agents/validate`, body).then(r => r.data),
+    testRunAgentDraft: (body) => http.post(`${p}/agents/test-run`, body).then(r => r.data),
+    testRunAgent: (nodeId, body) => http.post(`${p}/agents/${nodeId}/test-run`, body).then(r => r.data),
     listDefinitions: () => http.get(`${p}/definitions`).then(r => r.data),
     listGraphIds: () => http.get(`${p}/catalog/graph-ids`).then(r => r.data),
     listSummaries: () => http.get(`${p}/catalog/summaries`).then(r => r.data),
@@ -143,6 +155,16 @@ export const listReferringGraphs = (...args) => defaultApi.listReferringGraphs(.
 export const validateScript = (...args) => defaultApi.validateScript(...args)
 export const testRunDraft = (...args) => defaultApi.testRunDraft(...args)
 export const testRunScriptNode = (...args) => defaultApi.testRunScriptNode(...args)
+export const listAgentDefinitions = (...args) => defaultApi.listAgentDefinitions(...args)
+export const getAgentDefinition = (...args) => defaultApi.getAgentDefinition(...args)
+export const listAgentReferences = (...args) => defaultApi.listAgentReferences(...args)
+export const listAgentOrphans = (...args) => defaultApi.listAgentOrphans(...args)
+export const createAgentNode = (...args) => defaultApi.createAgentNode(...args)
+export const updateAgentNode = (...args) => defaultApi.updateAgentNode(...args)
+export const deleteAgentNode = (...args) => defaultApi.deleteAgentNode(...args)
+export const validateAgentNode = (...args) => defaultApi.validateAgentNode(...args)
+export const testRunAgentDraft = (...args) => defaultApi.testRunAgentDraft(...args)
+export const testRunAgent = (...args) => defaultApi.testRunAgent(...args)
 export const getScriptNodeDefinition = (...args) => defaultApi.getScriptNodeDefinition(...args)
 export const listScriptNodeDefinitions = (...args) => defaultApi.listScriptNodeDefinitions(...args)
 export const listScriptEngines = (...args) => defaultApi.listScriptEngines(...args)

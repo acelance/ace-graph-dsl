@@ -15,6 +15,8 @@ public final class GraphMenuPermissions {
     public static final String GROUP_GRAPH = "graph";
     /** 分组：脚本节点 */
     public static final String GROUP_SCRIPT_NODE = "script-node";
+    /** 分组：通用 agent 节点 */
+    public static final String GROUP_AGENT_NODE = "agent-node";
 
     /** 查看 Graph 目录 / 定义 */
     public static final String GRAPH_VIEW = "graph:view";
@@ -39,4 +41,13 @@ public final class GraphMenuPermissions {
     public static final String SCRIPT_NODE_DELETE = "script-node:delete";
     /** 校验 / 试跑脚本 */
     public static final String SCRIPT_NODE_TEST = "script-node:test";
+
+    /** 查看通用 agent 节点 */
+    public static final String AGENT_NODE_VIEW = "agent-node:view";
+    /** 新建 / 编辑通用 agent 节点 */
+    public static final String AGENT_NODE_CREATE = "agent-node:create";
+    /** 删除通用 agent 节点 */
+    public static final String AGENT_NODE_DELETE = "agent-node:delete";
+    /** 校验 / 试跑通用 agent 节点 */
+    public static final String AGENT_NODE_TEST = "agent-node:test";
 }

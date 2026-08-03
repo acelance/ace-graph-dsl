@@ -13,4 +13,7 @@ public final class GraphAuditActions {
     public static final String SCRIPT_NODE_CREATE = "SCRIPT_NODE_CREATE";
     public static final String SCRIPT_NODE_UPDATE = "SCRIPT_NODE_UPDATE";
     public static final String SCRIPT_NODE_DELETE = "SCRIPT_NODE_DELETE";
+    public static final String AGENT_NODE_CREATE = "AGENT_NODE_CREATE";
+    public static final String AGENT_NODE_UPDATE = "AGENT_NODE_UPDATE";
+    public static final String AGENT_NODE_DELETE = "AGENT_NODE_DELETE";
 }

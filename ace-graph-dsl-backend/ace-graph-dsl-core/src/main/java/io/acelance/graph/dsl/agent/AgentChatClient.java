@@ -2,6 +2,7 @@ package io.acelance.graph.dsl.agent;
 
 import io.acelance.graph.dsl.definition.GenericAgentSpec;
 
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -21,4 +22,17 @@ public interface AgentChatClient {
      * @return 模型回复文本
      */
     String call(String promptTemplate, Map<String, Object> variables, GenericAgentSpec spec);
+
+    /**
+     * 带工具的模型调用（tool-calling）。
+     *
+     * <p>默认降级为无工具调用，保证既有实现不受影响；支持 function calling 的适配器
+     * 应覆写此方法，把 {@link AgentTool} 注册为模型可调用的工具。</p>
+     *
+     * @param tools 由 {@link McpToolProvider} 解析出的工具集合（可能为空）
+     */
+    default String call(String promptTemplate, Map<String, Object> variables,
+                        GenericAgentSpec spec, List<AgentTool> tools) {
+        return call(promptTemplate, variables, spec);
+    }
 }

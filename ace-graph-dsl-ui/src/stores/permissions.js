@@ -14,7 +14,11 @@ export const MENU = {
   SCRIPT_NODE_VIEW: 'script-node:view',
   SCRIPT_NODE_CREATE: 'script-node:create',
   SCRIPT_NODE_DELETE: 'script-node:delete',
-  SCRIPT_NODE_TEST: 'script-node:test'
+  SCRIPT_NODE_TEST: 'script-node:test',
+  AGENT_NODE_VIEW: 'agent-node:view',
+  AGENT_NODE_CREATE: 'agent-node:create',
+  AGENT_NODE_DELETE: 'agent-node:delete',
+  AGENT_NODE_TEST: 'agent-node:test'
 }
 
 export const usePermissionStore = defineStore('aceMenuPermissions', () => {

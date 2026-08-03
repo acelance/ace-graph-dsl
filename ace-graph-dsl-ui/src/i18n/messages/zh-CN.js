@@ -142,7 +142,10 @@ export default {
     structural: '结构节点',
     subgraph: '子图',
     agent: 'Agent 节点',
-    genericAgent: '通用 Agent 节点'
+    genericAgent: '通用 Agent 节点',
+    agentTab: '通用 Agent',
+    createAgent: '+ 新建通用 Agent',
+    deleteAgentConfirm: '确认删除通用 Agent 节点 "{name}"？'
   },
   edgeValidation: {
     title: '连线参数校验',
@@ -240,6 +243,10 @@ export default {
     streaming: '流式输出',
     streamingHint: '标记为流式 / 异步节点：输出以流式（逐 token）或异步方式产生，画布节点右上角将以脉冲徽标区分',
     genericAgentNote: '通用 Agent 节点为元数据驱动：填入模型 / prompt / skill / mcp / tools 等元数据后，后端模板节点即可直接执行模型调用，无需内嵌代码。',
+    genericAgentRegisteredNote: '该节点为已注册的通用 Agent（引用式）：元数据在「节点面板 → 通用 Agent」中集中定义与管理，此处仅展示节点引用。',
+    genericAgentRegisteredTitle: '注册式（引用型）通用 Agent',
+    genericAgentEditInPanel: '前往节点面板编辑',
+    genericAgentEditInPanelHint: '元数据在「节点面板 → 通用 Agent」中维护',
     agentSpec: {
       modelBaseUrl: '模型 Base URL',
       modelApiKey: 'API Key',
@@ -293,6 +300,32 @@ export default {
     testRun: '试跑',
     create: '创建',
     update: '更新'
+  },
+  agentEditor: {
+    title: '新建通用 Agent 节点',
+    editTitle: '编辑通用 Agent 节点',
+    nodeId: 'Node ID',
+    nodeIdPlaceholder: 'agent:my_agent',
+    nodeIdError: 'nodeId 必须以 agent: 开头',
+    displayName: '显示名',
+    displayNamePlaceholder: '如 智能客服 Agent',
+    description: '描述',
+    model: '模型配置',
+    prompt: 'Prompt 配置',
+    skill: 'Skill 配置',
+    mcp: 'MCP 配置',
+    advanced: '高级',
+    permissionTags: '权限标签',
+    permissionTagsPlaceholder: '逗号分隔，如 public,cs',
+    mockState: 'Mock State',
+    testOutput: '试跑结果',
+    validate: '校验',
+    validateOk: '元数据校验通过',
+    testRun: '试跑',
+    testOk: '试跑成功',
+    mockError: 'mockState JSON 格式错误',
+    createOk: '通用 Agent 节点已创建',
+    updateOk: '通用 Agent 节点已更新'
   },
   engine: {
     aviator: { hint: "单行表达式；返回 seq.map('key', value) 或标量" },

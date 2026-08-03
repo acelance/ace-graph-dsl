@@ -187,15 +187,10 @@ public class DynamicGraphBuilder {
                 continue;
             }
 
-            // 通用 agent 节点（GENERIC_AGENT）：据元数据动态装配模板节点，无需内嵌代码
+            // 通用 agent 节点（GENERIC_AGENT）：双通道解析
             if (ref.hasAgentSpec() || GraphNodeDescriptor.CATEGORY_GENERIC_AGENT.equals(ref.category())) {
-                if (ref.agentSpec() == null) {
-                    throw new GraphStateException("通用 agent 节点缺少 agentSpec 元数据: " + ref.nodeId());
-                }
-                GenericAgentNode agentNode = new GenericAgentNode(
-                        ref.nodeId(), def.graphId(), ref.agentSpec(), applicationContext);
-                nodeRegistry.registerDynamic(agentNode);
-                stateGraph.addNode(ref.nodeId(), node_async(agentNode.toAction(nodeCtx)));
+                stateGraph.addNode(ref.nodeId(),
+                        node_async(resolveGenericAgent(def, ref).toAction(nodeCtx)));
                 continue;
             }
 
@@ -209,6 +204,33 @@ public class DynamicGraphBuilder {
         }
 
         return stateGraph;
+    }
+
+    /**
+     * 解析通用 agent 节点（双通道）。
+     *
+     * <p><b>通道一 · 内联</b>：{@code NodeRef.agentSpec} 自带完整元数据，编译期即时装配，
+     * 节点只属于当前图，不进注册中心（避免与同名的可复用定义互相覆盖）。</p>
+     *
+     * <p><b>通道二 · 注册式</b>：图里只留 {@code nodeId}，元数据来自已入库并注册的
+     * {@code GenericAgentDefinition}。注册实例是「无图归属」的共享定义，此处
+     * {@link GenericAgentNode#withGraphId(String)} 克隆出绑定当前图的副本再执行，
+     * 保证 {@code SecretResolver} 拿到正确的图命名空间，杜绝跨图串用。</p>
+     */
+    private GenericAgentNode resolveGenericAgent(GraphDefinition def, NodeRef ref) throws GraphStateException {
+        if (ref.agentSpec() != null) {
+            return new GenericAgentNode(ref.nodeId(), def.graphId(), ref.agentSpec(), applicationContext);
+        }
+        if (!nodeRegistry.contains(ref.nodeId())) {
+            throw new GraphStateException("通用 agent 节点既无内联 agentSpec，也未在注册中心找到已入库定义: "
+                    + ref.nodeId() + "（请先在设计器创建 agent 节点定义，或为该节点补内联元数据）");
+        }
+        RegisteredGraphNode registered = nodeRegistry.get(ref.nodeId());
+        if (!(registered instanceof GenericAgentNode registeredAgent)) {
+            throw new GraphStateException("节点 " + ref.nodeId() + " 已注册但并非通用 agent 节点: "
+                    + registered.getClass().getName());
+        }
+        return registeredAgent.withGraphId(def.graphId());
     }
 
     /**

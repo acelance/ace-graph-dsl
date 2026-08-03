@@ -5,6 +5,7 @@ import { ElMessage } from 'element-plus'
 import { useGraphEditorStore } from '../../stores/graphEditor'
 import { useNodeRegistryStore } from '../../stores/nodeRegistry'
 import { useI18n } from '../../i18n'
+import { requestOpenAgentEditor } from '../../stores/agentEditorBus'
 import { listScriptEngines } from '../../api/graph'
 import MermaidPreview from './MermaidPreview.vue'
 
@@ -51,6 +52,14 @@ const isStructuralSelected = computed(() =>
 const isSubgraphSelected = computed(() => editor.selectedNode?.category === 'SUBGRAPH')
 const isAgentSelected = computed(() => editor.selectedNode?.category === 'AGENT')
 const isGenericAgentSelected = computed(() => editor.selectedNode?.category === 'GENERIC_AGENT')
+/** 注册式（引用型）通用 Agent：无内联 agentSpec，元数据集中在节点面板管理 */
+const isGenericAgentRegistered = computed(() => isGenericAgentSelected.value && !currentAgentSpec.value)
+
+/** 注册式节点：跳转到「节点面板 → 通用 Agent」进行元数据编辑 */
+function gotoNodePanelAgent() {
+  if (!editor.selectedNode) return
+  requestOpenAgentEditor(editor.selectedNode.nodeId)
+}
 
 /** 子图模式：有 subgraphRef 视为引用型，否则内联型 */
 const subgraphMode = computed(() => (selectedNodeMeta.value?.subgraphRef ? 'reference' : 'inline'))
@@ -353,12 +362,13 @@ function onStreamingChange(val) {
           <!-- 结构型节点：子图 / Agent / 通用 Agent -->
           <el-form v-if="isStructuralSelected" label-width="120px" size="small">
             <el-alert v-if="isAgentSelected" :title="t('propertyPanel.agentNote')" type="info" :closable="false" style="margin-bottom: 8px;" />
-            <el-alert v-if="isGenericAgentSelected" :title="t('propertyPanel.genericAgentNote')" type="info" :closable="false" style="margin-bottom: 8px;" />
+            <el-alert v-if="isGenericAgentSelected && currentAgentSpec" :title="t('propertyPanel.genericAgentNote')" type="info" :closable="false" style="margin-bottom: 8px;" />
+            <el-alert v-else-if="isGenericAgentSelected" :title="t('propertyPanel.genericAgentRegisteredTitle')" type="info" :closable="false" style="margin-bottom: 8px;" />
             <el-form-item :label="t('propertyPanel.nodeId')">
-              <el-input :model-value="editor.selectedNode.nodeId" @update:model-value="onRenameNode" />
+              <el-input :model-value="editor.selectedNode.nodeId" :disabled="isGenericAgentRegistered" @update:model-value="onRenameNode" />
             </el-form-item>
             <el-form-item :label="t('propertyPanel.displayName')">
-              <el-input :model-value="selectedNodeMeta?.displayName || ''" @update:model-value="onRenameDisplayName" />
+              <el-input :model-value="selectedNodeMeta?.displayName || ''" :disabled="isGenericAgentRegistered" @update:model-value="onRenameDisplayName" />
             </el-form-item>
             <template v-if="isSubgraphSelected">
               <el-form-item :label="t('propertyPanel.subgraphMode')">
@@ -500,11 +510,19 @@ function onStreamingChange(val) {
               </el-form-item>
             </template>
 
-            <el-divider />
-            <el-form-item :label="t('propertyPanel.origin')">
+            <!-- 注册式（引用型）通用 Agent 节点：元数据集中在「节点面板 → 通用 Agent」管理，此处只读展示引用 -->
+            <template v-else-if="isGenericAgentSelected">
+              <el-form-item>
+                <el-button size="small" type="primary" @click="gotoNodePanelAgent">{{ t('propertyPanel.genericAgentEditInPanel') }}</el-button>
+                <span class="hint" style="margin-left:8px;">{{ t('propertyPanel.genericAgentEditInPanelHint') }}</span>
+              </el-form-item>
+            </template>
+
+            <el-divider v-if="!isGenericAgentRegistered" />
+            <el-form-item v-if="!isGenericAgentRegistered" :label="t('propertyPanel.origin')">
               <el-tag size="small" type="warning">STRUCTURAL</el-tag>
             </el-form-item>
-            <el-form-item :label="t('propertyPanel.streaming')">
+            <el-form-item v-if="!isGenericAgentRegistered" :label="t('propertyPanel.streaming')">
               <el-switch :model-value="nodeIsStreaming" @update:model-value="onStreamingChange" />
               <span class="hint" style="margin-left: 8px;">{{ t('propertyPanel.streamingHint') }}</span>
             </el-form-item>

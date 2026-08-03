@@ -27,13 +27,20 @@ public class StubChatClientFactory implements ChatClientFactory, AgentChatClient
 
     @Override
     public String call(String promptTemplate, Map<String, Object> variables, GenericAgentSpec spec) {
+        return call(promptTemplate, variables, spec, java.util.List.of());
+    }
+
+    @Override
+    public String call(String promptTemplate, Map<String, Object> variables,
+                       GenericAgentSpec spec, java.util.List<AgentTool> tools) {
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("model", spec.modelId());
         result.put("baseUrl", spec.modelBaseUrl());
         result.put("prompt", promptTemplate);
         result.put("variables", variables);
         result.put("reply", "【STUB】通用 agent 节点已按元数据装配并执行（未接入真实 LLM）。");
-        result.put("toolCount", spec.tools() != null ? spec.tools().size() : 0);
+        result.put("toolCount", tools != null ? tools.size() : 0);
+        result.put("toolNames", tools != null ? tools.stream().map(AgentTool::name).toList() : java.util.List.of());
         try {
             return new com.fasterxml.jackson.databind.ObjectMapper().writeValueAsString(result);
         } catch (Exception e) {

@@ -10,6 +10,7 @@ import io.acelance.graph.dsl.registry.RegisteredGraphNode;
 import org.springframework.context.ApplicationContext;
 
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
@@ -20,8 +21,17 @@ import java.util.Set;
  * {@link AgentChatClient} 并执行，结果写回 {@code spec.outputKey()}（默认 agent_result）。
  * 一般模型调用无需再写内嵌 Java 节点。</p>
  *
+ * <p>两条使用通道：</p>
+ * <ul>
+ *   <li><b>内联</b>：图里的 {@code NodeRef.agentSpec} 直接携带元数据，编译期即时构造；</li>
+ *   <li><b>注册式</b>：先在设计器创建 agent 节点定义并入库，注册进 {@code GraphNodeRegistry}
+ *       后由多个图按 {@code nodeId} 复用。此时注册实例的 {@code graphId} 为空，
+ *       编译期通过 {@link #withGraphId(String)} 绑定当前图，避免跨图 secret 命名空间串用。</li>
+ * </ul>
+ *
  * <p>所有外部依赖（ChatClientFactory / SecretResolver / PromptRepository / SkillRegistry /
- * McpToolProvider）均经 Spring 容器可选解析，缺失时回落到 core 内置默认实现，保证开箱可用。</p>
+ * McpServerRegistry / McpToolProvider）均经 Spring 容器可选解析，缺失时回落到 core 内置
+ * 默认实现，保证开箱可用。</p>
  */
 public class GenericAgentNode implements RegisteredGraphNode {
 
@@ -29,12 +39,55 @@ public class GenericAgentNode implements RegisteredGraphNode {
     private final String graphId;
     private final GenericAgentSpec spec;
     private final ApplicationContext spring;
+    private final String displayName;
+    private final String description;
+    private final String version;
+    private final Set<String> permissionTags;
 
     public GenericAgentNode(String nodeId, String graphId, GenericAgentSpec spec, ApplicationContext spring) {
+        this(nodeId, graphId, spec, spring, null, null, "1.0.0", Set.of());
+    }
+
+    public GenericAgentNode(String nodeId,
+                            String graphId,
+                            GenericAgentSpec spec,
+                            ApplicationContext spring,
+                            String displayName,
+                            String description,
+                            String version,
+                            Set<String> permissionTags) {
         this.nodeId = nodeId;
         this.graphId = graphId;
         this.spec = spec;
         this.spring = spring;
+        this.displayName = displayName;
+        this.description = description;
+        this.version = (version == null || version.isBlank()) ? "1.0.0" : version;
+        this.permissionTags = permissionTags != null ? permissionTags : Set.of();
+    }
+
+    /**
+     * 绑定所属图 ID 的副本（注册式节点在图编译期调用）。
+     *
+     * <p>注册中心里的实例是「无图归属」的共享定义，直接复用会让 {@code SecretResolver}
+     * 拿到错误的图命名空间。构建 StateGraph 时按当前图克隆一份即可，注册实例保持不变。</p>
+     */
+    public GenericAgentNode withGraphId(String targetGraphId) {
+        if (java.util.Objects.equals(this.graphId, targetGraphId)) {
+            return this;
+        }
+        return new GenericAgentNode(nodeId, targetGraphId, spec, spring,
+                displayName, description, version, permissionTags);
+    }
+
+    /** 所属图 ID（注册式节点为 null） */
+    public String graphId() {
+        return graphId;
+    }
+
+    /** 节点元数据 */
+    public GenericAgentSpec spec() {
+        return spec;
     }
 
     @Override
@@ -45,43 +98,65 @@ public class GenericAgentNode implements RegisteredGraphNode {
         props.put("modelId", new GraphNodeDescriptor.PropertySchema("string", "模型", spec.modelId(), Map.of()));
         props.put("modelBaseUrl", new GraphNodeDescriptor.PropertySchema("string", "模型端点", spec.modelBaseUrl(), Map.of()));
         props.put("prompt", new GraphNodeDescriptor.PropertySchema("string", "prompt 模板", spec.prompt(), Map.of()));
+        props.put("promptKey", new GraphNodeDescriptor.PropertySchema("string", "prompt key", spec.promptKey(), Map.of()));
         props.put("outputKey", new GraphNodeDescriptor.PropertySchema("string", "输出 key", spec.effectiveOutputKey(), Map.of()));
         return new GraphNodeDescriptor(
                 nodeId,
-                "通用 Agent: " + (spec.modelId() != null ? spec.modelId() : nodeId),
+                effectiveDisplayName(),
                 GraphNodeDescriptor.CATEGORY_GENERIC_AGENT,
-                "元数据驱动的通用 agent 节点（模型/prompt/skill/mcp/tools）",
-                inputKeys, outputKeys, true, "1.0.0", props,
-                NodeOrigin.GENERIC_AGENT, Set.of());
+                description != null ? description : "元数据驱动的通用 agent 节点（模型/prompt/skill/mcp/tools）",
+                inputKeys, outputKeys, true, version, props,
+                NodeOrigin.GENERIC_AGENT, permissionTags);
+    }
+
+    private String effectiveDisplayName() {
+        if (displayName != null && !displayName.isBlank()) {
+            return displayName;
+        }
+        return "通用 Agent: " + (spec.modelId() != null ? spec.modelId() : nodeId);
     }
 
     @Override
     public NodeAction toAction(NodeRuntimeContext ctx) {
         return (OverAllState state) -> {
-            // 1. 还原 api-key
-            SecretResolver secretResolver = optionalBean(SecretResolver.class, new EnvSecretResolver());
-            GenericAgentSpec resolved = spec.withResolvedApiKey(
-                    secretResolver.resolveApiKey(graphId, nodeId, spec));
-
-            // 2. 解析 prompt（内联优先，否则 promptKey）
-            String promptTemplate = resolvePrompt(resolved);
-
-            // 3. 构造变量（来自 inputKeys 对应 state）
             Map<String, Object> variables = new LinkedHashMap<>();
-            for (String key : resolved.inputKeySet()) {
+            for (String key : spec.inputKeySet()) {
                 variables.put(key, state.value(key).orElse(null));
             }
-
-            // 4. 装配客户端并执行
-            ChatClientFactory factory = optionalBean(ChatClientFactory.class, new StubChatClientFactory());
-            AgentChatClient client = factory.create(resolved, graphId, nodeId);
-            String reply = client.call(promptTemplate, variables, resolved);
-
-            // 5. 写回输出 key
-            Map<String, Object> result = new LinkedHashMap<>();
-            result.put(resolved.effectiveOutputKey(), reply);
-            return result;
+            return execute(variables);
         };
+    }
+
+    /**
+     * 以给定输入变量直接执行一次（不依赖 {@code OverAllState}）。
+     *
+     * <p>抽出这层是为了让「节点定义试跑」与「图内运行」共用同一条装配链路，
+     * 避免试跑逻辑与真实执行逻辑漂移。</p>
+     *
+     * @param variables prompt 变量（通常来自 {@code spec.inputKeySet()} 对应的 state 值）
+     * @return {@code { outputKey: 模型回复 }}
+     */
+    public Map<String, Object> execute(Map<String, Object> variables) {
+        // 1. 还原 api-key
+        SecretResolver secretResolver = optionalBean(SecretResolver.class, new EnvSecretResolver());
+        GenericAgentSpec resolved = spec.withResolvedApiKey(
+                secretResolver.resolveApiKey(graphId, nodeId, spec));
+
+        // 2. 解析 prompt（内联优先，否则 promptKey）
+        String promptTemplate = resolvePrompt(resolved);
+
+        // 3. 解析 mcp server 与工具（内联 mcp 文本优先，否则 mcpKey 经 McpServerRegistry）
+        List<AgentTool> tools = resolveTools(resolved);
+
+        // 4. 装配客户端并执行
+        ChatClientFactory factory = optionalBean(ChatClientFactory.class, new StubChatClientFactory());
+        AgentChatClient client = factory.create(resolved, graphId, nodeId);
+        String reply = client.call(promptTemplate, variables != null ? variables : Map.of(), resolved, tools);
+
+        // 5. 写回输出 key
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put(resolved.effectiveOutputKey(), reply);
+        return result;
     }
 
     private String resolvePrompt(GenericAgentSpec resolved) {
@@ -108,8 +183,35 @@ public class GenericAgentNode implements RegisteredGraphNode {
         return sb.toString();
     }
 
-    /** 可选 Bean 解析：容器中无则回落默认实现；多实现时优先非 Stub。 */
-    @SuppressWarnings("unchecked")
+    /**
+     * 解析工具集合。
+     *
+     * <p>mcp 与 prompt/skill 对齐同一套「内联优先、否则按 key」约定：
+     * {@code spec.mcp()} 为内联 server 描述文本，{@code spec.mcpKey()} 交由
+     * {@link McpServerRegistry} 解析成 {@link McpServerConfig}。</p>
+     */
+    private List<AgentTool> resolveTools(GenericAgentSpec resolved) {
+        McpServerConfig serverConfig = null;
+        String inlineMcp = resolved.mcp();
+        if (inlineMcp != null && !inlineMcp.isBlank()) {
+            serverConfig = McpServerConfig.ofRaw(null, inlineMcp);
+        } else if (resolved.mcpKey() != null && !resolved.mcpKey().isBlank()) {
+            McpServerRegistry registry = optionalBean(McpServerRegistry.class, new InMemoryMcpServerRegistry());
+            serverConfig = registry.load(resolved.mcpKey())
+                    .orElseThrow(() -> new IllegalStateException(
+                            "mcpKey 未找到: " + resolved.mcpKey() + " (节点 " + nodeId + ")"));
+        }
+        boolean noTools = (resolved.tools() == null || resolved.tools().isEmpty());
+        if (serverConfig == null && noTools) {
+            return List.of();
+        }
+        McpToolProvider provider = optionalBean(McpToolProvider.class, new InMemoryMcpToolProvider());
+        return provider.resolve(resolved.tools(), resolved, serverConfig);
+    }
+
+    /**
+     * 可选 Bean 解析：容器中无则回落默认实现；多实现时优先「非内置默认」的接入方实现。
+     */
     private <T> T optionalBean(Class<T> type, T fallback) {
         try {
             Map<String, T> beans = spring.getBeansOfType(type);
@@ -120,7 +222,7 @@ public class GenericAgentNode implements RegisteredGraphNode {
                 return beans.values().iterator().next();
             }
             for (T b : beans.values()) {
-                if (!(b instanceof StubChatClientFactory)) {
+                if (!isBuiltinDefault(b)) {
                     return b;
                 }
             }
@@ -128,5 +230,15 @@ public class GenericAgentNode implements RegisteredGraphNode {
         } catch (Exception e) {
             return fallback;
         }
+    }
+
+    /** core 内置的开箱默认实现，在存在接入方实现时应让位 */
+    private static boolean isBuiltinDefault(Object bean) {
+        return bean instanceof StubChatClientFactory
+                || bean instanceof InMemoryPromptRepository
+                || bean instanceof InMemorySkillRegistry
+                || bean instanceof InMemoryMcpToolProvider
+                || bean instanceof InMemoryMcpServerRegistry
+                || bean instanceof EnvSecretResolver;
     }
 }

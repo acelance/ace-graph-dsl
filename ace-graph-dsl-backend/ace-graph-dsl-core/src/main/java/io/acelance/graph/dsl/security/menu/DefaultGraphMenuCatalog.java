@@ -9,6 +9,11 @@ import static io.acelance.graph.dsl.security.menu.GraphMenuPermissions.GRAPH_ROL
 import static io.acelance.graph.dsl.security.menu.GraphMenuPermissions.GRAPH_SAVE;
 import static io.acelance.graph.dsl.security.menu.GraphMenuPermissions.GRAPH_VALIDATE;
 import static io.acelance.graph.dsl.security.menu.GraphMenuPermissions.GRAPH_VIEW;
+import static io.acelance.graph.dsl.security.menu.GraphMenuPermissions.AGENT_NODE_CREATE;
+import static io.acelance.graph.dsl.security.menu.GraphMenuPermissions.AGENT_NODE_DELETE;
+import static io.acelance.graph.dsl.security.menu.GraphMenuPermissions.AGENT_NODE_TEST;
+import static io.acelance.graph.dsl.security.menu.GraphMenuPermissions.AGENT_NODE_VIEW;
+import static io.acelance.graph.dsl.security.menu.GraphMenuPermissions.GROUP_AGENT_NODE;
 import static io.acelance.graph.dsl.security.menu.GraphMenuPermissions.GROUP_GRAPH;
 import static io.acelance.graph.dsl.security.menu.GraphMenuPermissions.GROUP_SCRIPT_NODE;
 import static io.acelance.graph.dsl.security.menu.GraphMenuPermissions.SCRIPT_NODE_CREATE;
@@ -32,7 +37,11 @@ public class DefaultGraphMenuCatalog implements GraphMenuCatalog {
             new MenuDescriptor(SCRIPT_NODE_VIEW, "查看脚本节点", GROUP_SCRIPT_NODE),
             new MenuDescriptor(SCRIPT_NODE_CREATE, "新建/编辑脚本节点", GROUP_SCRIPT_NODE),
             new MenuDescriptor(SCRIPT_NODE_DELETE, "删除脚本节点", GROUP_SCRIPT_NODE),
-            new MenuDescriptor(SCRIPT_NODE_TEST, "校验/试跑脚本", GROUP_SCRIPT_NODE)
+            new MenuDescriptor(SCRIPT_NODE_TEST, "校验/试跑脚本", GROUP_SCRIPT_NODE),
+            new MenuDescriptor(AGENT_NODE_VIEW, "查看通用 agent 节点", GROUP_AGENT_NODE),
+            new MenuDescriptor(AGENT_NODE_CREATE, "新建/编辑通用 agent 节点", GROUP_AGENT_NODE),
+            new MenuDescriptor(AGENT_NODE_DELETE, "删除通用 agent 节点", GROUP_AGENT_NODE),
+            new MenuDescriptor(AGENT_NODE_TEST, "校验/试跑通用 agent 节点", GROUP_AGENT_NODE)
     );
 
     @Override

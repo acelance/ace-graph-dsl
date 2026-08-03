@@ -141,7 +141,10 @@ export default {
     structural: 'Structural',
     subgraph: 'Subgraph',
     agent: 'Agent node',
-    genericAgent: 'Generic Agent node'
+    genericAgent: 'Generic Agent node',
+    agentTab: 'Generic Agent',
+    createAgent: '+ New Generic Agent',
+    deleteAgentConfirm: 'Delete Generic Agent node "{name}"?'
   },
   edgeValidation: {
     title: 'Edge parameter validation',
@@ -239,6 +242,10 @@ export default {
     streaming: 'Streaming output',
     streamingHint: 'Mark as a streaming / async node: output is produced as a stream (token-by-token) or asynchronously; the canvas shows a pulsing badge at the node top-right',
     genericAgentNote: 'Generic Agent node is metadata-driven: fill in model / prompt / skill / mcp / tools metadata and the backend template node will execute the model call directly — no embedded code required.',
+    genericAgentRegisteredNote: 'This node is a registered (reference) Generic Agent: its metadata is centrally defined and managed in Node Panel → Generic Agent. Only the node reference is shown here.',
+    genericAgentRegisteredTitle: 'Registered (reference) Generic Agent',
+    genericAgentEditInPanel: 'Edit in Node Panel',
+    genericAgentEditInPanelHint: 'Metadata is maintained in Node Panel → Generic Agent',
     agentSpec: {
       modelBaseUrl: 'Model Base URL',
       modelApiKey: 'API Key',
@@ -292,6 +299,32 @@ export default {
     testRun: 'Test run',
     create: 'Create',
     update: 'Update'
+  },
+  agentEditor: {
+    title: 'New Generic Agent node',
+    editTitle: 'Edit Generic Agent node',
+    nodeId: 'Node ID',
+    nodeIdPlaceholder: 'agent:my_agent',
+    nodeIdError: 'nodeId must start with agent:',
+    displayName: 'Display name',
+    displayNamePlaceholder: 'e.g. Smart Customer Service Agent',
+    description: 'Description',
+    model: 'Model',
+    prompt: 'Prompt',
+    skill: 'Skill',
+    mcp: 'MCP',
+    advanced: 'Advanced',
+    permissionTags: 'Permission tags',
+    permissionTagsPlaceholder: 'Comma separated, e.g. public,cs',
+    mockState: 'Mock State',
+    testOutput: 'Test output',
+    validate: 'Validate',
+    validateOk: 'Metadata validated',
+    testRun: 'Test run',
+    testOk: 'Test run succeeded',
+    mockError: 'Invalid mockState JSON',
+    createOk: 'Generic Agent node created',
+    updateOk: 'Generic Agent node updated'
   },
   engine: {
     aviator: { hint: "Single-line expression; return seq.map('key', value) or a scalar" },
