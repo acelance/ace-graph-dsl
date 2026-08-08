@@ -9,6 +9,8 @@
 - **节点注册中心**：自动发现 Spring Bean 形式的业务节点与条件边 Dispatcher，供设计器渲染节点面板
 - **多持久化后端**：SQLite（默认）、Redis、JDBC、内存，可按环境自动选择
 - **可视化预览**：支持导出 PlantUML / Mermaid 格式
+- **通用 Agent 节点**：独立 `GenericAgentDefinition` 实体，支持注册式（入库复用）与内联式（ad-hoc）双通道，可引用 prompt / skill / mcp 资源
+- **子图编排**：节点内嵌子图（`subgraph`）或引用目录中已有图（`subgraphRef`），编译期递归挂载为 `CompiledGraph`；含跨图循环引用检测与嵌套深度（≤3 层）防护；`subgraphRef` 支持 `graphId@version` 锁定特定版本（P2）；子图与父图状态共享（非隔离），APPEND 跨边界会数据重复，共享 key 推荐用 REPLACE（P3 验证，详见 [状态隔离验证报告](../../SUBGRAPH_STATE_ISOLATION_VERIFICATION.md)）
 - **Golden DSL 引导**：启动时可自动加载并发布预置图定义
 
 ## 模块结构
@@ -331,6 +333,23 @@ ace:
 | `ROUTER` | 路由节点 |
 | `MERGE` | 并行分支合并节点 |
 | `HITL` | Human-in-the-Loop 人工介入节点 |
+| `SUBGRAPH` | 子图节点：内嵌子图（`subgraph`）或引用目录中已有图（`subgraphRef`），graph-in-graph |
+| `GENERIC_AGENT` | 通用 Agent 节点（注册式）：引用持久化的 `GenericAgentDefinition`，可跨图复用 |
+| `agent:script` | 脚本型 Agent 节点（代码岛，后端 `ScriptAgentNode`）：运行时由已注册 `RegisteredAgentNode` 接线 Command 自环 |
+
+> 内联式通用 Agent 以结构型节点拖入画布时携带完整 `agentSpec`，不写入 `GENERIC_AGENT` 注册表。
+
+## 通用 Agent 节点
+
+通用 Agent 节点采用与脚本节点一致的「先定义 → 入库 → 复用」范式，但通过**独立实体**持久化，不复用脚本节点表。
+
+- **实体**：`GenericAgentDefinition`（`content_json` 存完整 JSON），提供 InMemory / JDBC / SQLite 三后端。
+- **双通道解析**：
+  - **注册式（引用型）**：图中仅存 `nodeId`，`origin=GENERIC_AGENT`；构建时 `GraphValidator` 解析引用，运行时 `GenericAgentNode` 经 `withGraphId(graphId)` 防跨图密钥泄漏。
+  - **内联式**：结构型节点拖入时携带完整 `agentSpec`，ad-hoc 编译执行。
+- **资源引用**：`McpServerRegistry` SPI 按 key 解析 prompt / skill / mcp 三类资源。
+- **管理 API**：`GenericAgentController` 暴露 `/agents` 一组端点（列表 / 详情 / 创建 / 更新 / 删除 / 引用查询 / 试跑），权限复用 `agent-node:*` 菜单 key。
+- **引用 / 孤儿检测**：`GenericAgentNodeService` 提供引用图、孤儿节点查询，删除前校验避免悬空引用。
 
 ## 发布流程
 
@@ -360,6 +379,9 @@ ace:
 | 5 | interruptBefore | 中断点节点存在 |
 | 6 | 环检测 | HITL resume 外不允许成环 |
 | 7 | 连线参数可达性 | `EdgeParamReachabilityValidator` |
+| 8 | 子图循环引用 | 编译期沿 `subgraphRef` 链检测跨图环（A→B→A），命中即报错避免 `StackOverflowError` |
+| 9 | 子图嵌套深度 | 递归编译深度超过 `MAX_SUBGRAPH_DEPTH`（=3，根图 depth=0）报错 |
+| 10 | 子图引用版本格式 | `subgraphRef` 含 `@` 时版本号不能为空（`graphId@` 非法）；`NodeRef.graphIdOf()` / `versionOf()` 解析 |
 
 **连线参数可达性**（第 7 项）：沿有向边从 `__START__` 累积上游 `outputKeys`，检查目标节点 `inputKeys` 是否可达。
 

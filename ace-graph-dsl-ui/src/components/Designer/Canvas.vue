@@ -534,9 +534,9 @@ function onNodeDrag(descriptor) {
       config: {},
       subgraphRef: '',
       subgraph: null,
-      // 注册式通用 Agent（从节点面板列表拖入，非结构节点）不携带内联 agentSpec，
-      // 由编译期 DynamicGraphBuilder 从 GraphNodeRegistry 按 nodeId 解析（双通道）。
-      // 仅结构型 GENERIC_AGENT（内联通道）才在此预置默认元数据。
+      // 通用 Agent 统一走注册式（先定义→入库→复用）：从节点面板「通用 Agent」tab 拖入的节点不携带内联 agentSpec，
+      // 由编译期 DynamicGraphBuilder 从 GraphNodeRegistry 按 nodeId 解析。
+      // 注：内联通道（结构型 GENERIC_AGENT 拖入）已从面板移除，此分支保留仅为向后兼容旧图数据。
       agentSpec: (category === 'GENERIC_AGENT' && descriptor.isStructural) ? { modelBaseUrl: '', modelApiKey: '', apiKeyMasked: false, modelId: '', prompt: '', promptKey: '', skill: '', skillKey: '', mcp: '', mcpKey: '', tools: [], inputKeys: '', outputKey: 'agent_result' } : null
     })
   })

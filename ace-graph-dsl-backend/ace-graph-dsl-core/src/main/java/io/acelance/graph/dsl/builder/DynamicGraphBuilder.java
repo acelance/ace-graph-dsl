@@ -27,6 +27,7 @@ import com.alibaba.cloud.ai.graph.StateGraph;
 import com.alibaba.cloud.ai.graph.checkpoint.config.SaverConfig;
 import com.alibaba.cloud.ai.graph.exception.GraphStateException;
 import com.alibaba.cloud.ai.graph.action.AsyncCommandAction;
+import com.alibaba.cloud.ai.graph.action.AsyncNodeAction;
 import com.alibaba.cloud.ai.graph.action.AsyncEdgeAction;
 import com.alibaba.cloud.ai.graph.action.Command;
 import com.alibaba.cloud.ai.graph.action.CommandAction;
@@ -41,9 +42,14 @@ import org.springframework.stereotype.Component;
 
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
+import java.util.stream.Collectors;
+import java.util.Set;
 
 import static com.alibaba.cloud.ai.graph.action.AsyncNodeAction.node_async;
 
@@ -54,6 +60,9 @@ import static com.alibaba.cloud.ai.graph.action.AsyncNodeAction.node_async;
 public class DynamicGraphBuilder {
 
     private static final Logger log = LoggerFactory.getLogger(DynamicGraphBuilder.class);
+
+    /** 子图最大嵌套深度（与 GraphValidator.MAX_SUBGRAPH_DEPTH 保持一致） */
+    static final int MAX_SUBGRAPH_DEPTH = 3;
 
     private final GraphNodeRegistry nodeRegistry;
     private final EdgeDispatcherRegistry dispatcherRegistry;
@@ -101,7 +110,7 @@ public class DynamicGraphBuilder {
         if (!validation.ok()) {
             throw new IllegalArgumentException("图定义校验失败: " + String.join("; ", validation.errors()));
         }
-        return doBuild(def);
+        return doBuild(def, new HashSet<>(), 0);
     }
 
     /**
@@ -124,35 +133,75 @@ public class DynamicGraphBuilder {
         if (!validation.ok()) {
             throw new IllegalArgumentException("图定义校验失败: " + String.join("; ", validation.errors()));
         }
-        return doBuildStateGraph(def);
+        return doBuildStateGraph(def, new HashSet<>(), 0);
     }
 
-    private CompiledGraph doBuild(GraphDefinition def) throws GraphStateException {
-        StateGraph stateGraph = doBuildStateGraph(def);
+    private CompiledGraph doBuild(GraphDefinition def, Set<String> visiting, int depth) throws GraphStateException {
+        StateGraph stateGraph = doBuildStateGraph(def, visiting, depth);
         CompileConfig config = buildCompileConfig(def.compile());
         CompiledGraph compiled = stateGraph.compile(config);
-        log.info("图定义编译成功, graphId={}, version={}, nodes={}, edges={}",
-                def.graphId(), def.version(), def.nodes().size(), def.edges().size());
+        log.info("图定义编译成功, graphId={}, version={}, nodes={}, edges={}, depth={}",
+                def.graphId(), def.version(), def.nodes().size(), def.edges().size(), depth);
         return compiled;
     }
 
-    private StateGraph doBuildStateGraph(GraphDefinition def) throws GraphStateException {
+    private StateGraph doBuildStateGraph(GraphDefinition def, Set<String> visiting, int depth) throws GraphStateException {
+        // 子图嵌套深度限制
+        if (depth > MAX_SUBGRAPH_DEPTH) {
+            throw new GraphStateException("子图嵌套层级超过限制（最多" + MAX_SUBGRAPH_DEPTH + "层）: "
+                    + (def.graphId() != null ? def.graphId() : "(内联子图)"));
+        }
+
+        // 循环引用检测：当前 graphId 已在访问栈中 → 环
+        String currentGraphId = def.graphId();
+        if (currentGraphId != null && !currentGraphId.isBlank() && visiting.contains(currentGraphId)) {
+            throw new GraphStateException("检测到子图循环引用: " + currentGraphId
+                    + "（子图引用链形成环，请检查 subgraphRef）");
+        }
+        Set<String> nextVisiting = new HashSet<>(visiting);
+        if (currentGraphId != null && !currentGraphId.isBlank()) {
+            nextVisiting.add(currentGraphId);
+        }
+
         // 编译前：按需加载缺失的脚本节点（多实例懒加载）
         ensureScriptNodesLoaded(def);
         KeyStrategyFactory keyStrategyFactory = createKeyStrategyFactory(def);
         StateGraph stateGraph = new StateGraph(keyStrategyFactory);
         NodeRuntimeContext ctx = NodeRuntimeContext.empty(applicationContext);
 
-        // 1. 注册节点
+        // 计算并行扇出分组：同一源节点的多条 parallel=true 普通出边 → 目标集合
+        Map<String, List<String>> fanOutBySource = new LinkedHashMap<>();
+        for (GraphEdge edge : def.edges()) {
+            if (edge.parallel() != null && edge.parallel() && !edge.isConditional()
+                    && !StateGraph.START.equals(resolveToken(edge.from()))) {
+                fanOutBySource.computeIfAbsent(edge.from(), k -> new ArrayList<>()).add(edge.to());
+            }
+        }
+        Set<String> fanOutTargets = fanOutBySource.values().stream()
+                .flatMap(List::stream).collect(Collectors.toSet());
+
+        // 1. 注册节点（并行扇出目标节点已内联进各自的扇出分支，不在主图直接注册）
         for (NodeRef ref : def.nodes()) {
+            if (fanOutTargets.contains(ref.nodeId())) {
+                continue;
+            }
             // 子图节点：递归编译为 CompiledGraph 并挂载（graph-in-graph）
             // 走 SubCompiledGraphNode 路径（而非 SubStateGraphNode），支持子图内 HITL（G4）
             if (ref.hasSubgraph()) {
+                // 引用型子图：编译期解析 subgraphRef，检测循环引用（基于剥离 @version 的 graphId）
+                if (ref.subgraphRef() != null && !ref.subgraphRef().isBlank()) {
+                    String refGraphId = NodeRef.graphIdOf(ref.subgraphRef());
+                    if (nextVisiting.contains(refGraphId)) {
+                        throw new GraphStateException("检测到子图循环引用: "
+                                + currentGraphId + " → " + refGraphId
+                                + "（子图引用链形成环，请检查 subgraphRef）");
+                    }
+                }
                 GraphDefinition subDef = resolveSubgraph(ref);
                 if (subDef == null) {
                     throw new GraphStateException("子图未定义（subgraph 与 subgraphRef 均为空）: " + ref.nodeId());
                 }
-                CompiledGraph subCompiled = doBuild(subDef);
+                CompiledGraph subCompiled = doBuild(subDef, nextVisiting, depth + 1);
                 stateGraph.addNode(ref.nodeId(), subCompiled);
                 continue;
             }
@@ -161,8 +210,6 @@ public class DynamicGraphBuilder {
                     ? new NodeRuntimeContext(applicationContext, ref.config())
                     : ctx;
 
-            // Agent 节点：用 CommandAction 包装，形成续轮/退出循环（subagent 内核）。
-            // 按类别解析实现（而非 nodeId），允许 Agent 节点自定义业务 ID。
             if (ref.hasAgent() || "AGENT".equals(ref.category())) {
                 RegisteredAgentNode agentNode = nodeRegistry.getAgentNode();
                 if (agentNode == null) {
@@ -170,7 +217,6 @@ public class DynamicGraphBuilder {
                 }
                 CommandAction raw = agentNode.toCommandAction(nodeCtx);
                 String nodeId = ref.nodeId();
-                // 解析 "__SELF__" 为节点自身 ID；保留 START/END/ERROR 等保留字
                 CommandAction resolved = (state, rc) -> {
                     Command c = raw.apply(state, rc);
                     String gotoNode = c.gotoNode();
@@ -186,21 +232,57 @@ public class DynamicGraphBuilder {
                 stateGraph.addNode(ref.nodeId(), AsyncCommandAction.node_async(resolved), Map.of());
                 continue;
             }
-
-            // 通用 agent 节点（GENERIC_AGENT）：双通道解析
-            if (ref.hasAgentSpec() || GraphNodeDescriptor.CATEGORY_GENERIC_AGENT.equals(ref.category())) {
-                stateGraph.addNode(ref.nodeId(),
-                        node_async(resolveGenericAgent(def, ref).toAction(nodeCtx)));
-                continue;
-            }
-
-            RegisteredGraphNode node = nodeRegistry.get(ref.nodeId());
-            stateGraph.addNode(ref.nodeId(), node_async(node.toAction(nodeCtx)));
+            stateGraph.addNode(ref.nodeId(), buildSingleNodeAction(def, ref, nodeCtx, nextVisiting, depth));
         }
 
-        // 2. 注册边（先合并同一源节点的条件边，避免 StateGraph 报 "conditional edge already exist"）
+        // 并行扇出：每个分组生成一个内部扇出节点，并发执行各分支子图，结果合并写回
+        Map<String, String> targetToFanoutId = new LinkedHashMap<>();
+        for (Map.Entry<String, List<String>> entry : fanOutBySource.entrySet()) {
+            String source = entry.getKey();
+            List<String> targets = entry.getValue();
+            if (targets.size() < 2) {
+                continue; // 单条 parallel 边：无扇出语义，退化为普通边
+            }
+            List<CompiledGraph> branches = new ArrayList<>();
+            for (String t : targets) {
+                NodeRef tRef = findNode(def, t);
+                if (tRef == null) {
+                    throw new GraphStateException("并行扇出目标节点不存在: " + t);
+                }
+                if (tRef.hasAgent() || "AGENT".equals(tRef.category())) {
+                    throw new GraphStateException("AGENT 循环节点不支持作为并行扇出分支: " + t);
+                }
+                branches.add(buildBranchCompiled(def, tRef, ctx, keyStrategyFactory, nextVisiting, depth));
+                targetToFanoutId.put(t, source + "__fanout");
+            }
+            String fanoutId = source + "__fanout";
+            stateGraph.addNode(fanoutId, new FanOutNodeAction(branches));
+            stateGraph.addEdge(resolveToken(source), fanoutId);
+            log.debug("并行扇出节点已挂载, source={}, targets={}, fanoutId={}", source, targets, fanoutId);
+        }
+
+        // 扇出节点的 fan-in 出边：分支节点已内联进各自的扇出子图、不在主图注册，
+        // 故各分支原有出边目标需去重后汇总为扇出节点的出边（避免同一目标产生重复边）。
+        Map<String, Set<String>> fanoutOutgoing = new LinkedHashMap<>();
+        for (GraphEdge edge : def.edges()) {
+            if (targetToFanoutId.containsKey(edge.from())) {
+                String fanoutId = targetToFanoutId.get(edge.from());
+                // 分支出边目标若本身是另一扇出分支，则交由对应扇出层处理，跳过
+                if (!targetToFanoutId.containsKey(edge.to())) {
+                    fanoutOutgoing.computeIfAbsent(fanoutId, k -> new LinkedHashSet<>()).add(edge.to());
+                }
+            }
+        }
+        for (Map.Entry<String, Set<String>> e : fanoutOutgoing.entrySet()) {
+            for (String to : e.getValue()) {
+                stateGraph.addEdge(resolveToken(e.getKey()), resolveToken(to));
+                log.debug("扇出节点 fan-in 出边已挂载, fanoutId={}, to={}", e.getKey(), to);
+            }
+        }
+
+        // 2. 注册边（先合并同一源节点的条件边；parallel 扇出边已由扇出节点处理，跳过）
         for (GraphEdge edge : mergeConditionalEdges(def.edges())) {
-            applyEdge(stateGraph, edge, ctx);
+            applyEdge(stateGraph, edge, ctx, targetToFanoutId);
         }
 
         return stateGraph;
@@ -286,7 +368,15 @@ public class DynamicGraphBuilder {
                 && Objects.equals(a.conditionEngine(), b.conditionEngine());
     }
 
-    private void applyEdge(StateGraph g, GraphEdge edge, NodeRuntimeContext ctx) throws GraphStateException {
+    private void applyEdge(StateGraph g, GraphEdge edge, NodeRuntimeContext ctx,
+            Map<String, String> targetToFanoutId) throws GraphStateException {
+        if (edge.parallel() != null && edge.parallel() && !edge.isConditional()) {
+            return; // 并行扇出边已由扇出节点处理
+        }
+        // 扇出分支的出边已由扇出节点的 fan-in 出边统一挂载，主图不再重复注册
+        if (targetToFanoutId.containsKey(edge.from())) {
+            return;
+        }
         String from = resolveToken(edge.from());
         if (edge.isConditional()) {
             Map<String, String> resolvedMapping = new HashMap<>();
@@ -321,22 +411,34 @@ public class DynamicGraphBuilder {
 
     /**
      * 解析子图节点指向的 {@link GraphDefinition}：优先内嵌 {@code ref.subgraph()}，
-     * 其次按 {@code ref.subgraphRef()} 从仓库加载最新版本。两者皆空返回 {@code null}。
+     * 其次按 {@code ref.subgraphRef()} 从仓库加载。两者皆空返回 {@code null}。
+     *
+     * <p>{@code subgraphRef} 支持两种格式（P2 版本锁定）：
+     * <ul>
+     *   <li>{@code "order-flow"} → 加载最新版本（{@link #loadLatest}）</li>
+     *   <li>{@code "order-flow@1.2.0"} → 加载指定版本（{@link #loadVersion}）</li>
+     * </ul>
      */
     private GraphDefinition resolveSubgraph(NodeRef ref) {
         if (ref.subgraph() != null) {
             return ref.subgraph();
         }
-        if (ref.subgraphRef() != null && !ref.subgraphRef().isBlank()) {
-            try {
-                GraphDefinition loaded = definitionRepository.loadLatest(ref.subgraphRef());
-                if (loaded != null) {
-                    return loaded;
-                }
-                log.warn("子图引用未找到最新版本, subgraphRef={}", ref.subgraphRef());
-            } catch (Exception e) {
-                log.warn("子图引用加载失败, subgraphRef={}, error={}", ref.subgraphRef(), e.getMessage());
+        String raw = ref.subgraphRef();
+        if (raw == null || raw.isBlank()) {
+            return null;
+        }
+        String graphId = NodeRef.graphIdOf(raw);
+        String version = NodeRef.versionOf(raw);
+        try {
+            GraphDefinition loaded = version != null
+                    ? definitionRepository.loadVersion(graphId, version)
+                    : definitionRepository.loadLatest(graphId);
+            if (loaded != null) {
+                return loaded;
             }
+            log.warn("子图引用未找到, subgraphRef={}, graphId={}, version={}", raw, graphId, version);
+        } catch (Exception e) {
+            log.warn("子图引用加载失败, subgraphRef={}, error={}", raw, e.getMessage());
         }
         return null;
     }
@@ -349,6 +451,56 @@ public class DynamicGraphBuilder {
             }
             return strategies;
         };
+    }
+
+    /**
+     * 为单个节点构造 {@link AsyncNodeAction}（不含 subgraph 类型）。
+     * 提取自 {@link #doBuildStateGraph} 的节点注册循环，供主图节点与并行扇出分支共用。
+     */
+    private AsyncNodeAction buildSingleNodeAction(GraphDefinition def, NodeRef ref,
+            NodeRuntimeContext nodeCtx, Set<String> visiting, int depth) throws GraphStateException {
+        if (ref.hasAgentSpec() || GraphNodeDescriptor.CATEGORY_GENERIC_AGENT.equals(ref.category())) {
+            return node_async(resolveGenericAgent(def, ref).toAction(nodeCtx));
+        }
+        RegisteredGraphNode node = nodeRegistry.get(ref.nodeId());
+        return node_async(node.toAction(nodeCtx));
+    }
+
+    /**
+     * 将单个节点编译为可独立执行的 {@link CompiledGraph} 分支（{@code START → node → END}）。
+     * 供并行扇出节点并发调用。subgraph 类型直接复用其已编译子图。
+     */
+    private CompiledGraph buildBranchCompiled(GraphDefinition def, NodeRef ref,
+            NodeRuntimeContext ctx, KeyStrategyFactory keyStrategyFactory,
+            Set<String> visiting, int depth) throws GraphStateException {
+        if (ref.hasSubgraph()) {
+            if (ref.subgraphRef() != null && !ref.subgraphRef().isBlank()) {
+                String refGraphId = NodeRef.graphIdOf(ref.subgraphRef());
+                if (visiting.contains(refGraphId)) {
+                    throw new GraphStateException("检测到子图循环引用: " + refGraphId);
+                }
+            }
+            GraphDefinition subDef = resolveSubgraph(ref);
+            if (subDef == null) {
+                throw new GraphStateException("子图未定义（并行扇出分支）: " + ref.nodeId());
+            }
+            return doBuild(subDef, visiting, depth + 1);
+        }
+        StateGraph sub = new StateGraph(keyStrategyFactory);
+        sub.addNode(ref.nodeId(), buildSingleNodeAction(def, ref, ctx, visiting, depth));
+        sub.addEdge(StateGraph.START, ref.nodeId());
+        sub.addEdge(ref.nodeId(), StateGraph.END);
+        return sub.compile();
+    }
+
+    /** 在图定义中按 nodeId 查找节点引用。 */
+    private static NodeRef findNode(GraphDefinition def, String nodeId) {
+        if (def.nodes() == null) {
+            return null;
+        }
+        return def.nodes().stream()
+                .filter(n -> nodeId.equals(n.nodeId()))
+                .findFirst().orElse(null);
     }
 
     private KeyStrategy toStrategy(String name) {

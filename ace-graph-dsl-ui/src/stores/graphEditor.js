@@ -1,12 +1,16 @@
 import { defineStore } from 'pinia'
 import { ref, reactive, computed } from 'vue'
-import { saveDraft, validateDefinition, previewPlantUml, previewMermaid, publish, getLatestDefinition, listVersions, getEnabled } from '../api/graph'
+import { ElMessage } from 'element-plus'
+import { saveDraft, validateDefinition, previewPlantUml, previewMermaid, publish, getLatestDefinition, getVersion, listVersions, getEnabled, listGraphIds } from '../api/graph'
 import { canonicalContent, bumpPatchVersion, maxSemver, compareSemver } from '../utils/graphContent'
 import { validateEdgeParamReachability } from '../utils/edgeParamValidation'
 import { validateTopology } from '../utils/topologyValidation'
 import { graphDefinitionToMermaid } from '../utils/generateMermaid'
 
 export const useGraphEditorStore = defineStore('aceGraphEditor', () => {
+  /** 子图最大下钻深度（与后端 GraphValidator/DynamicGraphBuilder 一致） */
+  const MAX_SUBGRAPH_DEPTH = 3
+
   const graphId = ref('')
   const version = ref('1.0.0')
   const displayName = ref('')
@@ -45,6 +49,10 @@ export const useGraphEditorStore = defineStore('aceGraphEditor', () => {
   const defCache = new Map()
   const rerenderToken = ref(0)
   const graphIds = ref([])
+  /** 当前选中引用型子图的可用版本列表（P2 版本锁定；选图后懒加载） */
+  const subgraphRefVersions = ref([])
+  /** 版本列表加载状态 */
+  const subgraphRefVersionsLoading = ref(false)
 
   // ── 嵌套子图预览（Mermaid） ──
   const subgraphPreviewOpen = ref(false)
@@ -402,6 +410,8 @@ export const useGraphEditorStore = defineStore('aceGraphEditor', () => {
         ? [{ version: normalized.version, graphId: graphId.value }]
         : []
     }
+    // 预加载可选子图引用列表（供属性面板引用选择器使用，避免选中子图节点时空白）
+    try { await loadGraphIds() } catch (e) { /* 非关键路径 */ }
     return normalized
   }
 
@@ -615,18 +625,81 @@ export const useGraphEditorStore = defineStore('aceGraphEditor', () => {
     clearSelectedEdge()
   }
 
-  /** 带缓存的引用型子图定义拉取（懒加载：仅在首次下钻时请求网络，会话内复用） */
+  /** 带缓存的引用型子图定义拉取（懒加载：仅在首次下钻时请求网络，会话内复用）。
+   *  支持 P2 版本锁定：refId 为 "graphId@version" 时加载指定版本，否则取最新。 */
   async function fetchDefinition(refId) {
     if (defCache.has(refId)) return defCache.get(refId)
-    const def = await getLatestDefinition(refId)
+    const at = refId.indexOf('@')
+    let def
+    if (at > 0 && at < refId.length - 1) {
+      // graphId@version → 加载指定版本
+      const gid = refId.substring(0, at)
+      const ver = refId.substring(at + 1)
+      def = await getVersion(gid, ver)
+    } else {
+      def = await getLatestDefinition(refId)
+    }
     defCache.set(refId, def)
     return def
   }
 
-  /** 进入子图节点：内联子图切到子作用域；引用型子图加载被引用图作为独立作用域 */
+  /** 解析 subgraphRef 中的 graphId 部分（剥离 @version 后缀）。 */
+  function graphIdOfSubgraphRef(ref) {
+    if (!ref) return ''
+    const at = ref.indexOf('@')
+    return at > 0 ? ref.substring(0, at) : ref
+  }
+
+  /** 解析 subgraphRef 中的版本部分；无 @ 后缀返回 ''（表示取最新）。 */
+  function versionOfSubgraphRef(ref) {
+    if (!ref) return ''
+    const at = ref.indexOf('@')
+    return (at > 0 && at < ref.length - 1) ? ref.substring(at + 1) : ''
+  }
+
+  /** 加载某图的可用版本列表（P2 版本锁定下拉数据源）。 */
+  async function loadSubgraphRefVersions(graphId) {
+    if (!graphId) {
+      subgraphRefVersions.value = []
+      return
+    }
+    subgraphRefVersionsLoading.value = true
+    try {
+      const list = await listVersions(graphId)
+      subgraphRefVersions.value = (list || []).map(v => v.version).filter(Boolean)
+    } catch (e) {
+      console.warn('[graphEditor] load subgraph ref versions failed:', graphId, e)
+      subgraphRefVersions.value = []
+    } finally {
+      subgraphRefVersionsLoading.value = false
+    }
+  }
+
+  /** 锁定/解锁子图引用版本。
+   *  version 为空 → subgraphRef = graphId（跟随最新）
+   *  version 非空 → subgraphRef = graphId@version（锁定） */
+  function lockSubgraphVersion(version) {
+    if (!selectedNode.value) return
+    const node = nodes.value.find(n => n.nodeId === selectedNode.value.nodeId)
+    if (!node) return
+    const graphId = graphIdOfSubgraphRef(node.subgraphRef || '')
+    if (!graphId) return
+    node.subgraphRef = version ? `${graphId}@${version}` : graphId
+    // 清理版本切换前的定义缓存（版本变了，旧缓存失效）
+    defCache.delete(node.subgraphRef)
+    requestRerender()
+  }
+
+  /** 进入子图节点：内联子图切到子作用域；引用型子图加载被引用图作为独立作用域。
+   * 下钻深度限制为 MAX_SUBGRAPH_DEPTH 层。 */
   async function enterSubgraph(nodeId) {
     const node = nodes.value.find(n => n.nodeId === nodeId)
     if (!node || node.category !== 'SUBGRAPH') return
+    // 深度拦截：已达最大下钻层数
+    if (scopeStack.value.length >= MAX_SUBGRAPH_DEPTH) {
+      ElMessage.warning(`已达到最大子图下钻深度（${MAX_SUBGRAPH_DEPTH} 层），无法继续下钻`)
+      return
+    }
     const kind = node.subgraphRef ? 'reference' : 'inline'
     scopeStack.value.push(captureFrame(kind, nodeId, node.subgraphRef || '', node.displayName || node.nodeId))
     let childDef
@@ -704,14 +777,22 @@ export const useGraphEditorStore = defineStore('aceGraphEditor', () => {
     }
   }
 
-  /** 修改子图节点的元信息（名称 / 引用 / 内联模式） */
+  /** 修改子图节点的元信息（名称 / 引用 / 内联模式）。
+   *  切模式本身不做破坏性 mutation（不清空 subgraph/subgraphRef），避免触发画布重渲染导致选中丢失；
+   *  真正清空内联子图发生在用户**显式选择**引用目标后。 */
   function updateSubgraphNodeMeta({ nodeId, displayName, subgraphRef, mode }) {
     const node = nodes.value.find(n => n.nodeId === nodeId)
     if (!node) return
     if (displayName !== undefined) node.displayName = displayName
     if (mode === 'reference') {
-      node.subgraphRef = subgraphRef || ''
-      node.subgraph = null
+      // 仅在显式传入非空 subgraphRef 时覆盖引用；保留已有值，避免切 radio 就丢选择
+      if (subgraphRef) {
+        node.subgraphRef = subgraphRef
+        node.subgraph = null
+        // P2：选了新图后加载其可用版本列表（供版本锁定下拉）
+        loadSubgraphRefVersions(graphIdOfSubgraphRef(subgraphRef))
+      }
+      // 单纯切 radio 到"引用"（未选具体图）：不动 node，避免触发 LogicFlow 重渲染
     } else if (mode === 'inline') {
       node.subgraphRef = ''
       if (!node.subgraph) {
@@ -749,7 +830,9 @@ export const useGraphEditorStore = defineStore('aceGraphEditor', () => {
 
   async function loadGraphIds() {
     try {
-      graphIds.value = await listGraphIds()
+      const ids = await listGraphIds()
+      // 排除当前图自身，防止自引用导致循环
+      graphIds.value = (ids || []).filter(id => id !== graphId.value)
     } catch (e) {
       graphIds.value = []
     }
@@ -809,6 +892,8 @@ export const useGraphEditorStore = defineStore('aceGraphEditor', () => {
     saving, publishing,     selectedNode, selectedLfNodeId, selectedEdge, edgeEditCommand, edgeConvertCommand,
     canUndo, canRedo, conditionalDrawMode, topologyIssues, minimapVisible, groups,
     scopeStack, rerenderToken, graphIds, subgraphLoading,
+    subgraphRefVersions, subgraphRefVersionsLoading,
+    graphIdOfSubgraphRef, versionOfSubgraphRef, loadSubgraphRefVersions, lockSubgraphVersion,
     isDrilledIn, currentScopeKind, breadcrumb, rootGraphId, rootDisplayName,
     subgraphPreviewOpen, subgraphPreviewNodeId, subgraphPreviewTitle, subgraphPreviewMermaid,
     subgraphPreviewLoading, subgraphPreviewError, subgraphPreviewIsCompiled, subgraphPreviewEmpty,
@@ -820,6 +905,7 @@ export const useGraphEditorStore = defineStore('aceGraphEditor', () => {
     setSelectedNode, clearSelectedNode, updateSelectedNodeConfig, updateSelectedAgentSpec,
     setSelectedEdge, clearSelectedEdge, updateSelectedEdgeParallel, updateSelectedEdgeAggregation, requestEdgeEdit, requestEdgeConvert, clearEdgeCommands,
     enterSubgraph, exitSubgraph, goToBreadcrumb, updateSubgraphNodeMeta, renameSelectedNode, requestRerender, loadGraphIds,
-    openSubgraphPreview, closeSubgraphPreview
+    openSubgraphPreview, closeSubgraphPreview,
+    MAX_SUBGRAPH_DEPTH
   }
 })

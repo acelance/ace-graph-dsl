@@ -12,6 +12,8 @@
 - **预览能力**：PlantUML / Mermaid 预览（通过后端 API）
 - **可组合**：提供完整页面组件，也支持拆分使用工具栏、画布、属性面板等子组件
 - **脚本节点**：设计器内新建脚本节点，支持 Aviator / SpEL / QLExpress / Groovy（按后端引擎列表），语法校验与试跑（详见 [脚本节点样例文档](../ace-graph-dsl-backend/docs/SCRIPT_NODE_EXAMPLES.md)）
+- **通用 Agent 节点**：节点面板 AGENT 标签下新建 / 复用通用 Agent 实体（双通道：注册式复用 / 内联拖入），支持 prompt / skill / mcp 资源引用与试跑
+- **子图编排（graph-in-graph）**：从节点面板拖入子图节点，选择内联（下钻编辑空白子图）或引用（指向目录中已有图）；画布上方浮动面包屑支持下钻 / 返回，编译期循环引用与嵌套深度（≤3 层）防护
 - **菜单权限**：按后端返回的菜单权限自动控制按钮显隐，支持对接宿主权限框架（详见 [菜单权限接入指南](../ace-graph-dsl-backend/docs/MENU_PERMISSION_INTEGRATION.md)）
 
 ## 文档
@@ -276,6 +278,8 @@ ace-graph-dsl-ui/
 | `ROUTER` | 路由 / 分支节点 | 橙色（六边形） |
 | `MERGE` | 合并节点 | 绿色 |
 | `HITL` | 人机协同节点 | 紫色 |
+| `SUBGRAPH` | 子图节点 | 蓝色（primary） |
+| `GENERIC_AGENT` | 通用 Agent 节点（注册式） | 红色（danger） |
 | START / END | 保留起止节点 | 青色圆形 |
 
 ### 连线参数校验 UI
@@ -334,6 +338,53 @@ ace-graph-dsl-ui/
 1. **独立 Vue 3 子应用**（推荐）：通过 iframe、微前端（如 qiankun）或独立路由页挂载设计器，主应用保持 Vue 2。
 2. **宿主升级到 Vue 3**：与官方集成方式一致，长期维护成本最低。
 3. **源码直引**（`@acelance/graph-dsl-ui/src`）：宿主仍须为 Vue 3 + Element Plus + Pinia，无法绕过 Vue 2 限制。
+
+## 通用 Agent 节点
+
+通用 Agent 节点采用与脚本节点一致的「先定义 → 入库 → 复用」范式，提供**双通道**：
+
+| 通道 | 说明 | 拖入来源 |
+|------|------|----------|
+| 注册式（引用型） | 图中仅存 `nodeId`，元数据来自持久化的 `GenericAgentDefinition`，`origin=GENERIC_AGENT`，可跨图复用 | 节点面板 **AGENT** 标签 → 已入库的 Agent 列表 |
+| 内联式 | 结构型节点拖入时携带完整 `agentSpec`，ad-hoc 编译执行 | 节点面板结构节点区域拖入（自动带 `agentSpec`） |
+
+### 使用流程
+
+1. 节点面板切到 **AGENT** 标签，点「新建通用 Agent」打开 `AgentNodeEditor` 模态框。
+2. 填写 12 个字段（含 prompt / skill / mcp 资源引用、API Key 掩码处理），保存即入库（`POST /agents`）。
+3. 在 AGENT 标签列表中点对应 Agent 拖入画布 → 走注册式通道（只读引用 + 「前往节点面板编辑」）。
+4. 注册式 Agent 的 keys / 配置变更在 `GenericAgentDefinition` 一处完成，引用它的所有图共享更新。
+
+> 权限：新建 / 删除 / 试跑受 `agent-node:create / delete / test` 菜单权限控制；只读用户仅可拖入引用。
+
+## 子图（graph-in-graph）
+
+子图节点（`SUBGRAPH`）支持两种形态，在属性面板的**内联 / 引用** radio 中切换：
+
+| 形态 | 说明 | 下钻行为 |
+|------|------|----------|
+| 内联（inline） | 子图内容嵌在父图节点 `subgraph` 字段中 | 点「进入子图」→ 空白子图画布，可独立编辑，面包屑返回主图 |
+| 引用（reference） | 节点 `subgraphRef` 指向目录中已有图（`graphId`） | 引用下拉框选择目标图（已排除当前图自身），引用型子图编译期从仓库加载最新版本 |
+
+### 版本锁定（P2）
+
+引用型子图支持锁定特定版本，避免被引用图更新后父图行为静默变化：
+
+- 引用图选择器下方有「版本锁定」下拉，默认「最新（默认）」= 跟随最新版本（`subgraphRef` 存纯 `graphId`）
+- 下拉选择具体版本后，`subgraphRef` 存为 `graphId@version`，编译期加载该锁定版本
+- 版本列表在选图后懒加载（调 `listVersions`）；切换版本即时生效
+
+### 使用流程
+
+1. 节点面板结构节点区域拖入「子图」节点 → 画布选中该节点。
+2. 右侧属性面板：**内联** 直接点「进入子图」；**引用** 先从下拉框选一张已有图。
+3. 下钻后，画布上方出现浮动面包屑条：路径 **根图 / 子图 …** + 「返回上级」按钮 + 深度指示器 `X/3`。
+4. 点面包屑或「返回上级」回到上层；进入受 `MAX_SUBGRAPH_DEPTH=3` 约束，达到上限前端 `ElMessage.warning` 拦截。
+
+### 注意事项
+
+- 引用 radio 切换为纯 UI 操作，不立即写入图数据；真正建立引用发生在下拉框选定具体图后，避免切换时丢失节点选中。
+- 编译期（`GraphValidator` + `DynamicGraphBuilder`）检测跨图 `subgraphRef` 循环引用，并限制嵌套深度 ≤3 层；保存时校验会拦截违规图。
 
 ## 许可证
 

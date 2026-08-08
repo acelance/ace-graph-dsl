@@ -1,5 +1,6 @@
 <script setup>
 import { ref, watch, onMounted, nextTick } from 'vue'
+import { ArrowLeft } from '@element-plus/icons-vue'
 import Toolbar from './Designer/Toolbar.vue'
 import Canvas from './Designer/Canvas.vue'
 import EdgeParamValidationPanel from './Designer/EdgeParamValidationPanel.vue'
@@ -187,6 +188,31 @@ defineExpose({ onNodeDrag, canvasRef })
   <div class="ace-graph-dsl-designer">
     <div class="canvas-shell">
       <Canvas ref="canvasRef" class="canvas-panel" />
+      <!-- 子图下钻面包屑：仅在进入子图后显示，含返回上级按钮 + 路径 + 深度指示器 -->
+      <div v-if="editor.isDrilledIn" class="breadcrumb-bar">
+        <el-button
+          size="small"
+          type="primary"
+          plain
+          :icon="ArrowLeft"
+          class="breadcrumb-back"
+          @click="editor.exitSubgraph()"
+        >返回上级</el-button>
+        <span class="breadcrumb-divider" />
+        <span
+          v-for="(c, idx) in editor.breadcrumb"
+          :key="c.level"
+          class="breadcrumb-item"
+          :class="{ active: idx === editor.breadcrumb.length - 1 }"
+          @click="editor.goToBreadcrumb(c.level)"
+        >
+          <span v-if="idx > 0" class="breadcrumb-sep">/</span>
+          <span class="breadcrumb-label">{{ c.label || c.graphId }}</span>
+          <el-tag v-if="c.kind === 'reference'" size="small" type="info" effect="plain" class="breadcrumb-tag">ref</el-tag>
+          <el-tag v-else-if="c.kind === 'inline'" size="small" type="info" effect="plain" class="breadcrumb-tag">inline</el-tag>
+        </span>
+        <span class="breadcrumb-depth">{{ editor.scopeStack.length }}/{{ editor.MAX_SUBGRAPH_DEPTH }}</span>
+      </div>
       <Toolbar
         floating-meta
         floating-actions
@@ -249,5 +275,59 @@ defineExpose({ onNodeDrag, canvasRef })
 }
 .canvas-shell :deep(.lf-control) {
   z-index: 4;
+}
+
+/* 子图下钻面包屑：浮动在画布顶部左侧，不遮挡 Toolbar 浮动面板 */
+.breadcrumb-bar {
+  position: absolute;
+  top: 12px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 2px;
+  padding: 6px 12px;
+  background: var(--agd-color-bg-active, #ecf5ff);
+  border: 1px solid var(--agd-color-primary-light-7, #d9ecff);
+  border-radius: 8px;
+  box-shadow: 0 2px 8px rgba(64, 158, 255, 0.15);
+  font-size: 14px;
+  z-index: 5;
+  max-width: calc(100% - 24px);
+}
+.breadcrumb-back {
+  flex-shrink: 0;
+  margin-right: 4px;
+}
+.breadcrumb-divider {
+  width: 1px;
+  height: 18px;
+  background: var(--agd-color-border, #dcdfe6);
+  margin: 0 6px;
+  flex-shrink: 0;
+}
+.breadcrumb-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  cursor: pointer;
+  color: var(--agd-color-text-secondary, #606266);
+  padding: 2px 6px;
+  border-radius: 4px;
+  transition: background 0.15s;
+}
+.breadcrumb-item:hover { background: rgba(64, 158, 255, 0.12); color: var(--agd-color-primary, #409eff); }
+.breadcrumb-item.active { color: var(--agd-color-primary, #409eff); font-weight: 600; cursor: default; }
+.breadcrumb-sep { color: var(--agd-color-text-secondary, #c0c4cc); margin: 0 2px; }
+.breadcrumb-tag { margin-left: 2px; transform: scale(0.85); }
+.breadcrumb-depth {
+  margin-left: 8px;
+  padding-left: 8px;
+  border-left: 1px solid var(--agd-color-border, #dcdfe6);
+  font-size: 12px;
+  color: var(--agd-color-text-secondary, #909399);
+  font-variant-numeric: tabular-nums;
+  flex-shrink: 0;
 }
 </style>

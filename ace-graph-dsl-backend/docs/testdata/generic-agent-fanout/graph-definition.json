@@ -1,0 +1,86 @@
+{
+  "graphId": "generic-agent-fanout",
+  "displayName": "通用 Agent 节点 + 异步扇出（端到端样例）",
+  "version": "1.0.0",
+  "description": "联调样本：一个 GENERIC_AGENT 源节点通过 parallel 边并发扇出到两个 GENERIC_AGENT 分支，再由聚合 GENERIC_AGENT 节点汇总。用内置 StubChatClientFactory 即可端到端跑通（无需真实 LLM key）。",
+  "keyStrategies": {
+    "agent_source_result": "REPLACE",
+    "branchA_result": "REPLACE",
+    "branchB_result": "REPLACE",
+    "agent_result": "REPLACE"
+  },
+  "nodes": [
+    {
+      "nodeId": "agentSource",
+      "category": "GENERIC_AGENT",
+      "config": {},
+      "x": 120,
+      "y": 200,
+      "agentSpec": {
+        "modelBaseUrl": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+        "modelApiKey": "sk-demo",
+        "modelId": "qwen-plus",
+        "prompt": "你是调度器。请基于输入生成一句调度说明。",
+        "outputKey": "agent_source_result"
+      }
+    },
+    {
+      "nodeId": "branchA",
+      "category": "GENERIC_AGENT",
+      "config": {},
+      "x": 420,
+      "y": 80,
+      "agentSpec": {
+        "modelBaseUrl": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+        "modelApiKey": "sk-demo",
+        "modelId": "qwen-plus",
+        "prompt": "【branchA】读取 agent_source_result 并给出分支 A 的分析。",
+        "inputKeys": "agent_source_result",
+        "outputKey": "branchA_result"
+      }
+    },
+    {
+      "nodeId": "branchB",
+      "category": "GENERIC_AGENT",
+      "config": {},
+      "x": 420,
+      "y": 320,
+      "agentSpec": {
+        "modelBaseUrl": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+        "modelApiKey": "sk-demo",
+        "modelId": "qwen-plus",
+        "prompt": "【branchB】读取 agent_source_result 并给出分支 B 的分析。",
+        "inputKeys": "agent_source_result",
+        "outputKey": "branchB_result"
+      }
+    },
+    {
+      "nodeId": "aggregator",
+      "category": "GENERIC_AGENT",
+      "config": {},
+      "x": 720,
+      "y": 200,
+      "agentSpec": {
+        "modelBaseUrl": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+        "modelApiKey": "sk-demo",
+        "modelId": "qwen-plus",
+        "prompt": "汇总 branchA_result 与 branchB_result，输出最终结论。",
+        "inputKeys": "branchA_result,branchB_result",
+        "outputKey": "agent_result"
+      }
+    }
+  ],
+  "edges": [
+    { "from": "__START__", "to": "agentSource", "type": "normal" },
+    { "from": "agentSource", "to": "branchA", "type": "normal", "parallel": true },
+    { "from": "agentSource", "to": "branchB", "type": "normal", "parallel": true },
+    { "from": "branchA", "to": "aggregator", "type": "normal" },
+    { "from": "branchB", "to": "aggregator", "type": "normal" },
+    { "from": "aggregator", "to": "__END__", "type": "normal" }
+  ],
+  "compile": {
+    "interruptBefore": [],
+    "saver": "memory"
+  },
+  "bootstrap": false
+}

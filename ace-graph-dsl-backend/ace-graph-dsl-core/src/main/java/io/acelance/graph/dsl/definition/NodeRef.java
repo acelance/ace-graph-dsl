@@ -54,7 +54,9 @@ public record NodeRef(
      */
     @com.fasterxml.jackson.annotation.JsonIgnore
     public boolean hasSubgraph() {
-        return "SUBGRAPH".equals(category) || subgraph != null || subgraphRef != null;
+        return "SUBGRAPH".equals(category)
+                || subgraph != null
+                || (subgraphRef != null && !subgraphRef.isBlank());
     }
 
     /** 是否 agent 节点（类别或携带 agent 配置任一满足）。同理避免与 agent 组件冲突，命名为 hasAgent()。 */
@@ -67,5 +69,44 @@ public record NodeRef(
     @com.fasterxml.jackson.annotation.JsonIgnore
     public boolean hasAgentSpec() {
         return "GENERIC_AGENT".equals(category) || agentSpec != null;
+    }
+
+    /**
+     * 解析 {@code subgraphRef} 中的图 ID（剥离 {@code @version} 后缀）。
+     * <p>支持两种格式：
+     * <ul>
+     *   <li>{@code "order-flow"} → 返回 {@code "order-flow"}（取最新版本）</li>
+     *   <li>{@code "order-flow@1.2.0"} → 返回 {@code "order-flow"}（锁定 1.2.0）</li>
+     * </ul>
+     * 用于循环引用检测、仓库加载等需要纯 graphId 的场景。
+     *
+     * @param subgraphRef 子图引用字符串（可能含 {@code @version} 后缀）
+     * @return 纯 graphId；入参为 null 返回 null
+     */
+    public static String graphIdOf(String subgraphRef) {
+        if (subgraphRef == null) {
+            return null;
+        }
+        int at = subgraphRef.indexOf('@');
+        return at > 0 ? subgraphRef.substring(0, at) : subgraphRef;
+    }
+
+    /**
+     * 解析 {@code subgraphRef} 中锁定的版本号。
+     * <p>{@code "order-flow@1.2.0"} → {@code "1.2.0"}；
+     * {@code "order-flow"} → {@code null}（表示取最新版本）。
+     *
+     * @param subgraphRef 子图引用字符串
+     * @return 版本号；无 {@code @} 后缀或后缀为空时返回 {@code null}
+     */
+    public static String versionOf(String subgraphRef) {
+        if (subgraphRef == null) {
+            return null;
+        }
+        int at = subgraphRef.indexOf('@');
+        if (at <= 0 || at >= subgraphRef.length() - 1) {
+            return null;
+        }
+        return subgraphRef.substring(at + 1);
     }
 }

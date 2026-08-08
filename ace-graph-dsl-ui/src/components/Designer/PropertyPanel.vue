@@ -1,5 +1,5 @@
 <script setup>
-import { ref, watch, computed } from 'vue'
+import { ref, watch, computed, nextTick } from 'vue'
 import { Delete, Loading } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
 import { useGraphEditorStore } from '../../stores/graphEditor'
@@ -61,8 +61,40 @@ function gotoNodePanelAgent() {
   requestOpenAgentEditor(editor.selectedNode.nodeId)
 }
 
-/** 子图模式：有 subgraphRef 视为引用型，否则内联型 */
-const subgraphMode = computed(() => (selectedNodeMeta.value?.subgraphRef ? 'reference' : 'inline'))
+/** 用户手动选择的子图模式（覆盖数据驱动判断）。
+ *  当用户点击 radio 切到"引用"但还未选具体图时，用此 ref 保持 radio 停在"引用"，
+ *  让引用选择器立即可见；切换节点时自动重置。 */
+const subgraphModeOverride = ref(null)
+
+/** 实际展示的子图模式：用户选择优先，否则根据数据判断 */
+const subgraphMode = computed(() => {
+  if (subgraphModeOverride.value) return subgraphModeOverride.value
+  return selectedNodeMeta.value?.subgraphRef ? 'reference' : 'inline'
+})
+
+// 选中不同节点时重置 override；selectedNode 变 null（选中丢失）时不重置，避免 radio 弹回
+watch(() => editor.selectedNode?.nodeId, (newId) => {
+  if (newId) subgraphModeOverride.value = null
+})
+
+/** 当前引用型子图锁定的版本号（'' 表示跟随最新）。解析 subgraphRef 的 @version 后缀。 */
+const currentLockedVersion = computed(() => editor.versionOfSubgraphRef(selectedNodeMeta.value?.subgraphRef || ''))
+/** 当前引用型子图的图 ID（剥离 @version）。 */
+const currentRefGraphId = computed(() => editor.graphIdOfSubgraphRef(selectedNodeMeta.value?.subgraphRef || ''))
+
+/** 选中 SUBGRAPH 节点时：预加载图列表 + 已有引用图的版本列表 */
+watch(() => editor.selectedNode?.category, (cat) => {
+  if (cat === 'SUBGRAPH') {
+    editor.loadGraphIds()
+    const ref = selectedNodeMeta.value?.subgraphRef
+    if (ref) editor.loadSubgraphRefVersions(editor.graphIdOfSubgraphRef(ref))
+  }
+})
+
+/** 版本锁定下拉变更：空=跟随最新，非空=锁定该版本 */
+function onSubgraphVersionLockChange(val) {
+  editor.lockSubgraphVersion(val || '')
+}
 
 function onRenameNode(val) {
   if (!editor.selectedNode) return
@@ -75,19 +107,39 @@ function onRenameDisplayName(val) {
   editor.updateSubgraphNodeMeta({ nodeId: editor.selectedNode.nodeId, displayName: val || '' })
 }
 
+/** 切 radio：纯 UI 行为，不调用 store。
+ *  - 切到"引用"：只设 override 让下拉出现，不动数据（避免触发重渲染丢选中）
+ *  - 切到"内联"：也只设 override；空子图创建延迟到用户实际进入时
+ *  - 真正设 subgraphRef 发生在 onSubgraphRefChange（用户从下拉选了具体图后）
+ *
+ *  说明：与 store 真实状态可能存在短暂不一致（radio 显示"内联"但 subgraphRef 仍有值），
+ *  直到用户做下一步动作（下拉选图 / 进入子图 / 保存）才会被 resolve。
+ *  这是为了避免切 radio 触发 LogicFlow 重渲染导致选中丢失。 */
 function onSubgraphModeChange(val) {
-  if (!editor.selectedNode) return
-  editor.updateSubgraphNodeMeta({ nodeId: editor.selectedNode.nodeId, mode: val })
+  subgraphModeOverride.value = val
+  // 不调用 store
 }
 
 function onSubgraphRefChange(val) {
+  subgraphModeOverride.value = null  // 选了具体图后，override 失效，回到数据驱动
   if (!editor.selectedNode) return
   editor.updateSubgraphNodeMeta({ nodeId: editor.selectedNode.nodeId, mode: 'reference', subgraphRef: val || '' })
 }
 
-watch(() => editor.selectedNode?.category, (cat) => {
-  if (cat === 'SUBGRAPH') editor.loadGraphIds()
-})
+/** 进入子图前先同步数据：把 radio 显示的意图落库，避免「radio=内联但 subgraphRef 还有值」的脏状态 */
+async function onEnterSubgraphClick() {
+  if (!editor.selectedNode) return
+  const nodeId = editor.selectedNode.nodeId
+  const meta = selectedNodeMeta.value
+  if (!meta) return
+  // radio 显示"内联"且当前是引用型（subgraphRef 有值）→ 落库切回内联（清 ref + 建空 subgraph）
+  if (subgraphModeOverride.value === 'inline' && meta.subgraphRef) {
+    editor.updateSubgraphNodeMeta({ nodeId, mode: 'inline' })
+    // 让 Vue 完成本次重渲染（mutate → nextTick）后再进入，避免争用
+    await nextTick()
+  }
+  editor.enterSubgraph(nodeId)
+}
 
 const configSchemaEntries = computed(() => {
   const props = selectedDescriptor.value?.configurableProps || {}
@@ -379,16 +431,50 @@ function onStreamingChange(val) {
               </el-form-item>
               <el-form-item v-if="subgraphMode === 'reference'" :label="t('propertyPanel.subgraphRef')">
                 <el-select
-                  :model-value="selectedNodeMeta?.subgraphRef || ''"
+                  :model-value="currentRefGraphId"
                   filterable allow-create
+                  :placeholder="t('propertyPanel.subgraphRefPlaceholder')"
+                  :no-data-text="t('propertyPanel.subgraphRefEmpty')"
                   @update:model-value="onSubgraphRefChange"
                   style="width: 100%;"
                 >
                   <el-option v-for="gid in editor.graphIds" :key="gid" :label="gid" :value="gid" />
                 </el-select>
+                <span v-if="!editor.graphIds.length" class="hint" style="display:block; margin-top:4px;">
+                  {{ t('propertyPanel.subgraphRefEmptyHint') }}
+                </span>
+                <span v-else class="hint" style="display:block; margin-top:4px;">
+                  {{ t('propertyPanel.subgraphRefHint') }}
+                </span>
+              </el-form-item>
+              <!-- P2：版本锁定下拉（选了引用图后出现） -->
+              <el-form-item
+                v-if="subgraphMode === 'reference' && currentRefGraphId"
+                :label="t('propertyPanel.subgraphVersion')"
+              >
+                <el-select
+                  :model-value="currentLockedVersion"
+                  :placeholder="t('propertyPanel.subgraphVersionLatest')"
+                  :loading="editor.subgraphRefVersionsLoading"
+                  @update:model-value="onSubgraphVersionLockChange"
+                  style="width: 100%;"
+                >
+                  <el-option :label="t('propertyPanel.subgraphVersionLatest')" value="" />
+                  <el-option
+                    v-for="ver in editor.subgraphRefVersions"
+                    :key="ver"
+                    :label="ver"
+                    :value="ver"
+                  />
+                </el-select>
+                <span class="hint" style="display:block; margin-top:4px;">
+                  {{ currentLockedVersion
+                      ? t('propertyPanel.subgraphVersionLocked', { version: currentLockedVersion })
+                      : t('propertyPanel.subgraphVersionHint') }}
+                </span>
               </el-form-item>
               <el-form-item>
-                <el-button type="primary" size="small" @click="editor.enterSubgraph(editor.selectedNode.nodeId)">
+                <el-button type="primary" size="small" @click="onEnterSubgraphClick">
                   {{ t('propertyPanel.enterSubgraph') }}
                 </el-button>
                 <el-button size="small" @click="editor.openSubgraphPreview(editor.selectedNode.nodeId)">

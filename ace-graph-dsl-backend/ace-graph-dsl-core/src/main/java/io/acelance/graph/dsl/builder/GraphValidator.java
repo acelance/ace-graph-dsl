@@ -25,6 +25,9 @@ import java.util.stream.Collectors;
 @Component
 public class GraphValidator {
 
+    /** 子图最大嵌套深度（根图=0，子图递增；超过此值报错） */
+    static final int MAX_SUBGRAPH_DEPTH = 3;
+
     private final GraphNodeRegistry nodeRegistry;
     private final EdgeDispatcherRegistry dispatcherRegistry;
     private final ScriptEdgeActionFactory scriptEdgeActionFactory;
@@ -47,7 +50,28 @@ public class GraphValidator {
      * @return 校验结果
      */
     public ValidationResult validate(GraphDefinition def) {
+        return validate(def, 0);
+    }
+
+    /**
+     * 校验图定义的合法性（带嵌套深度）。
+     *
+     * <p>子图嵌套深度限制为 {@value #MAX_SUBGRAPH_DEPTH} 层。根图 depth=0，
+     * 每下钻一层子图 depth+1；超过限制即报错。</p>
+     *
+     * @param def   图定义
+     * @param depth 当前嵌套深度（根图=0，子图递增）
+     * @return 校验结果
+     */
+    private ValidationResult validate(GraphDefinition def, int depth) {
         List<String> errors = new ArrayList<>();
+
+        // 子图嵌套深度限制
+        if (depth > MAX_SUBGRAPH_DEPTH) {
+            errors.add("子图嵌套层级超过限制（最多" + MAX_SUBGRAPH_DEPTH + "层）: "
+                    + (def.graphId() != null ? def.graphId() : "(内联子图)"));
+            return ValidationResult.fail(errors);
+        }
 
         if (def == null) {
             return ValidationResult.fail(List.of("图定义为空"));
@@ -65,13 +89,24 @@ public class GraphValidator {
             if (ref.hasSubgraph()) {
                 // 子图节点：校验其指向的子图定义（内嵌则递归校验；引用型由构建期解析）
                 if (ref.subgraph() != null) {
-                    ValidationResult subResult = validate(ref.subgraph());
+                    ValidationResult subResult = validate(ref.subgraph(), depth + 1);
                     if (!subResult.ok()) {
                         errors.add("子图 '" + ref.nodeId() + "' 内部校验失败: "
                                 + String.join("; ", subResult.errors()));
                     }
                 } else if (ref.subgraphRef() == null || ref.subgraphRef().isBlank()) {
                     errors.add("子图节点未定义（subgraph 与 subgraphRef 均为空）: " + ref.nodeId());
+                } else {
+                    // P2：校验 subgraphRef 版本锁定格式（graphId@version）
+                    String rawRef = ref.subgraphRef();
+                    int at = rawRef.indexOf('@');
+                    if (at > 0 && at >= rawRef.length() - 1) {
+                        // "graphId@" → @ 后版本为空，非法
+                        errors.add("子图 '" + ref.nodeId() + "' 的 subgraphRef 版本号为空: " + rawRef);
+                    } else if (at == 0) {
+                        // "@version" → graphId 为空，非法
+                        errors.add("子图 '" + ref.nodeId() + "' 的 subgraphRef 图 ID 为空: " + rawRef);
+                    }
                 }
                 continue;
             }

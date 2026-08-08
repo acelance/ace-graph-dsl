@@ -162,6 +162,58 @@
 
 ---
 
+## 八、实现记录（结构节点 / 通用 Agent，v1.4）
+
+> 评估依据：[STRUCTURAL_NODE_ASSESSMENT.md](../../../STRUCTURAL_NODE_ASSESSMENT.md)
+> 范围：通用 Agent 节点双通道范式对齐；子图循环引用检测、嵌套深度限制、引用选择器 UX、面包屑可见性；结构型 AGENT 节点搁置。
+
+### 1. 通用 Agent 节点（双通道范式对齐，#58–#65）
+
+- **后端**：`GenericAgentDefinition` 独立实体 + 三后端 `GenericAgentDefinitionRepository`；`GenericAgentNodeService`（镜像 `ScriptNodeService`，含草稿图、引用/孤儿查询、审计）；`GenericAgentController`（`/agents`）；`GenericAgentNodeBootstrapLoader` 启动加载入库；`McpServerRegistry` SPI（prompt/skill/mcp 按 key 解析）；`AceGraphDslAutoConfiguration` 装配 4 个 bean。
+- **前端**：
+  - `api/graph.js`：10 个 Agent 节点 API 方法。
+  - `stores/permissions.js`：`agent-node:view/create/delete/test` 菜单权限。
+  - `AgentNodeEditor.vue`：12 字段模态框（掩码 API Key 处理、校验、试跑）。
+  - `NodePanel.vue`：AGENT 标签 + 新建/编辑/删除分流（区分 `GENERIC_AGENT` vs `SCRIPT`）；按钮归位到对应 tab。
+  - `Canvas.vue`：双通道拖入（注册式不携带内联 `agentSpec`）。
+  - `PropertyPanel.vue`：内联 vs 注册式区分 UX；注册式显示只读引用 +「前往节点面板编辑」。
+  - `stores/agentEditorBus.js`：无依赖跨组件总线，打通 PropertyPanel → NodePanel 编辑器。
+  - i18n（zh-CN / en-US）：`agentEditor.*`、`nodePanel.agentTab/createAgent/deleteAgentConfirm`、`propertyPanel.genericAgent*`。
+
+### 2. 子图循环引用检测 + 嵌套深度限制（P0，#67）
+
+- **`GraphValidator.java`**：`validate(GraphDefinition)` → `validate(def, int depth)` 递归；内联子图 `ref.subgraph() != null` 时 `validate(ref.subgraph(), depth+1)`；`if (depth > MAX_SUBGRAPH_DEPTH) errors.add("子图嵌套层级超过限制（最多 3 层）")`。新增 `private static final int MAX_SUBGRAPH_DEPTH = 3`。
+- **`DynamicGraphBuilder.java`**：`doBuild(def)` → `doBuild(def, Set<String> visiting, int depth)`；引用型子图解析前 `if (visiting.contains(subgraphRef)) throw new GraphStateException("检测到子图循环引用: A → B → A")`；`if (depth >= MAX_SUBGRAPH_DEPTH) throw ...`；递归 `doBuild(subDef, visiting∪{subgraphRef}, depth+1)`。后端常量同样 `MAX_SUBGRAPH_DEPTH = 3`，前后端一致。
+- 双层防护：保存/发布校验（`GraphValidator`）+ 编译期（`DynamicGraphBuilder`），杜绝 A→B→A 触发 `StackOverflowError`。
+
+### 3. 子图引用选择器 UX 修复（P1，#69）
+
+- **`PropertyPanel.vue`**：`subgraphModeOverride` ref 优先返回内联/引用模式，切换 radio **纯 UI**，不再调 store 触发 LogicFlow 重渲染导致选中丢失；`watch(selectedNode?.nodeId)` 仅在**换节点**时重置 override（选中丢失不重置）。
+- **`graphEditor.js`**：`updateSubgraphNodeMeta({mode})` 仅当 `subgraphRef` 已存在时才覆盖，单纯切 radio 不做 mutation；`loadGraphIds()` 排除当前图自身；`loadLatest()` 预加载 `graphIds`。
+- 进入子图前（`onEnterSubgraphClick`）若仍处引用 override 则先落地数据 + `nextTick()` 再下钻，避免切回内联丢选中。
+
+### 4. 面包屑可见性提升（P1，#70）
+
+- **`GraphDslDesigner.vue`**（实际渲染组件）：画布上方新增浮动面包屑条 `breadcrumb-bar`，含返回上级按钮、路径 `editor.breadcrumb`、引用/内联标签、`X/3` 深度指示器；样式提升（浅蓝背景、14px、箭头图标）。
+- 注意：`Designer/index.vue` 中的面包屑为死代码，实际不起作用（已确认实际渲染组件为 `GraphDslDesigner.vue`）。
+
+### 5. 结构型 AGENT 节点搁置（P1，#68）
+
+- **`NodePanel.vue`**：`structuralNodes` 移除 AGENT；`filteredNodes` 加 `if (n.category === 'AGENT') return false` 隐藏不可配置的结构型 AGENT；新建通用 Agent 按钮移入 AGENT tab。
+- 后端 `ScriptAgentNode` / `RegisteredAgentNode` / `AgentConfig` 及构建器 AGENT 分支全部保留，已有图数据不受影响。
+
+### 验证（#64）
+
+- 后端：`mvn.cmd -T 1C clean install -Dmaven.test.skip=true` → **BUILD SUCCESS**（Mockito inline + JDK21 自挂载失败属环境性，非代码回归）。
+- 前端：`vite build` → **VITE_EXIT=0**，56 modules，1.30s。
+
+### 已知限制（待办）
+
+- ~~**P2 子图引用版本锁定**~~：✅ 已实现（`subgraphRef` 支持 `graphId@version`，后端 `NodeRef.graphIdOf/versionOf` + `DynamicGraphBuilder.resolveSubgraph` + 前端版本锁定下拉）。
+- ~~**P3 子图状态隔离集成验证**~~：✅ 已完成（`SubgraphStateIsolationTest` 4 场景通过；结论：状态共享非隔离，APPEND 跨边界数据重复，REPLACE/新 key 传播正常；建议共享 key 用 REPLACE）。详见 [验证报告](../../../SUBGRAPH_STATE_ISOLATION_VERIFICATION.md)。
+
+---
+
 ## 变更记录
 
 | 版本 | 日期 | 说明 |
@@ -170,3 +222,4 @@
 | v1.1 | 2026-07-08 | 实现 P0 三项：Undo/Redo、整图试运行（dry-run 端点 + Drawer）、节点复制粘贴 |
 | v1.2 | 2026-07-08 | 实现 P1 三项：导入/导出 JSON、整体拓扑校验（前端工具 + 后端 GraphValidator 增强）、空白新建条件边 |
 | v1.3 | 2026-07-08 | 实现 P2 四项：缩放/缩略图工具栏、自动布局（自研分层）、子流程分组（容器/折叠/解组）、画布内节点搜索定位 |
+| v1.4 | 2026-08-08 | 实现结构节点/通用 Agent：通用 Agent 节点双通道范式对齐（#58–#65）；子图循环引用检测 + 嵌套深度≤3（P0，#67）；引用选择器 UX 修复（P1，#69）；面包屑浮动可见性（P1，#70）；结构型 AGENT 节点搁置（P1，#68）；子图引用版本锁定 `graphId@version`（P2，#78–#84）；子图状态隔离集成验证（P3，#85–#86） |
