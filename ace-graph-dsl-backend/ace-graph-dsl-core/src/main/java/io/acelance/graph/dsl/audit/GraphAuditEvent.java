@@ -26,6 +26,7 @@ public record GraphAuditEvent(
 
     public static final String RESOURCE_GRAPH = "graph";
     public static final String RESOURCE_SCRIPT_NODE = "script-node";
+    public static final String RESOURCE_AGENT_NODE = "agent-node";
 
     /** 构造一条 graph 资源的审计事件（时间戳取当前时刻）。 */
     public static GraphAuditEvent graph(String action, String graphId, String version,
@@ -37,5 +38,11 @@ public record GraphAuditEvent(
     public static GraphAuditEvent scriptNode(String action, String nodeId, String version,
                                              String operator, boolean success, String detail) {
         return new GraphAuditEvent(action, RESOURCE_SCRIPT_NODE, nodeId, version, operator, success, detail, Instant.now());
+    }
+
+    /** 构造一条 agent-node（通用 agent 节点定义）资源的审计事件（时间戳取当前时刻）。 */
+    public static GraphAuditEvent agentNode(String action, String nodeId, String version,
+                                            String operator, boolean success, String detail) {
+        return new GraphAuditEvent(action, RESOURCE_AGENT_NODE, nodeId, version, operator, success, detail, Instant.now());
     }
 }

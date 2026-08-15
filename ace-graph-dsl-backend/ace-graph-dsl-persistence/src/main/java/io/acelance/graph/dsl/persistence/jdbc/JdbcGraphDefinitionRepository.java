@@ -27,14 +27,14 @@ public class JdbcGraphDefinitionRepository extends AbstractJdbcGraphDefinitionRe
                     description TEXT,
                     content_json TEXT NOT NULL,
                     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
-                )
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
                 """.formatted(defTable()));
         jdbcTemplate.execute("""
                 CREATE TABLE IF NOT EXISTS %s (
                     graph_id VARCHAR(128) PRIMARY KEY,
                     version VARCHAR(64) NOT NULL,
                     enabled_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
-                )
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
                 """.formatted(enabledTable()));
     }
 }

@@ -1,5 +1,6 @@
 const START = '__START__'
 const END = '__END__'
+const ERROR = '__ERROR__'
 
 function descriptorMap(nodeDescriptors) {
   const map = new Map()
@@ -10,20 +11,20 @@ function descriptorMap(nodeDescriptors) {
 }
 
 function inputKeysOf(nodeId, descMap) {
-  if (nodeId === START || nodeId === END) return new Set()
+  if (nodeId === START || nodeId === END || nodeId === ERROR) return new Set()
   const desc = descMap.get(nodeId)
   return new Set(desc?.inputKeys || [])
 }
 
 function outputKeysOf(nodeId, descMap) {
-  if (nodeId === START || nodeId === END) return new Set()
+  if (nodeId === START || nodeId === END || nodeId === ERROR) return new Set()
   const desc = descMap.get(nodeId)
   return new Set(desc?.outputKeys || [])
 }
 
-/** START 出边、目标为 HITL 的入边不做可达性校验 */
+/** START / ERROR 出边、目标为 HITL 的入边不做可达性校验 */
 function shouldSkipEdgeValidation(from, to, descMap) {
-  if (from === START) return true
+  if (from === START || from === ERROR) return true
   return descMap.get(to)?.category === 'HITL'
 }
 

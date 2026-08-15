@@ -25,7 +25,7 @@ public class JdbcDynamicNodeDefinitionRepository extends AbstractJdbcDynamicNode
                     created_by VARCHAR(128),
                     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
                     updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
-                )
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
                 """.formatted(nodeDefTable()));
     }
 }

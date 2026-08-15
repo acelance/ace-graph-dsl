@@ -5,6 +5,36 @@ All notable changes to the Ace Graph DSL project are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.2.0] — 2026-08-08
+
+### Added
+
+- **通用 Agent 节点（双通道范式）**：对齐「脚本节点范式」——先定义 → 入库 → 复用。
+  - 独立实体 `GenericAgentDefinition`（JSON in `content_json`），不复用脚本节点表。
+  - 注册式（引用型）：图中仅存 `nodeId`，`origin=GENERIC_AGENT`，元数据来自持久化定义，可跨图复用。
+  - 内联式：结构型节点拖入时携带完整 `agentSpec`，ad-hoc 编译执行。
+  - 后端：`GenericAgentNodeService`（镜像 `ScriptNodeService`，含草稿图、引用/孤儿查询、审计）、`GenericAgentController`（`/agents`）、`GenericAgentNodeBootstrapLoader` 启动加载入库、`McpServerRegistry` SPI（prompt/skill/mcp 按 key 解析）。
+  - 前端：`AgentNodeEditor.vue`（12 字段模态框，含掩码 API Key 处理、校验、试跑）、`NodePanel.vue` AGENT 标签 + 新建/编辑/删除分流、`Canvas.vue` 双通道拖入、`PropertyPanel.vue` 内联 vs 注册式区分 UX、`stores/agentEditorBus.js` 跨组件总线、`permissions.js` 菜单权限。
+- **子图循环引用检测**：`GraphValidator` 与 `DynamicGraphBuilder` 在编译期检测跨图 `subgraphRef` 环（A→B→A），避免 `StackOverflowError`。
+- **子图嵌套深度限制（≤3 层）**：`GraphValidator.validate()` 与 `DynamicGraphBuilder.doBuild()` 均加入 `MAX_SUBGRAPH_DEPTH = 3` 双重防护（根图 depth=0，子图递增，>3 报错）。
+- **子图引用版本锁定（P2）**：`subgraphRef` 支持 `graphId@version` 格式锁定特定版本；纯 `graphId` 仍取最新（向后兼容）。后端 `NodeRef.graphIdOf()` / `versionOf()` 解析，`DynamicGraphBuilder.resolveSubgraph()` 按 version 选 `loadVersion` / `loadLatest`，循环引用检测基于剥离版本的 graphId；`GraphValidator` 校验 `@` 后版本非空。前端引用选择器下方新增版本锁定下拉（选图后懒加载版本列表，默认「最新」）。
+- **子图状态隔离验证（P3）**：新增 `SubgraphStateIsolationTest`（4 场景集成测试，直接使用 spring-ai-alibaba-graph 原生 API）。验证结论：子图与父图**状态共享**（非隔离）；APPEND 跨父子图边界会产生**数据重复**（父图原始数据被子图继承后二次追加）；REPLACE 覆盖与新 key 传播行为正常。详见 [子图状态隔离验证报告](../SUBGRAPH_STATE_ISOLATION_VERIFICATION.md)。
+
+### Changed
+
+- **子图引用选择器 UX**：内联/引用 radio 切换改为纯 UI（`subgraphModeOverride`），不再触发 store mutation 导致选中丢失；引用下拉框预加载 `graphIds`、排除当前图自身、显示 `displayName (graphId)`。
+- **子图面包屑可见性**：浮动面包屑条移至 `GraphDslDesigner.vue` 画布上方，含返回上级按钮、路径、`X/3` 深度指示器，提升下钻后可返回主图的可见性。
+- **节点面板按钮归位**：新建脚本节点 / 新建通用 Agent 按钮分别移入对应 tab（脚本 tab / AGENT tab），不再每个 tab 都出现；结构节点区域移除空白的 `GENERIC_AGENT` 结构型节点。
+- **文档**：新增 [结构节点评估与方案](../STRUCTURAL_NODE_ASSESSMENT.md)；更新前端 README「通用 Agent 节点」「子图」用法、设计器能力评估 v1.4、后端 README 节点类别与 GraphValidator 校验项。
+
+### Removed
+
+- **结构型 AGENT 节点面板入口**：从节点面板结构节点区域移除不可配置的「代码岛」AGENT 节点（拖入后无法配置、运行时 `toAction()` 抛异常）。后端 `ScriptAgentNode` / `RegisteredAgentNode` / `AgentConfig` 及构建器分支全部保留，已有图数据不受影响。
+
+### Known Limitations
+
+- 子图 APPEND 跨边界数据重复：父子图共享 key 用 APPEND 时，父图原始数据被子图继承后二次追加（spring-ai-alibaba-graph `SubCompiledGraphNodeAction` 固有行为）。建议共享 key 用 REPLACE，详见 [验证报告](../SUBGRAPH_STATE_ISOLATION_VERIFICATION.md)。
+
 ## [1.1.0] — 2026-07-14
 
 ### Added

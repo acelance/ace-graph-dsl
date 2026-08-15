@@ -30,4 +30,14 @@ public interface GraphNodeAccessControl {
     default boolean canDeleteScriptNodes() {
         return canManageScriptNodes();
     }
+
+    /** 是否可新建 / 编辑通用 agent 节点定义 */
+    default boolean canManageAgentNodes() {
+        return true;
+    }
+
+    /** 是否可删除通用 agent 节点定义 */
+    default boolean canDeleteAgentNodes() {
+        return canManageAgentNodes();
+    }
 }

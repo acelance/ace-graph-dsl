@@ -4,6 +4,7 @@ import io.acelance.graph.dsl.definition.GraphDefinition;
 import io.acelance.graph.dsl.definition.GraphEdge;
 import io.acelance.graph.dsl.definition.NodeRef;
 import io.acelance.graph.dsl.registry.EdgeDispatcherRegistry;
+import io.acelance.graph.dsl.registry.GraphNodeDescriptor;
 import io.acelance.graph.dsl.registry.GraphNodeRegistry;
 import io.acelance.graph.dsl.script.ScriptEdgeActionFactory;
 import org.springframework.stereotype.Component;
@@ -23,6 +24,9 @@ import java.util.stream.Collectors;
  */
 @Component
 public class GraphValidator {
+
+    /** 子图最大嵌套深度（根图=0，子图递增；超过此值报错） */
+    static final int MAX_SUBGRAPH_DEPTH = 3;
 
     private final GraphNodeRegistry nodeRegistry;
     private final EdgeDispatcherRegistry dispatcherRegistry;
@@ -46,7 +50,28 @@ public class GraphValidator {
      * @return 校验结果
      */
     public ValidationResult validate(GraphDefinition def) {
+        return validate(def, 0);
+    }
+
+    /**
+     * 校验图定义的合法性（带嵌套深度）。
+     *
+     * <p>子图嵌套深度限制为 {@value #MAX_SUBGRAPH_DEPTH} 层。根图 depth=0，
+     * 每下钻一层子图 depth+1；超过限制即报错。</p>
+     *
+     * @param def   图定义
+     * @param depth 当前嵌套深度（根图=0，子图递增）
+     * @return 校验结果
+     */
+    private ValidationResult validate(GraphDefinition def, int depth) {
         List<String> errors = new ArrayList<>();
+
+        // 子图嵌套深度限制
+        if (depth > MAX_SUBGRAPH_DEPTH) {
+            errors.add("子图嵌套层级超过限制（最多" + MAX_SUBGRAPH_DEPTH + "层）: "
+                    + (def.graphId() != null ? def.graphId() : "(内联子图)"));
+            return ValidationResult.fail(errors);
+        }
 
         if (def == null) {
             return ValidationResult.fail(List.of("图定义为空"));
@@ -59,8 +84,45 @@ public class GraphValidator {
             return ValidationResult.fail(errors);
         }
 
-        // 1. 节点存在性
+        // 1. 节点存在性（子图 / Agent 节点不走普通注册表）
         for (NodeRef ref : def.nodes()) {
+            if (ref.hasSubgraph()) {
+                // 子图节点：校验其指向的子图定义（内嵌则递归校验；引用型由构建期解析）
+                if (ref.subgraph() != null) {
+                    ValidationResult subResult = validate(ref.subgraph(), depth + 1);
+                    if (!subResult.ok()) {
+                        errors.add("子图 '" + ref.nodeId() + "' 内部校验失败: "
+                                + String.join("; ", subResult.errors()));
+                    }
+                } else if (ref.subgraphRef() == null || ref.subgraphRef().isBlank()) {
+                    errors.add("子图节点未定义（subgraph 与 subgraphRef 均为空）: " + ref.nodeId());
+                } else {
+                    // P2：校验 subgraphRef 版本锁定格式（graphId@version）
+                    String rawRef = ref.subgraphRef();
+                    int at = rawRef.indexOf('@');
+                    if (at > 0 && at >= rawRef.length() - 1) {
+                        // "graphId@" → @ 后版本为空，非法
+                        errors.add("子图 '" + ref.nodeId() + "' 的 subgraphRef 版本号为空: " + rawRef);
+                    } else if (at == 0) {
+                        // "@version" → graphId 为空，非法
+                        errors.add("子图 '" + ref.nodeId() + "' 的 subgraphRef 图 ID 为空: " + rawRef);
+                    }
+                }
+                continue;
+            }
+            if (ref.hasAgent() || "AGENT".equals(ref.category())) {
+                if (nodeRegistry.getAgentNode() == null) {
+                    errors.add("未注册 AGENT 节点实现（需要 agent:script）: " + ref.nodeId());
+                }
+                continue;
+            }
+            // 通用 agent 节点：双通道——内联 agentSpec 自带元数据，或引用已入库的 agent 节点定义
+            if (ref.hasAgentSpec() || GraphNodeDescriptor.CATEGORY_GENERIC_AGENT.equals(ref.category())) {
+                if (ref.agentSpec() == null && !nodeRegistry.contains(ref.nodeId())) {
+                    errors.add("通用 agent 节点既无内联 agentSpec，也未找到已入库定义: " + ref.nodeId());
+                }
+                continue;
+            }
             if (!nodeRegistry.contains(ref.nodeId())) {
                 errors.add("节点未注册: " + ref.nodeId());
             }
@@ -70,6 +132,7 @@ public class GraphValidator {
         Set<String> nodeIds = def.nodes().stream().map(NodeRef::nodeId).collect(Collectors.toSet());
         nodeIds.add(GraphDefinition.START);
         nodeIds.add(GraphDefinition.END);
+        nodeIds.add(GraphDefinition.ERROR);
 
         List<GraphEdge> edges = def.edges() != null ? def.edges() : List.of();
         for (GraphEdge edge : edges) {
@@ -91,7 +154,12 @@ public class GraphValidator {
                 .filter(ref -> nodeRegistry.contains(ref.nodeId()))
                 .map(ref -> nodeRegistry.get(ref.nodeId()).descriptor().outputKeys())
                 .flatMap(Set::stream)
-                .collect(Collectors.toSet());
+                .collect(Collectors.toCollection(HashSet::new));
+        // 内联通用 agent 节点不在注册表内，其 outputKey 需单独纳入 KeyStrategy 覆盖性检查
+        def.nodes().stream()
+                .filter(ref -> ref.agentSpec() != null)
+                .map(ref -> ref.agentSpec().effectiveOutputKey())
+                .forEach(neededKeys::add);
         for (String key : neededKeys) {
             if (!declaredKeys.contains(key)) {
                 errors.add("KeyStrategy 缺失: " + key);
@@ -208,7 +276,8 @@ public class GraphValidator {
         Set<String> visited = new HashSet<>();
         Set<String> recursion = new HashSet<>();
         for (String node : adj.keySet()) {
-            if (GraphDefinition.START.equals(node) || GraphDefinition.END.equals(node)) {
+            if (GraphDefinition.START.equals(node) || GraphDefinition.END.equals(node)
+                    || GraphDefinition.ERROR.equals(node)) {
                 continue;
             }
             if (dfsCycle(node, adj, visited, recursion)) {
@@ -249,6 +318,7 @@ public class GraphValidator {
                 : def.nodes().stream().map(NodeRef::nodeId).collect(Collectors.toSet());
         nodeIds.add(GraphDefinition.START);
         nodeIds.add(GraphDefinition.END);
+        nodeIds.add(GraphDefinition.ERROR);
 
         Map<String, Set<String>> adj = new HashMap<>();
         Map<String, Set<String>> rev = new HashMap<>();
@@ -265,11 +335,13 @@ public class GraphValidator {
             }
         }
 
-        // END 可达性（从 START BFS，END 视为终止节点不再向外扩展）
+        // END 可达性（从 START / ERROR BFS，END 视为终止节点不再向外扩展）
         Set<String> reachable = new HashSet<>();
         Deque<String> queue = new ArrayDeque<>();
         reachable.add(GraphDefinition.START);
+        reachable.add(GraphDefinition.ERROR);
         queue.add(GraphDefinition.START);
+        queue.add(GraphDefinition.ERROR);
         while (!queue.isEmpty()) {
             String cur = queue.poll();
             if (GraphDefinition.END.equals(cur)) continue;
@@ -282,7 +354,8 @@ public class GraphValidator {
         }
 
         for (String id : nodeIds) {
-            if (GraphDefinition.START.equals(id) || GraphDefinition.END.equals(id)) continue;
+            if (GraphDefinition.START.equals(id) || GraphDefinition.END.equals(id)
+                    || GraphDefinition.ERROR.equals(id)) continue;
             if (!reachable.contains(id)) {
                 errors.add("不可达节点（从 START 无法到达）: " + id);
             }

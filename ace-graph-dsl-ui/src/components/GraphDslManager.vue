@@ -6,6 +6,7 @@ import { configureGraphDslI18n, useI18n } from '../i18n'
 import GraphDslDesigner from './GraphDslDesigner.vue'
 import PropertyPanel from './Designer/PropertyPanel.vue'
 import NodePanel from './Designer/NodePanel.vue'
+import { ArrowLeft, ArrowRight } from '@element-plus/icons-vue'
 
 const props = defineProps({
   title: { type: String, default: '' },
@@ -28,6 +29,20 @@ const showCreate = ref(false)
 const newGraphId = ref('')
 const newDisplayName = ref('')
 const designerRef = ref()
+
+// 节点面板折叠抽屉：默认展开，状态持久化到 localStorage
+const NODE_PANEL_COLLAPSED_KEY = 'agd.nodePanel.collapsed'
+const nodePanelCollapsed = ref(localStorage.getItem(NODE_PANEL_COLLAPSED_KEY) === '1')
+watch(nodePanelCollapsed, (v) => {
+  try { localStorage.setItem(NODE_PANEL_COLLAPSED_KEY, v ? '1' : '0') } catch (e) { /* ignore */ }
+})
+
+// 左侧目录面板折叠抽屉：默认展开，状态持久化
+const CATALOG_COLLAPSED_KEY = 'agd.catalog.collapsed'
+const catalogCollapsed = ref(localStorage.getItem(CATALOG_COLLAPSED_KEY) === '1')
+watch(catalogCollapsed, (v) => {
+  try { localStorage.setItem(CATALOG_COLLAPSED_KEY, v ? '1' : '0') } catch (e) { /* ignore */ }
+})
 
 const displayTitle = () => props.title || t('manager.title')
 
@@ -98,41 +113,55 @@ onMounted(async () => {
 
 <template>
   <div class="ace-graph-dsl-manager">
-    <aside class="left-dock">
-      <div class="catalog-header">
-        <h3>{{ displayTitle() }}</h3>
-        <el-button size="small" @click="refreshCatalog" :loading="loading">{{ t('common.refresh') }}</el-button>
-      </div>
-      <el-button v-if="perm.can(MENU.GRAPH_CREATE)" type="primary" plain class="create-btn" @click="showCreate = true">
-        {{ t('manager.createGraph') }}
-      </el-button>
-
-      <div v-loading="loading" class="catalog-scroll">
-        <div v-if="summaries.length" class="catalog-list">
-          <div v-for="item in summaries" :key="item.graphId" class="catalog-block">
-            <div
-              class="catalog-item-row"
-              :class="{ active: isActive(item.graphId) }"
-              @click="toggleGraph(item.graphId)"
-            >
-              <div class="catalog-item">
-                <strong>{{ item.displayName || item.graphId }}</strong>
-                <small>{{ item.graphId }} · v{{ item.version }}
-                  <el-tag v-if="item.bootstrap" size="small" type="warning" effect="plain" style="margin-left: 6px;">内置</el-tag>
-                </small>
-              </div>
-            </div>
-            <div
-              v-if="isActive(item.graphId)"
-              class="catalog-property-drawer"
-              @click.stop
-            >
-              <div class="drawer-title">{{ t('propertyPanel.title') }}</div>
-              <PropertyPanel embedded />
-            </div>
+    <aside :class="['left-dock', { 'left-dock--collapsed': catalogCollapsed }]">
+      <!-- 展开态：完整目录内容 -->
+      <template v-if="!catalogCollapsed">
+        <div class="catalog-header">
+          <h3>{{ displayTitle() }}</h3>
+          <div style="display:flex;align-items:center;gap:8px;">
+            <el-button size="small" text @click="catalogCollapsed = true" :title="t('nodePanel.collapse')">
+              <el-icon><ArrowLeft /></el-icon>
+            </el-button>
+            <el-button size="small" @click="refreshCatalog" :loading="loading">{{ t('common.refresh') }}</el-button>
           </div>
         </div>
-        <el-empty v-else-if="!loading" :description="t('manager.emptyCatalog')" />
+        <el-button v-if="perm.can(MENU.GRAPH_CREATE)" type="primary" plain class="create-btn" @click="showCreate = true">
+          {{ t('manager.createGraph') }}
+        </el-button>
+
+        <div v-loading="loading" class="catalog-scroll">
+          <div v-if="summaries.length" class="catalog-list">
+            <div v-for="item in summaries" :key="item.graphId" class="catalog-block">
+              <div
+                class="catalog-item-row"
+                :class="{ active: isActive(item.graphId) }"
+                @click="toggleGraph(item.graphId)"
+              >
+                <div class="catalog-item">
+                  <strong>{{ item.displayName || item.graphId }}</strong>
+                  <small>{{ item.graphId }} · v{{ item.version }}
+                    <el-tag v-if="item.bootstrap" size="small" type="warning" effect="plain" style="margin-left: 6px;">内置</el-tag>
+                  </small>
+                </div>
+              </div>
+              <div
+                v-if="isActive(item.graphId)"
+                class="catalog-property-drawer"
+                @click.stop
+              >
+                <div class="drawer-title">{{ t('propertyPanel.title') }}</div>
+                <PropertyPanel embedded />
+              </div>
+            </div>
+          </div>
+          <el-empty v-else-if="!loading" :description="t('manager.emptyCatalog')" />
+        </div>
+      </template>
+
+      <!-- 折叠态：竖向把手 -->
+      <div v-else class="collapse-handle collapse-handle--left" @click="catalogCollapsed = false" :title="t('nodePanel.expand')">
+        <el-icon class="handle-icon"><ArrowRight /></el-icon>
+        <span class="handle-text">{{ t('nodePanel.title') }}</span>
       </div>
     </aside>
 
@@ -152,7 +181,7 @@ onMounted(async () => {
       <div v-else class="empty-center">
         <el-empty :description="t('manager.selectOrCreate')" />
       </div>
-      <NodePanel class="node-panel-right" @node-drag="onNodeDrag" />
+      <NodePanel v-model:collapsed="nodePanelCollapsed" :class="['node-panel-right', { 'node-panel-right--collapsed': nodePanelCollapsed }]" @node-drag="onNodeDrag" />
     </main>
 
     <el-dialog v-model="showCreate" :title="t('manager.createDialogTitle')" width="420px">
@@ -286,6 +315,12 @@ onMounted(async () => {
   overflow-y: auto;
   background: var(--agd-color-bg, #fff);
 }
+.node-panel-right--collapsed {
+  width: 38px;
+  min-width: 38px;
+  border-left: none;
+  background: linear-gradient(to right, rgba(64,158,255,0.03), transparent);
+}
 .designer-panel > :first-child:not(.el-empty) {
   flex: 1;
   min-width: 0;
@@ -297,5 +332,43 @@ onMounted(async () => {
   justify-content: center;
   align-items: center;
   min-height: 0;
+}
+/* ====== 左侧目录面板折叠态 ====== */
+.left-dock--collapsed {
+  width: 38px !important;
+  min-width: 38px !important;
+  padding: 0 !important;
+  border-right: none !important;
+  overflow: hidden;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  background: linear-gradient(to right, rgba(64,158,255,0.03), transparent);
+}
+.collapse-handle--left {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  color: var(--agd-color-text-secondary, #909399);
+  user-select: none;
+  transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+  border-radius: 20px;
+  padding: 10px 4px;
+  border: 1px solid transparent;
+}
+.collapse-handle--left .handle-icon { font-size: 14px; }
+.collapse-handle--left .handle-text {
+  writing-mode: vertical-rl;
+  letter-spacing: 3px;
+  font-size: 11px;
+  line-height: 1.4;
+}
+.collapse-handle--left:hover {
+  color: var(--agd-color-primary, #409eff);
+  background: rgba(64, 158, 255, 0.06);
+  border-color: rgba(64, 158, 255, 0.2);
+  transform: translateX(2px);
 }
 </style>

@@ -1,11 +1,13 @@
 <script setup>
-import { ref, watch, computed } from 'vue'
-import { Delete } from '@element-plus/icons-vue'
+import { ref, watch, computed, nextTick } from 'vue'
+import { Delete, Loading } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
 import { useGraphEditorStore } from '../../stores/graphEditor'
 import { useNodeRegistryStore } from '../../stores/nodeRegistry'
 import { useI18n } from '../../i18n'
+import { requestOpenAgentEditor } from '../../stores/agentEditorBus'
 import { listScriptEngines } from '../../api/graph'
+import MermaidPreview from './MermaidPreview.vue'
 
 const props = defineProps({
   /** 嵌入左侧目录时使用紧凑布局 */
@@ -23,10 +25,121 @@ watch(() => editor.keyStrategies, (ks) => {
   keyStrategyRows.value = Object.entries(ks || {}).map(([k, v]) => ({ key: k, strategy: v }))
 }, { immediate: true, deep: true })
 
+const STRUCTURAL_DESCRIPTORS = {
+  SUBGRAPH: { nodeId: '', displayName: 'Subgraph', category: 'SUBGRAPH', origin: 'STRUCTURAL', inputKeys: [], outputKeys: [], configurableProps: {} },
+  AGENT: { nodeId: '', displayName: 'Agent', category: 'AGENT', origin: 'STRUCTURAL', inputKeys: [], outputKeys: [], configurableProps: {} },
+  GENERIC_AGENT: { nodeId: '', displayName: 'Generic Agent', category: 'GENERIC_AGENT', origin: 'STRUCTURAL', inputKeys: [], outputKeys: [], configurableProps: {} }
+}
+
 const selectedDescriptor = computed(() => {
   if (!editor.selectedNode) return null
-  return nodeStore.nodes.find(n => n.nodeId === editor.selectedNode.nodeId) || null
+  const d = nodeStore.nodes.find(n => n.nodeId === editor.selectedNode.nodeId)
+  if (d) return d
+  const cat = editor.selectedNode.category
+  if (cat === 'SUBGRAPH' || cat === 'AGENT' || cat === 'GENERIC_AGENT') return STRUCTURAL_DESCRIPTORS[cat]
+  return null
 })
+
+/** 当前选中节点在 store 中的完整元信息（含子图的 displayName / subgraphRef / subgraph） */
+const selectedNodeMeta = computed(() => {
+  if (!editor.selectedNode) return null
+  return editor.nodes.find(n => n.nodeId === editor.selectedNode.nodeId) || null
+})
+
+const isStructuralSelected = computed(() =>
+  editor.selectedNode?.category === 'SUBGRAPH' || editor.selectedNode?.category === 'AGENT' || editor.selectedNode?.category === 'GENERIC_AGENT'
+)
+const isSubgraphSelected = computed(() => editor.selectedNode?.category === 'SUBGRAPH')
+const isAgentSelected = computed(() => editor.selectedNode?.category === 'AGENT')
+const isGenericAgentSelected = computed(() => editor.selectedNode?.category === 'GENERIC_AGENT')
+/** 注册式（引用型）通用 Agent：无内联 agentSpec，元数据集中在节点面板管理 */
+const isGenericAgentRegistered = computed(() => isGenericAgentSelected.value && !currentAgentSpec.value)
+
+/** 注册式节点：跳转到「节点面板 → 通用 Agent」进行元数据编辑 */
+function gotoNodePanelAgent() {
+  if (!editor.selectedNode) return
+  requestOpenAgentEditor(editor.selectedNode.nodeId)
+}
+
+/** 用户手动选择的子图模式（覆盖数据驱动判断）。
+ *  当用户点击 radio 切到"引用"但还未选具体图时，用此 ref 保持 radio 停在"引用"，
+ *  让引用选择器立即可见；切换节点时自动重置。 */
+const subgraphModeOverride = ref(null)
+
+/** 实际展示的子图模式：用户选择优先，否则根据数据判断 */
+const subgraphMode = computed(() => {
+  if (subgraphModeOverride.value) return subgraphModeOverride.value
+  return selectedNodeMeta.value?.subgraphRef ? 'reference' : 'inline'
+})
+
+// 选中不同节点时重置 override；selectedNode 变 null（选中丢失）时不重置，避免 radio 弹回
+watch(() => editor.selectedNode?.nodeId, (newId) => {
+  if (newId) subgraphModeOverride.value = null
+})
+
+/** 当前引用型子图锁定的版本号（'' 表示跟随最新）。解析 subgraphRef 的 @version 后缀。 */
+const currentLockedVersion = computed(() => editor.versionOfSubgraphRef(selectedNodeMeta.value?.subgraphRef || ''))
+/** 当前引用型子图的图 ID（剥离 @version）。 */
+const currentRefGraphId = computed(() => editor.graphIdOfSubgraphRef(selectedNodeMeta.value?.subgraphRef || ''))
+
+/** 选中 SUBGRAPH 节点时：预加载图列表 + 已有引用图的版本列表 */
+watch(() => editor.selectedNode?.category, (cat) => {
+  if (cat === 'SUBGRAPH') {
+    editor.loadGraphIds()
+    const ref = selectedNodeMeta.value?.subgraphRef
+    if (ref) editor.loadSubgraphRefVersions(editor.graphIdOfSubgraphRef(ref))
+  }
+})
+
+/** 版本锁定下拉变更：空=跟随最新，非空=锁定该版本 */
+function onSubgraphVersionLockChange(val) {
+  editor.lockSubgraphVersion(val || '')
+}
+
+function onRenameNode(val) {
+  if (!editor.selectedNode) return
+  const next = (val || '').trim()
+  if (next && next !== editor.selectedNode.nodeId) editor.renameSelectedNode(next)
+}
+
+function onRenameDisplayName(val) {
+  if (!editor.selectedNode) return
+  editor.updateSubgraphNodeMeta({ nodeId: editor.selectedNode.nodeId, displayName: val || '' })
+}
+
+/** 切 radio：纯 UI 行为，不调用 store。
+ *  - 切到"引用"：只设 override 让下拉出现，不动数据（避免触发重渲染丢选中）
+ *  - 切到"内联"：也只设 override；空子图创建延迟到用户实际进入时
+ *  - 真正设 subgraphRef 发生在 onSubgraphRefChange（用户从下拉选了具体图后）
+ *
+ *  说明：与 store 真实状态可能存在短暂不一致（radio 显示"内联"但 subgraphRef 仍有值），
+ *  直到用户做下一步动作（下拉选图 / 进入子图 / 保存）才会被 resolve。
+ *  这是为了避免切 radio 触发 LogicFlow 重渲染导致选中丢失。 */
+function onSubgraphModeChange(val) {
+  subgraphModeOverride.value = val
+  // 不调用 store
+}
+
+function onSubgraphRefChange(val) {
+  subgraphModeOverride.value = null  // 选了具体图后，override 失效，回到数据驱动
+  if (!editor.selectedNode) return
+  editor.updateSubgraphNodeMeta({ nodeId: editor.selectedNode.nodeId, mode: 'reference', subgraphRef: val || '' })
+}
+
+/** 进入子图前先同步数据：把 radio 显示的意图落库，避免「radio=内联但 subgraphRef 还有值」的脏状态 */
+async function onEnterSubgraphClick() {
+  if (!editor.selectedNode) return
+  const nodeId = editor.selectedNode.nodeId
+  const meta = selectedNodeMeta.value
+  if (!meta) return
+  // radio 显示"内联"且当前是引用型（subgraphRef 有值）→ 落库切回内联（清 ref + 建空 subgraph）
+  if (subgraphModeOverride.value === 'inline' && meta.subgraphRef) {
+    editor.updateSubgraphNodeMeta({ nodeId, mode: 'inline' })
+    // 让 Vue 完成本次重渲染（mutate → nextTick）后再进入，避免争用
+    await nextTick()
+  }
+  editor.enterSubgraph(nodeId)
+}
 
 const configSchemaEntries = computed(() => {
   const props = selectedDescriptor.value?.configurableProps || {}
@@ -53,6 +166,48 @@ function onConfigChange(key, value) {
   editor.updateSelectedNodeConfig({ ...editor.selectedNode.config })
 }
 
+/* ───────── 通用 Agent 节点 agentSpec 编辑 ───────── */
+// 从 selectedNodeMeta（store 中完整节点对象）读取 agentSpec，而不从 selectedNode（浅引用）读取。
+// 原因：setSelectedNode 只透传 nodeId/config/category，不携带 agentSpec；完整节点在 editor.nodes 中。
+const currentAgentSpec = computed(() => selectedNodeMeta.value?.agentSpec || null)
+
+/** 掩码态下 API Key 输入框留空（避免把掩码字符串当真实 key 回写）；非掩码态显示真实值 */
+const agentSpecApiKeyDisplay = computed(() => {
+  const s = currentAgentSpec.value
+  if (!s) return ''
+  return s.apiKeyMasked ? '' : (s.modelApiKey || '')
+})
+
+function onAgentSpecField(field, value) {
+  const s = currentAgentSpec.value
+  if (!s) return
+  const next = { ...s, [field]: value }
+  editor.updateSelectedAgentSpec(next)
+}
+
+/** API Key 输入：掩码态下留空表示保持原值；输入非空值则覆盖并清除掩码标记 */
+function onAgentSpecApiKeyInput(val) {
+  const s = currentAgentSpec.value
+  if (!s) return
+  if (s.apiKeyMasked && (val === '' || val == null)) return // 保持原掩码值
+  const next = { ...s, modelApiKey: val ?? '', apiKeyMasked: false }
+  editor.updateSelectedAgentSpec(next)
+}
+
+/** tools 数组 ↔ 逗号分隔文本 */
+const agentSpecToolsText = computed(() => {
+  const s = currentAgentSpec.value
+  if (!s || !Array.isArray(s.tools)) return ''
+  return s.tools.join(', ')
+})
+
+function onAgentSpecToolsInput(text) {
+  const s = currentAgentSpec.value
+  if (!s) return
+  const arr = (text || '').split(',').map(x => x.trim()).filter(Boolean)
+  editor.updateSelectedAgentSpec({ ...s, tools: arr })
+}
+
 function addKey() {
   editor.keyStrategies[`custom_${Date.now()}`] = 'REPLACE'
 }
@@ -68,6 +223,8 @@ const edgeCondition = ref('')
 const edgeMappingRows = ref([])
 
 const edgeIsConditional = computed(() => editor.selectedEdge?.type === 'conditional')
+const edgeIsParallel = computed(() => editor.selectedEdge?.parallel === true)
+const edgeAggregation = computed(() => editor.selectedEdge?.aggregation || '')
 
 const edgeNodeOptions = computed(() => {
   // dispatcher 模式：target 只能在该 dispatcher 声明的 possibleTargets 范围内选择
@@ -162,6 +319,22 @@ function convertEdge() {
   const e = editor.selectedEdge
   if (e) editor.requestEdgeConvert(e.lfEdgeId)
 }
+
+function onParallelChange(val) {
+  editor.updateSelectedEdgeParallel(val)
+}
+
+function onAggregationChange(val) {
+  editor.updateSelectedEdgeAggregation(val)
+}
+
+/* ───────── 流式 / 异步节点开关（G7 可视化区分） ───────── */
+const nodeIsStreaming = computed(() => !!editor.selectedNode?.config?.streaming)
+function onStreamingChange(val) {
+  if (!editor.selectedNode) return
+  editor.selectedNode.config.streaming = val
+  editor.updateSelectedNodeConfig({ ...editor.selectedNode.config })
+}
 </script>
 
 <template>
@@ -215,6 +388,17 @@ function convertEdge() {
             <el-form-item :label="t('edgeEditor.to')">
               <el-input :model-value="editor.selectedEdge.to" disabled />
             </el-form-item>
+            <el-form-item :label="t('edgeEditor.parallel')">
+              <el-switch :model-value="edgeIsParallel" @update:model-value="onParallelChange" />
+              <span class="hint" style="margin-left: 8px;">{{ t('edgeEditor.parallelHint') }}</span>
+            </el-form-item>
+            <el-form-item v-if="edgeIsParallel" :label="t('edgeEditor.aggregation')">
+              <el-select :model-value="edgeAggregation" @update:model-value="onAggregationChange" style="width: 100%;">
+                <el-option :label="t('edgeEditor.aggregationNone')" value="" />
+                <el-option :label="t('edgeEditor.aggregationAllOf')" value="ALL_OF" />
+                <el-option :label="t('edgeEditor.aggregationAnyOf')" value="ANY_OF" />
+              </el-select>
+            </el-form-item>
             <el-alert :title="t('edgeEditor.noConditional')" type="info" :closable="false" />
             <el-form-item>
               <el-button size="small" @click="convertEdge">{{ t('edgeEditor.convert') }}</el-button>
@@ -227,7 +411,211 @@ function convertEdge() {
     <el-tabs v-else v-model="activeTab" :class="{ 'embedded-tabs': embedded }">
       <el-tab-pane :label="t('propertyPanel.tabNode')" name="node">
         <template v-if="editor.selectedNode && selectedDescriptor">
-          <el-form label-width="100px" size="small">
+          <!-- 结构型节点：子图 / Agent / 通用 Agent -->
+          <el-form v-if="isStructuralSelected" label-width="120px" size="small">
+            <el-alert v-if="isAgentSelected" :title="t('propertyPanel.agentNote')" type="info" :closable="false" style="margin-bottom: 8px;" />
+            <el-alert v-if="isGenericAgentSelected && currentAgentSpec" :title="t('propertyPanel.genericAgentNote')" type="info" :closable="false" style="margin-bottom: 8px;" />
+            <el-alert v-else-if="isGenericAgentSelected" :title="t('propertyPanel.genericAgentRegisteredTitle')" type="info" :closable="false" style="margin-bottom: 8px;" />
+            <el-form-item :label="t('propertyPanel.nodeId')">
+              <el-input :model-value="editor.selectedNode.nodeId" :disabled="isGenericAgentRegistered" @update:model-value="onRenameNode" />
+            </el-form-item>
+            <el-form-item :label="t('propertyPanel.displayName')">
+              <el-input :model-value="selectedNodeMeta?.displayName || ''" :disabled="isGenericAgentRegistered" @update:model-value="onRenameDisplayName" />
+            </el-form-item>
+            <template v-if="isSubgraphSelected">
+              <el-form-item :label="t('propertyPanel.subgraphMode')">
+                <el-radio-group :model-value="subgraphMode" @update:model-value="onSubgraphModeChange">
+                  <el-radio value="inline">{{ t('propertyPanel.inline') }}</el-radio>
+                  <el-radio value="reference">{{ t('propertyPanel.reference') }}</el-radio>
+                </el-radio-group>
+              </el-form-item>
+              <el-form-item v-if="subgraphMode === 'reference'" :label="t('propertyPanel.subgraphRef')">
+                <el-select
+                  :model-value="currentRefGraphId"
+                  filterable allow-create
+                  :placeholder="t('propertyPanel.subgraphRefPlaceholder')"
+                  :no-data-text="t('propertyPanel.subgraphRefEmpty')"
+                  @update:model-value="onSubgraphRefChange"
+                  style="width: 100%;"
+                >
+                  <el-option v-for="gid in editor.graphIds" :key="gid" :label="gid" :value="gid" />
+                </el-select>
+                <span v-if="!editor.graphIds.length" class="hint" style="display:block; margin-top:4px;">
+                  {{ t('propertyPanel.subgraphRefEmptyHint') }}
+                </span>
+                <span v-else class="hint" style="display:block; margin-top:4px;">
+                  {{ t('propertyPanel.subgraphRefHint') }}
+                </span>
+              </el-form-item>
+              <!-- P2：版本锁定下拉（选了引用图后出现） -->
+              <el-form-item
+                v-if="subgraphMode === 'reference' && currentRefGraphId"
+                :label="t('propertyPanel.subgraphVersion')"
+              >
+                <el-select
+                  :model-value="currentLockedVersion"
+                  :placeholder="t('propertyPanel.subgraphVersionLatest')"
+                  :loading="editor.subgraphRefVersionsLoading"
+                  @update:model-value="onSubgraphVersionLockChange"
+                  style="width: 100%;"
+                >
+                  <el-option :label="t('propertyPanel.subgraphVersionLatest')" value="" />
+                  <el-option
+                    v-for="ver in editor.subgraphRefVersions"
+                    :key="ver"
+                    :label="ver"
+                    :value="ver"
+                  />
+                </el-select>
+                <span class="hint" style="display:block; margin-top:4px;">
+                  {{ currentLockedVersion
+                      ? t('propertyPanel.subgraphVersionLocked', { version: currentLockedVersion })
+                      : t('propertyPanel.subgraphVersionHint') }}
+                </span>
+              </el-form-item>
+              <el-form-item>
+                <el-button type="primary" size="small" @click="onEnterSubgraphClick">
+                  {{ t('propertyPanel.enterSubgraph') }}
+                </el-button>
+                <el-button size="small" @click="editor.openSubgraphPreview(editor.selectedNode.nodeId)">
+                  {{ t('propertyPanel.previewSubgraph') }}
+                </el-button>
+                <span class="hint" style="margin-left: 8px;">{{ t('propertyPanel.enterSubgraphHint') }}</span>
+              </el-form-item>
+            </template>
+
+            <!-- 通用 Agent 节点 agentSpec 配置区 -->
+            <template v-if="isGenericAgentSelected && currentAgentSpec">
+              <el-divider content-position="left">{{ t('propertyPanel.agentSpec.modelId') }}</el-divider>
+              <el-form-item :label="t('propertyPanel.agentSpec.modelBaseUrl')">
+                <el-input
+                  :model-value="currentAgentSpec.modelBaseUrl || ''"
+                  @update:model-value="onAgentSpecField('modelBaseUrl', $event)"
+                  placeholder="https://api.example.com/v1"
+                />
+              </el-form-item>
+              <el-form-item :label="currentAgentSpec.apiKeyMasked ? t('propertyPanel.agentSpec.modelApiKeyMasked') : t('propertyPanel.agentSpec.modelApiKey')">
+                <el-input
+                  type="password"
+                  show-password
+                  :model-value="agentSpecApiKeyDisplay"
+                  @update:model-value="onAgentSpecApiKeyInput"
+                  :placeholder="currentAgentSpec.apiKeyMasked ? '******' : 'sk-...'"
+                />
+                <span v-if="currentAgentSpec.apiKeyMasked" class="hint" style="display:block; margin-top:4px;">
+                  {{ t('propertyPanel.agentSpec.modelApiKeyMaskedHint') }}
+                </span>
+              </el-form-item>
+              <el-form-item :label="t('propertyPanel.agentSpec.modelId')">
+                <el-input
+                  :model-value="currentAgentSpec.modelId || ''"
+                  @update:model-value="onAgentSpecField('modelId', $event)"
+                  placeholder="gpt-4o / qwen-max / ..."
+                />
+              </el-form-item>
+
+              <el-divider content-position="left">{{ t('propertyPanel.agentSpec.prompt') }}</el-divider>
+              <el-form-item :label="t('propertyPanel.agentSpec.prompt')">
+                <el-input
+                  type="textarea"
+                  :rows="4"
+                  :model-value="currentAgentSpec.prompt || ''"
+                  @update:model-value="onAgentSpecField('prompt', $event)"
+                  placeholder="You are a helpful assistant..."
+                />
+              </el-form-item>
+              <el-form-item :label="t('propertyPanel.agentSpec.promptKey')">
+                <el-input
+                  :model-value="currentAgentSpec.promptKey || ''"
+                  @update:model-value="onAgentSpecField('promptKey', $event)"
+                  placeholder="prompts:consult_v2"
+                />
+                <span class="hint" style="display:block; margin-top:4px;">{{ t('propertyPanel.agentSpec.promptHint') }}</span>
+              </el-form-item>
+
+              <el-divider content-position="left">{{ t('propertyPanel.agentSpec.skill') }}</el-divider>
+              <el-form-item :label="t('propertyPanel.agentSpec.skill')">
+                <el-input
+                  :model-value="currentAgentSpec.skill || ''"
+                  @update:model-value="onAgentSpecField('skill', $event)"
+                  placeholder="skill:tax_calc"
+                />
+              </el-form-item>
+              <el-form-item :label="t('propertyPanel.agentSpec.skillKey')">
+                <el-input
+                  :model-value="currentAgentSpec.skillKey || ''"
+                  @update:model-value="onAgentSpecField('skillKey', $event)"
+                  placeholder="skills:tax_calc"
+                />
+                <span class="hint" style="display:block; margin-top:4px;">{{ t('propertyPanel.agentSpec.skillHint') }}</span>
+              </el-form-item>
+
+              <el-divider content-position="left">{{ t('propertyPanel.agentSpec.mcp') }}</el-divider>
+              <el-form-item :label="t('propertyPanel.agentSpec.mcp')">
+                <el-input
+                  :model-value="currentAgentSpec.mcp || ''"
+                  @update:model-value="onAgentSpecField('mcp', $event)"
+                  placeholder="mcp:filesystem"
+                />
+              </el-form-item>
+              <el-form-item :label="t('propertyPanel.agentSpec.mcpKey')">
+                <el-input
+                  :model-value="currentAgentSpec.mcpKey || ''"
+                  @update:model-value="onAgentSpecField('mcpKey', $event)"
+                  placeholder="mcps:filesystem"
+                />
+                <span class="hint" style="display:block; margin-top:4px;">{{ t('propertyPanel.agentSpec.mcpHint') }}</span>
+              </el-form-item>
+
+              <el-divider content-position="left">{{ t('propertyPanel.agentSpec.tools') }}</el-divider>
+              <el-form-item :label="t('propertyPanel.agentSpec.tools')">
+                <el-input
+                  :model-value="agentSpecToolsText"
+                  @update:model-value="onAgentSpecToolsInput"
+                  placeholder="search, calculator, ..."
+                />
+                <span class="hint" style="display:block; margin-top:4px;">{{ t('propertyPanel.agentSpec.toolsHint') }}</span>
+              </el-form-item>
+
+              <el-divider content-position="left">{{ t('propertyPanel.inputKeys') }}</el-divider>
+              <el-form-item :label="t('propertyPanel.agentSpec.inputKeys')">
+                <el-input
+                  :model-value="currentAgentSpec.inputKeys || ''"
+                  @update:model-value="onAgentSpecField('inputKeys', $event)"
+                  placeholder="user_query, context"
+                />
+                <span class="hint" style="display:block; margin-top:4px;">{{ t('propertyPanel.agentSpec.inputKeysHint') }}</span>
+              </el-form-item>
+              <el-form-item :label="t('propertyPanel.agentSpec.outputKey')">
+                <el-input
+                  :model-value="currentAgentSpec.outputKey || ''"
+                  @update:model-value="onAgentSpecField('outputKey', $event)"
+                  placeholder="agent_result"
+                />
+                <span class="hint" style="display:block; margin-top:4px;">{{ t('propertyPanel.agentSpec.outputKeyHint') }}</span>
+              </el-form-item>
+            </template>
+
+            <!-- 注册式（引用型）通用 Agent 节点：元数据集中在「节点面板 → 通用 Agent」管理，此处只读展示引用 -->
+            <template v-else-if="isGenericAgentSelected">
+              <el-form-item>
+                <el-button size="small" type="primary" @click="gotoNodePanelAgent">{{ t('propertyPanel.genericAgentEditInPanel') }}</el-button>
+                <span class="hint" style="margin-left:8px;">{{ t('propertyPanel.genericAgentEditInPanelHint') }}</span>
+              </el-form-item>
+            </template>
+
+            <el-divider v-if="!isGenericAgentRegistered" />
+            <el-form-item v-if="!isGenericAgentRegistered" :label="t('propertyPanel.origin')">
+              <el-tag size="small" type="warning">STRUCTURAL</el-tag>
+            </el-form-item>
+            <el-form-item v-if="!isGenericAgentRegistered" :label="t('propertyPanel.streaming')">
+              <el-switch :model-value="nodeIsStreaming" @update:model-value="onStreamingChange" />
+              <span class="hint" style="margin-left: 8px;">{{ t('propertyPanel.streamingHint') }}</span>
+            </el-form-item>
+          </el-form>
+
+          <!-- 普通 / 脚本节点 -->
+          <el-form v-else label-width="100px" size="small">
             <el-form-item :label="t('propertyPanel.nodeId')">
               <el-input :model-value="editor.selectedNode.nodeId" disabled />
             </el-form-item>
@@ -283,7 +671,12 @@ function convertEdge() {
                 />
               </el-form-item>
             </template>
-            <el-empty v-if="configSchemaEntries.length === 0" :description="t('propertyPanel.noConfig')" :image-size="40" />
+            <el-divider />
+            <el-form-item :label="t('propertyPanel.streaming')">
+              <el-switch :model-value="nodeIsStreaming" @update:model-value="onStreamingChange" />
+              <span class="hint" style="margin-left: 8px;">{{ t('propertyPanel.streamingHint') }}</span>
+            </el-form-item>
+            <el-empty v-if="configSchemaEntries.length === 0 && !nodeIsStreaming" :description="t('propertyPanel.noConfig')" :image-size="40" />
           </el-form>
         </template>
         <el-empty v-else :description="t('propertyPanel.clickNode')" :image-size="60" />
@@ -368,11 +761,62 @@ function convertEdge() {
         <el-empty v-else :description="t('propertyPanel.previewHint')" :image-size="60" />
       </el-tab-pane>
     </el-tabs>
+
+    <!-- 嵌套子图预览弹窗 -->
+    <el-dialog
+      v-model="editor.subgraphPreviewOpen"
+      :title="t('propertyPanel.previewSubgraphTitle') + '：' + editor.subgraphPreviewTitle"
+      width="760px"
+      top="5vh"
+      append-to-body
+      @close="editor.closeSubgraphPreview"
+    >
+      <div v-if="editor.subgraphPreviewLoading" class="mp-loading">
+        <el-icon class="is-loading"><Loading /></el-icon>
+        <span style="margin-left: 6px;">{{ t('propertyPanel.previewLoading') }}</span>
+      </div>
+      <template v-else>
+        <el-alert
+          v-if="editor.subgraphPreviewError"
+          type="error"
+          :closable="false"
+          :title="t('propertyPanel.previewLoadFailed') + editor.subgraphPreviewError"
+          style="margin-bottom: 8px;"
+        />
+        <template v-else>
+          <el-tag v-if="editor.subgraphPreviewIsCompiled" size="small" type="success" effect="plain">
+            {{ t('propertyPanel.previewCompiledNote') }}
+          </el-tag>
+          <el-tag v-else size="small" type="warning" effect="plain">
+            {{ t('propertyPanel.previewFallbackNote') }}
+          </el-tag>
+          <div style="margin-top: 8px;">
+            <MermaidPreview :source="editor.subgraphPreviewMermaid" />
+          </div>
+          <el-empty v-if="editor.subgraphPreviewEmpty" :description="t('propertyPanel.previewEmpty')" :image-size="50" />
+        </template>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
 <style scoped>
 .property-panel { padding: 12px; }
+.mp-loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 40px 0;
+  color: var(--agd-color-text-secondary, #909399);
+  font-size: 13px;
+}
+.mp-loading .is-loading {
+  animation: agd-spin 1s linear infinite;
+}
+@keyframes agd-spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
 .property-panel--embedded {
   padding: 8px 10px 10px;
 }

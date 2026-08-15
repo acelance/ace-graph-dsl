@@ -32,10 +32,11 @@ public class GraphNodeRegistry {
         }
     }
 
-    /** 注册动态脚本节点（运行时） */
+    /** 注册动态节点（运行时）：脚本节点或通用 agent 节点 */
     public void registerDynamic(RegisteredGraphNode node) {
-        if (node.descriptor().origin() != NodeOrigin.SCRIPT) {
-            throw new IllegalArgumentException("registerDynamic 仅支持 SCRIPT 来源节点: " + node.descriptor().nodeId());
+        NodeOrigin origin = node.descriptor().origin();
+        if (origin != NodeOrigin.SCRIPT && origin != NodeOrigin.GENERIC_AGENT) {
+            throw new IllegalArgumentException("registerDynamic 仅支持 SCRIPT / GENERIC_AGENT 来源节点: " + node.descriptor().nodeId());
         }
         String nodeId = node.descriptor().nodeId();
         RegisteredGraphNode existing = nodesById.get(nodeId);
@@ -45,10 +46,11 @@ public class GraphNodeRegistry {
         nodesById.put(nodeId, node);
     }
 
-    /** 注销动态脚本节点 */
+    /** 注销动态节点（脚本 / 通用 agent） */
     public void unregisterDynamic(String nodeId) {
         RegisteredGraphNode node = nodesById.get(nodeId);
-        if (node != null && node.descriptor().origin() == NodeOrigin.SCRIPT) {
+        if (node != null && (node.descriptor().origin() == NodeOrigin.SCRIPT
+                || node.descriptor().origin() == NodeOrigin.GENERIC_AGENT)) {
             nodesById.remove(nodeId);
         }
     }
@@ -80,5 +82,21 @@ public class GraphNodeRegistry {
     /** 判断 nodeId 是否已注册 */
     public boolean contains(String nodeId) {
         return nodesById.containsKey(nodeId);
+    }
+
+    /**
+     * 返回第一个已注册的 {@link RegisteredAgentNode} 实现（全图唯一 agent 内核）。
+     *
+     * <p>Agent 节点的业务 nodeId 由 DSL 自由命名（非固定 {@code agent:script}），
+     * 编译/校验时通过类别解析实现，而非按 nodeId 查表。当前仅 {@code ScriptAgentNode}
+     * 一种实现，故返回首个匹配即可。</p>
+     */
+    public RegisteredAgentNode getAgentNode() {
+        for (RegisteredGraphNode node : nodesById.values()) {
+            if (node instanceof RegisteredAgentNode agent) {
+                return agent;
+            }
+        }
+        return null;
     }
 }

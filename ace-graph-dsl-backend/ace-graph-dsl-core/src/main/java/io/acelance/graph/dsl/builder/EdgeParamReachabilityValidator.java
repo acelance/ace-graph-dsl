@@ -86,10 +86,14 @@ public class EdgeParamReachabilityValidator {
     /**
      * 豁免规则：
      * 1. START 出边：目标入参来自图调用初始 state，非上游节点产出；
-     * 2. 目标为 HITL：入参来自 interrupt/resume 注入，非直接前驱产出。
+     * 2. 错误边（ERROR 出边）：目标为错误处理器，入参来自框架注入的错误状态，非前驱产出；
+     * 3. 目标为 HITL：入参来自 interrupt/resume 注入，非直接前驱产出。
      */
     private boolean shouldSkipEdgeValidation(String from, String to) {
         if (GraphDefinition.START.equals(from)) {
+            return true;
+        }
+        if (GraphDefinition.ERROR.equals(from)) {
             return true;
         }
         return isHitlNode(to);
