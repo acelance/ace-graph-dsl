@@ -1,10 +1,13 @@
 package io.acelance.graph.dsl.autoconfigure;
 
 import io.acelance.graph.dsl.security.menu.GraphMenuAccessControl;
+import io.acelance.graph.dsl.streaming.GraphStreamBridge;
+import io.acelance.graph.dsl.streaming.ReactorGraphStreamBridge;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.BeanFactory;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnWebApplication;
 import org.springframework.context.annotation.Bean;
@@ -62,6 +65,19 @@ public class AceGraphDslWebConfiguration implements WebMvcConfigurer {
         }
         configurer.addPathPrefix(basePath,
                 clazz -> clazz.getPackageName().startsWith(WEB_PACKAGE));
+    }
+
+    /**
+     * LLM 逐 token 流式桥接器（按 runId 汇聚片段，由控制器合并进 SSE）。
+     *
+     * <p>仅在 Web 层启用时注册：若没有控制器消费，节点侧 {@code GenericAgentNode} 会因找不到该
+     * Bean 而回落到 {@link io.acelance.graph.dsl.streaming.GraphStreamBridge#NOOP}，不会向无人订阅的
+     * Sink 写入、导致 runId 泄漏。</p>
+     */
+    @Bean
+    @ConditionalOnMissingBean(GraphStreamBridge.class)
+    public GraphStreamBridge graphStreamBridge() {
+        return new ReactorGraphStreamBridge();
     }
 
     @Override

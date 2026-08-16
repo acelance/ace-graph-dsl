@@ -7,12 +7,22 @@ import com.alibaba.cloud.ai.graph.RunnableConfig;
 import com.alibaba.cloud.ai.graph.exception.SubGraphInterruptionException;
 import com.alibaba.cloud.ai.graph.internal.node.ResumableSubGraphAction;
 import com.alibaba.cloud.ai.graph.state.StateSnapshot;
+import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.acelance.graph.dsl.autoconfigure.AceGraphDslBeans;
+import io.acelance.graph.dsl.runtime.ModelOverrideSpec;
+import io.acelance.graph.dsl.execution.AdapterDelegatingStreamingChunkFormatter;
+import io.acelance.graph.dsl.execution.DefaultGraphExecutionEventAdapter;
+import io.acelance.graph.dsl.execution.DefaultStreamingChunkFormatter;
 import io.acelance.graph.dsl.execution.GraphExecutionEventAdapter;
+import io.acelance.graph.dsl.execution.StreamingChunkFormatter;
+import io.acelance.graph.dsl.execution.StreamingContext;
+import io.acelance.graph.dsl.streaming.GraphStreamBridge;
+import io.acelance.graph.dsl.streaming.TokenChunk;
 import io.acelance.graph.dsl.store.GraphRuntime;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.http.MediaType;
@@ -24,6 +34,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 import reactor.core.Disposable;
+import reactor.core.publisher.Flux;
 
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -38,7 +49,11 @@ import java.util.UUID;
  * 无需自写 Controller 即可运行已发布的图：同步 {@code invoke}、流式 {@code stream}（SSE）、
  * HITL {@code resume}。复杂业务仍可自写 Controller。</p>
  *
- * <p>事件结构由 {@link GraphExecutionEventAdapter} 决定，宿主可自定义。</p>
+ * <h2>流式输出与定制</h2>
+ * <p>{@code /stream} 与 {@code /resume} 把「图执行 flux」与「LLM 逐 token 桥接 flux」合并后，
+ * 经 {@link StreamingChunkFormatter} 转换每个片段再下发。业务未定制时输出原生 SSE 格式；
+ * 业务只需提供一个 {@code @Bean StreamingChunkFormatter} 即可按自身前后端协议输出
+ * （例如 JSON 协议 chunk、携带 {@code thinking}/{@code isEnd} 等业务字段）。</p>
  */
 @RestController
 @RequestMapping("/execution")
@@ -50,32 +65,39 @@ public class GraphExecutionController {
     private final GraphRuntime runtime;
     private final GraphExecutionEventAdapter eventAdapter;
     private final ObjectMapper objectMapper;
+    private final GraphStreamBridge streamBridge;
+    private final ObjectProvider<StreamingChunkFormatter> formatterProvider;
 
     public GraphExecutionController(GraphRuntime runtime,
                                     GraphExecutionEventAdapter eventAdapter,
-                                    @Qualifier(AceGraphDslBeans.OBJECT_MAPPER) ObjectMapper objectMapper) {
+                                    @Qualifier(AceGraphDslBeans.OBJECT_MAPPER) ObjectMapper objectMapper,
+                                    GraphStreamBridge streamBridge,
+                                    ObjectProvider<StreamingChunkFormatter> formatterProvider) {
         this.runtime = runtime;
         this.eventAdapter = eventAdapter;
         this.objectMapper = objectMapper;
+        this.streamBridge = streamBridge;
+        this.formatterProvider = formatterProvider;
     }
 
     /** 同步执行，返回最终状态。 */
     @PostMapping("/{graphId}/invoke")
     public Map<String, Object> invoke(@PathVariable String graphId,
                                       @RequestBody(required = false) ExecutionRequest req) {
+        String threadId = resolveThreadId(req);
         CompiledGraph graph = runtime.get(graphId);
-        RunnableConfig config = RunnableConfig.builder().threadId(resolveThreadId(req)).build();
-        Optional<OverAllState> result = graph.invoke(inputs(req), config);
-        return result.map(OverAllState::data).orElse(Map.of());
+        Optional<OverAllState> result = graph.invoke(inputs(req, threadId), buildConfig(threadId));
+        return result.map(s -> stripReserved(s.data())).orElse(Map.of());
     }
 
     /** 流式执行（SSE）。 */
     @PostMapping(value = "/{graphId}/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
     public SseEmitter stream(@PathVariable String graphId,
                              @RequestBody(required = false) ExecutionRequest req) {
+        String threadId = resolveThreadId(req);
         CompiledGraph graph = runtime.get(graphId);
-        RunnableConfig config = RunnableConfig.builder().threadId(resolveThreadId(req)).build();
-        return toSse(graph.stream(inputs(req), config));
+        return toSse(graph.stream(inputs(req, threadId), buildConfig(threadId)),
+                graphId, threadId, resolveFormatter());
     }
 
     /** HITL 恢复执行（SSE）：写回反馈 / 状态后从断点继续。
@@ -108,7 +130,7 @@ public class GraphExecutionController {
         }
         RunnableConfig updated = graph.updateState(
                 config, req.updates() != null ? req.updates() : Map.of(), null);
-        return toSse(graph.stream(null, updated));
+        return toSse(graph.stream(null, updated), graphId, req.threadId(), resolveFormatter());
     }
 
     /** 查询顶层图的断点状态（HITL 暂停节点 + state 快照）。 */
@@ -154,58 +176,126 @@ public class GraphExecutionController {
         result.put("exists", true);
         result.put("next", snapshot.next());
         result.put("node", snapshot.node());
-        result.put("state", snapshot.state() != null ? snapshot.state().data() : Map.of());
+        result.put("state", snapshot.state() != null ? stripReserved(snapshot.state().data()) : Map.of());
         return result;
     }
 
-    private SseEmitter toSse(reactor.core.publisher.Flux<NodeOutput> flux) {
+    /**
+     * 合并「图执行 flux」与「桥接 token flux」并经格式化器下发 SSE。
+     *
+     * <p>控制器先为本次 {@code threadId} 注册桥接通道并订阅，再触发图执行（节点执行期会通过
+     * 桥接器把逐 token 片段推入该通道）；流结束 / 异常时 {@link GraphStreamBridge#complete(String)}
+     * 关闭通道，避免 runId 泄漏。</p>
+     */
+    private SseEmitter toSse(Flux<NodeOutput> graphFlux,
+                             String graphId,
+                             String threadId,
+                             StreamingChunkFormatter formatter) {
         SseEmitter emitter = new SseEmitter(0L);
-        Disposable subscription = flux
-                .filter(Objects::nonNull)
-                .subscribe(
-                        output -> sendEvent(emitter, output),
-                        error -> {
-                            // G4 子图内 HITL：SubGraphInterruptionException 是"暂停"而非"错误"
-                            Optional<SubGraphInterruptionException> subEx = SubGraphInterruptionException.from(error);
-                            if (subEx.isPresent()) {
-                                try {
-                                    Map<String, Object> event = new LinkedHashMap<>();
-                                    event.put("type", "subgraph-interrupted");
-                                    event.put("parentNodeId", subEx.get().parentNodeId());
-                                    event.put("nodeId", subEx.get().nodeId());
-                                    event.put("state", subEx.get().state());
-                                    emitter.send(SseEmitter.event()
-                                            .name("subgraph-interrupted")
-                                            .data(objectMapper.writeValueAsString(event), MediaType.APPLICATION_JSON));
-                                    emitter.complete();
-                                    log.info("子图内 HITL 暂停: parentNodeId={}, nodeId={}",
-                                            subEx.get().parentNodeId(), subEx.get().nodeId());
-                                } catch (Exception e) {
-                                    emitter.completeWithError(e);
-                                }
-                            } else {
-                                log.warn("图流式执行异常", error);
-                                emitter.completeWithError(error);
-                            }
-                        },
-                        emitter::complete);
+        Flux<TokenChunk> bridgeFlux = streamBridge.register(threadId);
+        Flux<Object> merged = graphFlux.cast(Object.class).mergeWith(bridgeFlux.cast(Object.class));
+        Disposable subscription = merged.subscribe(
+                element -> {
+                    StreamingContext ctx = (element instanceof TokenChunk tc)
+                            ? StreamingContext.ofToken(tc, graphId)
+                            : StreamingContext.ofNode((NodeOutput) element, graphId);
+                    sendFormatted(emitter, formatter, ctx);
+                },
+                error -> {
+                    streamBridge.complete(threadId);
+                    handleStreamError(emitter, error);
+                },
+                () -> {
+                    streamBridge.complete(threadId);
+                    emitter.complete();
+                });
         emitter.onCompletion(subscription::dispose);
         emitter.onTimeout(subscription::dispose);
         emitter.onError(t -> subscription.dispose());
         return emitter;
     }
 
-    private void sendEvent(SseEmitter emitter, NodeOutput output) {
+    private void sendFormatted(SseEmitter emitter, StreamingChunkFormatter formatter, StreamingContext ctx) {
         try {
-            String json = objectMapper.writeValueAsString(eventAdapter.toPayload(output));
+            Object payload = formatter.format(ctx);
+            String json = objectMapper.writeValueAsString(payload);
             emitter.send(SseEmitter.event().data(json, MediaType.APPLICATION_JSON));
         } catch (Exception e) {
             emitter.completeWithError(e);
         }
     }
 
-    private static Map<String, Object> inputs(ExecutionRequest req) {
-        return req != null && req.inputs() != null ? req.inputs() : Map.of();
+    /** 图流式异常兜底：子图内 HITL 的 {@link SubGraphInterruptionException} 是"暂停"而非"错误"。 */
+    private void handleStreamError(SseEmitter emitter, Throwable error) {
+        Optional<SubGraphInterruptionException> subEx = SubGraphInterruptionException.from(error);
+        if (subEx.isPresent()) {
+            try {
+                Map<String, Object> event = new LinkedHashMap<>();
+                event.put("type", "subgraph-interrupted");
+                event.put("parentNodeId", subEx.get().parentNodeId());
+                event.put("nodeId", subEx.get().nodeId());
+                event.put("state", subEx.get().state());
+                emitter.send(SseEmitter.event()
+                        .name("subgraph-interrupted")
+                        .data(objectMapper.writeValueAsString(event), MediaType.APPLICATION_JSON));
+                emitter.complete();
+                log.info("子图内 HITL 暂停: parentNodeId={}, nodeId={}",
+                        subEx.get().parentNodeId(), subEx.get().nodeId());
+            } catch (Exception e) {
+                emitter.completeWithError(e);
+            }
+        } else {
+            log.warn("图流式执行异常", error);
+            emitter.completeWithError(error);
+        }
+    }
+
+    /**
+     * 解析流式格式化器（优先级）：
+     * <ol>
+     *   <li>自定义 {@code StreamingChunkFormatter} Bean → 业务定制格式；</li>
+     *   <li>否则若自定义了旧版 {@code GraphExecutionEventAdapter} → 委派给它（向后兼容）；</li>
+     *   <li>否则使用原生默认格式 {@link DefaultStreamingChunkFormatter}。</li>
+     * </ol>
+     */
+    private StreamingChunkFormatter resolveFormatter() {
+        StreamingChunkFormatter custom = formatterProvider.getIfAvailable();
+        if (custom != null) {
+            return custom;
+        }
+        if (!(eventAdapter instanceof DefaultGraphExecutionEventAdapter)) {
+            return new AdapterDelegatingStreamingChunkFormatter(eventAdapter);
+        }
+        return new DefaultStreamingChunkFormatter();
+    }
+
+    /** 合并用户 inputs 与运行态保留键（runId + 模型覆盖），注入初始 state。 */
+    private static Map<String, Object> inputs(ExecutionRequest req, String threadId) {
+        Map<String, Object> base = new LinkedHashMap<>();
+        if (req != null && req.inputs() != null) {
+            base.putAll(req.inputs());
+        }
+        // 保留键：runId 与 Langfuse trace 对齐；模型覆盖供节点执行层消费
+        base.put(ModelOverrideSpec.ACE_RUN_ID_KEY, threadId);
+        if (req != null && req.modelOverrides() != null) {
+            base.put(ModelOverrideSpec.ACE_MODEL_OVERRIDES_KEY, req.modelOverrides());
+        }
+        return base;
+    }
+
+    /** 构造执行配置（仅 threadId）。模型覆盖走 state 保留键，故无需写入 metadata。 */
+    private static RunnableConfig buildConfig(String threadId) {
+        return RunnableConfig.builder().threadId(threadId).build();
+    }
+
+    /** 剔除运行态保留键，避免泄漏到最终结果 / 状态快照。 */
+    private static Map<String, Object> stripReserved(Map<String, Object> data) {
+        if (data == null || data.isEmpty()) {
+            return data;
+        }
+        Map<String, Object> out = new LinkedHashMap<>(data);
+        out.keySet().removeIf(k -> k != null && k.startsWith(ModelOverrideSpec.ACE_RESERVED_PREFIX));
+        return out;
     }
 
     private static String resolveThreadId(ExecutionRequest req) {
@@ -215,8 +305,17 @@ public class GraphExecutionController {
         return UUID.randomUUID().toString();
     }
 
-    /** 执行请求体：图输入 + 可选 threadId。 */
-    public record ExecutionRequest(Map<String, Object> inputs, String threadId) {}
+    /**
+     * 执行请求体：图输入 + 可选 threadId + 可选请求级模型覆盖。
+     *
+     * <p>{@code modelOverrides} 用于在本次请求内动态指定某节点 / 全部 GENERIC_AGENT 节点使用的模型，
+     * 不修改图定义；优先级为 node 级 &gt; global 级。JSON 反序列化兼容顺序无关（均标注 @JsonProperty）。</p>
+     */
+    public record ExecutionRequest(
+            @JsonProperty("inputs") Map<String, Object> inputs,
+            @JsonProperty("threadId") String threadId,
+            @JsonProperty("modelOverrides") ModelOverrideSpec modelOverrides
+    ) {}
 
     /** HITL 恢复请求体：threadId + 写回状态 + 可选子图节点 ID（G4 子图内 HITL resume）。
      *

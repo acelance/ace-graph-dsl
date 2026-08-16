@@ -103,4 +103,24 @@ public record GenericAgentSpec(
         return new GenericAgentSpec(modelBaseUrl, realKey, false, modelId,
                 prompt, promptKey, skill, skillKey, mcp, mcpKey, tools, inputKeys, outputKey);
     }
+
+    /**
+     * 应用请求级模型覆盖生成新副本。
+     *
+     * <p>非空的覆盖项逐项替换；{@code modelApiKey} 被覆盖时视为明文（apiKeyMasked=false），
+     * 不再走 SecretResolver 还原。覆盖项为空的项沿用原值。无覆盖（{@code ov == null}）时返回自身。</p>
+     *
+     * @param ov 请求级模型覆盖（可空）
+     */
+    public GenericAgentSpec withOverride(io.acelance.graph.dsl.runtime.ModelOverride ov) {
+        if (ov == null) {
+            return this;
+        }
+        String baseUrl = ov.modelBaseUrl() != null ? ov.modelBaseUrl() : modelBaseUrl;
+        String apiKey = ov.modelApiKey() != null ? ov.modelApiKey() : modelApiKey;
+        boolean masked = ov.modelApiKey() != null ? false : apiKeyMasked;
+        String id = ov.modelId() != null ? ov.modelId() : modelId;
+        return new GenericAgentSpec(baseUrl, apiKey, masked, id,
+                prompt, promptKey, skill, skillKey, mcp, mcpKey, tools, inputKeys, outputKey);
+    }
 }

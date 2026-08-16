@@ -10,19 +10,18 @@
         <version>1.0.0</version>
     </parent>
 
-    <artifactId>ace-graph-dsl-core</artifactId>
-    <name>ace-graph-dsl-core</name>
-    <description>Core Graph DSL model, builder, registry and runtime</description>
+    <artifactId>ace-graph-dsl-langfuse</artifactId>
+    <name>ace-graph-dsl-langfuse</name>
+    <description>Optional Langfuse observability module for Ace Graph DSL (zero external deps, JDK HttpClient)</description>
 
     <dependencies>
         <dependency>
-            <groupId>com.alibaba.cloud.ai</groupId>
-            <artifactId>spring-ai-alibaba-graph-core</artifactId>
+            <groupId>io.acelance</groupId>
+            <artifactId>ace-graph-dsl-core</artifactId>
         </dependency>
-        <!-- 流式输出桥接（GraphStreamBridge）需要 reactor；graph-core 将其声明为 optional，故此处显式声明 -->
         <dependency>
-            <groupId>io.projectreactor</groupId>
-            <artifactId>reactor-core</artifactId>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-autoconfigure</artifactId>
         </dependency>
         <dependency>
             <groupId>org.springframework</groupId>
@@ -33,16 +32,9 @@
             <artifactId>jackson-databind</artifactId>
         </dependency>
         <dependency>
-            <groupId>org.slf4j</groupId>
-            <artifactId>slf4j-api</artifactId>
-        </dependency>
-        <dependency>
-            <groupId>jakarta.annotation</groupId>
-            <artifactId>jakarta.annotation-api</artifactId>
-        </dependency>
-        <dependency>
-            <groupId>com.googlecode.aviator</groupId>
-            <artifactId>aviator</artifactId>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-configuration-processor</artifactId>
+            <optional>true</optional>
         </dependency>
         <dependency>
             <groupId>org.springframework.boot</groupId>
@@ -53,7 +45,6 @@
 
     <build>
         <plugins>
-            <!-- 父 POM 默认 skipTests=true（发布场景）；core 模块的单元测试无外部依赖，始终执行 -->
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-surefire-plugin</artifactId>
@@ -64,5 +55,4 @@
             </plugin>
         </plugins>
     </build>
-
 </project>

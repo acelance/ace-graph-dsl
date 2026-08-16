@@ -2,11 +2,18 @@ package io.acelance.graph.dsl.agent;
 
 import com.alibaba.cloud.ai.graph.OverAllState;
 import com.alibaba.cloud.ai.graph.action.NodeAction;
+import com.alibaba.cloud.ai.graph.streaming.OutputType;
 import io.acelance.graph.dsl.definition.GenericAgentSpec;
+import io.acelance.graph.dsl.observability.TraceLLMEvent;
+import io.acelance.graph.dsl.observability.TraceRecorder;
 import io.acelance.graph.dsl.registry.GraphNodeDescriptor;
 import io.acelance.graph.dsl.registry.NodeOrigin;
 import io.acelance.graph.dsl.registry.NodeRuntimeContext;
 import io.acelance.graph.dsl.registry.RegisteredGraphNode;
+import io.acelance.graph.dsl.runtime.ModelOverride;
+import io.acelance.graph.dsl.runtime.ModelOverrideSpec;
+import io.acelance.graph.dsl.streaming.GraphStreamBridge;
+import io.acelance.graph.dsl.streaming.TokenChunk;
 import org.springframework.context.ApplicationContext;
 
 import java.util.LinkedHashMap;
@@ -123,40 +130,125 @@ public class GenericAgentNode implements RegisteredGraphNode {
             for (String key : spec.inputKeySet()) {
                 variables.put(key, state.value(key).orElse(null));
             }
-            return execute(variables);
+            // 请求级运行上下文来自 state 中的保留键：runId（与 Langfuse trace 对齐）+ 模型覆盖
+            String runId = readRunId(state);
+            ModelOverrideSpec overrides = readOverrides(state);
+            return execute(variables, runId, overrides);
         };
     }
 
     /**
-     * 以给定输入变量直接执行一次（不依赖 {@code OverAllState}）。
+     * 以给定输入变量执行一次（图内运行路径，可带请求级 runId / 模型覆盖）。
      *
      * <p>抽出这层是为了让「节点定义试跑」与「图内运行」共用同一条装配链路，
      * 避免试跑逻辑与真实执行逻辑漂移。</p>
      *
      * @param variables prompt 变量（通常来自 {@code spec.inputKeySet()} 对应的 state 值）
+     * @param runId     本次执行 runId（与 Langfuse trace 对齐；可空 → 不观测）
+     * @param overrides 请求级模型覆盖（可空 → 用图定义静态模型）
      * @return {@code { outputKey: 模型回复 }}
      */
+    public Map<String, Object> execute(Map<String, Object> variables, String runId, ModelOverrideSpec overrides) {
+        long startedAt = System.currentTimeMillis();
+        long startNanos = System.nanoTime();
+        Throwable error = null;
+        String modelId = spec.modelId();
+        String modelBaseUrl = spec.modelBaseUrl();
+        String promptTemplate = null;
+        String response = null;
+        try {
+            // 1. 还原 api-key
+            SecretResolver secretResolver = optionalBean(SecretResolver.class, new EnvSecretResolver());
+            GenericAgentSpec base = spec.withResolvedApiKey(
+                    secretResolver.resolveApiKey(graphId, nodeId, spec));
+
+            // 2. 请求级动态模型覆盖（node 级 > global 级）
+            GenericAgentSpec resolved = base;
+            ModelOverride ov = (overrides != null) ? overrides.effectiveFor(nodeId) : null;
+            if (ov != null) {
+                resolved = base.withOverride(ov);
+            }
+            modelId = resolved.modelId();
+            modelBaseUrl = resolved.modelBaseUrl();
+
+            // 3. 解析 prompt（内联优先，否则 promptKey）
+            promptTemplate = resolvePrompt(resolved);
+
+            // 4. 解析 mcp server 与工具（内联 mcp 文本优先，否则 mcpKey 经 McpServerRegistry）
+            List<AgentTool> tools = resolveTools(resolved);
+
+            // 5. 装配客户端并执行（支持逐 token 流式透传）
+            ChatClientFactory factory = optionalBean(ChatClientFactory.class, new StubChatClientFactory());
+            AgentChatClient client = factory.create(resolved, graphId, nodeId);
+            GraphStreamBridge bridge = optionalBean(GraphStreamBridge.class, GraphStreamBridge.NOOP);
+            boolean streaming = (bridge != GraphStreamBridge.NOOP) && runId != null;
+            if (streaming) {
+                // 订阅客户端逐 token 流：边累积完整响应，边经桥接器推给前端 SSE；
+                // 末尾追加 FINISHED 结束片段（isEnd=true）。节点仍同步阻塞返回完整 Map，保证图状态正确。
+                StringBuilder sb = new StringBuilder();
+                try {
+                    client.stream(promptTemplate, variables != null ? variables : Map.of(), resolved, tools)
+                            .doOnNext(tok -> {
+                                if (tok != null && !tok.isEmpty()) {
+                                    sb.append(tok);
+                                    bridge.emit(runId, new TokenChunk(nodeId, tok,
+                                            OutputType.AGENT_MODEL_STREAMING, false));
+                                }
+                            })
+                            .blockLast();
+                } finally {
+                    bridge.emit(runId, new TokenChunk(nodeId, "",
+                            OutputType.AGENT_MODEL_FINISHED, true));
+                }
+                response = sb.toString();
+            } else {
+                response = client.call(promptTemplate, variables != null ? variables : Map.of(), resolved, tools);
+            }
+
+            // 6. 写回输出 key
+            Map<String, Object> result = new LinkedHashMap<>();
+            result.put(resolved.effectiveOutputKey(), response);
+            return result;
+        } catch (Throwable t) {
+            error = t;
+            if (t instanceof RuntimeException re) {
+                throw re;
+            }
+            throw new RuntimeException(t);
+        } finally {
+            // 观测：每次 LLM 调用边界推送实际模型 / prompt / 响应 / 错误 / 耗时
+            if (runId != null) {
+                long durationMs = (System.nanoTime() - startNanos) / 1_000_000;
+                TraceRecorder recorder = optionalBean(TraceRecorder.class, TraceRecorder.NOOP);
+                recorder.recordLLM(new TraceLLMEvent(graphId, nodeId, runId, modelId, modelBaseUrl,
+                        promptTemplate, response, durationMs, startedAt, error));
+            }
+        }
+    }
+
+    /** 图内运行便捷包装：无请求级上下文（试跑 / 单节点执行）。 */
     public Map<String, Object> execute(Map<String, Object> variables) {
-        // 1. 还原 api-key
-        SecretResolver secretResolver = optionalBean(SecretResolver.class, new EnvSecretResolver());
-        GenericAgentSpec resolved = spec.withResolvedApiKey(
-                secretResolver.resolveApiKey(graphId, nodeId, spec));
+        return execute(variables, null, null);
+    }
 
-        // 2. 解析 prompt（内联优先，否则 promptKey）
-        String promptTemplate = resolvePrompt(resolved);
+    /** 从 state 读取 runId（保留键，与 Langfuse trace 对齐）；无则返回 null（不观测）。 */
+    private String readRunId(OverAllState state) {
+        try {
+            Object v = state.value(ModelOverrideSpec.ACE_RUN_ID_KEY).orElse(null);
+            return v instanceof String s ? s : null;
+        } catch (RuntimeException ignored) {
+            return null;
+        }
+    }
 
-        // 3. 解析 mcp server 与工具（内联 mcp 文本优先，否则 mcpKey 经 McpServerRegistry）
-        List<AgentTool> tools = resolveTools(resolved);
-
-        // 4. 装配客户端并执行
-        ChatClientFactory factory = optionalBean(ChatClientFactory.class, new StubChatClientFactory());
-        AgentChatClient client = factory.create(resolved, graphId, nodeId);
-        String reply = client.call(promptTemplate, variables != null ? variables : Map.of(), resolved, tools);
-
-        // 5. 写回输出 key
-        Map<String, Object> result = new LinkedHashMap<>();
-        result.put(resolved.effectiveOutputKey(), reply);
-        return result;
+    /** 从 state 读取请求级模型覆盖（保留键）；无则返回 null。 */
+    private ModelOverrideSpec readOverrides(OverAllState state) {
+        try {
+            Object v = state.value(ModelOverrideSpec.ACE_MODEL_OVERRIDES_KEY).orElse(null);
+            return v instanceof ModelOverrideSpec spec ? spec : null;
+        } catch (RuntimeException ignored) {
+            return null;
+        }
     }
 
     private String resolvePrompt(GenericAgentSpec resolved) {
