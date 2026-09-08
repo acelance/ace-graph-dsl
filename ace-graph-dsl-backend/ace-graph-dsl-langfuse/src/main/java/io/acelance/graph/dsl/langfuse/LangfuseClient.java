@@ -69,15 +69,24 @@ public class LangfuseClient implements AutoCloseable {
         queue.offer(event);
     }
 
-    /** 取出队首一批事件并上报（线程安全）。 */
+    /** 取出队首一批事件并上报（线程安全）。已关闭时不再接受外部 flush。 */
     public void flush() {
-        if (closed || queue.isEmpty()) {
+        if (closed) {
             return;
         }
+        flushOnce();
+    }
+
+    /**
+     * 取出队首至多 maxBatchSize 条事件并上报，不做 closed 校验。
+     *
+     * @return 本次实际上报的事件数；队列为空时返回 0
+     */
+    private int flushOnce() {
         List<Map<String, Object>> batch = new ArrayList<>();
         queue.drainTo(batch, props.getMaxBatchSize());
         if (batch.isEmpty()) {
-            return;
+            return 0;
         }
         try {
             String json = objectMapper.writeValueAsString(Map.of("batch", batch));
@@ -85,6 +94,7 @@ public class LangfuseClient implements AutoCloseable {
         } catch (Exception e) {
             log.warn("Langfuse 事件上报失败（已丢弃本批 {} 条）: {}", batch.size(), e.toString());
         }
+        return batch.size();
     }
 
     public int pendingCount() {
@@ -105,7 +115,17 @@ public class LangfuseClient implements AutoCloseable {
         } catch (InterruptedException ignored) {
             Thread.currentThread().interrupt();
         }
-        flush();
+        // 末次 flush：closed 已置位，ingest 不再入队，循环可确定终止；分批排空避免丢事件
+        int flushed = 0;
+        int sent;
+        while ((sent = flushOnce()) > 0) {
+            flushed += sent;
+        }
+        if (flushed > 0) {
+            log.info("LangfuseClient 已关闭，末次 flush 上报事件 {} 条", flushed);
+        } else {
+            log.debug("LangfuseClient 已关闭，无待上报事件");
+        }
     }
 
     private LangfuseHttpSender defaultSender() {
