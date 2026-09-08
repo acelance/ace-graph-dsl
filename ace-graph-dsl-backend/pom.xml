@@ -47,6 +47,7 @@
         <module>ace-graph-dsl-script-qlexpress</module>
         <module>ace-graph-dsl-script-groovy</module>
         <module>ace-graph-dsl-persistence</module>
+        <module>ace-graph-dsl-langfuse</module>
         <module>ace-graph-dsl-spring-boot-starter</module>
     </modules>
 

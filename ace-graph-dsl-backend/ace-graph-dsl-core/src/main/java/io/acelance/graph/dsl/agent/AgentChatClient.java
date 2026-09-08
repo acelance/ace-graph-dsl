@@ -5,6 +5,8 @@ import io.acelance.graph.dsl.definition.GenericAgentSpec;
 import java.util.List;
 import java.util.Map;
 
+import reactor.core.publisher.Flux;
+
 /**
  * 抽象 LLM 调用客户端（core 本地接口，隔离 spring-ai ChatClient 类型）。
  *
@@ -34,5 +36,32 @@ public interface AgentChatClient {
     default String call(String promptTemplate, Map<String, Object> variables,
                         GenericAgentSpec spec, List<AgentTool> tools) {
         return call(promptTemplate, variables, spec);
+    }
+
+    /**
+     * 流式模型调用（逐 token 返回）。
+     *
+     * <p>默认实现退化为单次 {@link #call} 的单个片段，保证未覆写时仍可工作；
+     * 引入真实 LLM 适配器（如 {@code ace-graph-dsl-agent}）后应覆写此方法以返回真正的
+     * 逐 token {@link Flux}。通用 agent 节点会订阅该 Flux 并经 {@link io.acelance.graph.dsl.streaming.GraphStreamBridge}
+     * 把每个片段透传给前端 SSE。</p>
+     *
+     * @param promptTemplate 渲染后的 prompt
+     * @param variables      prompt 变量
+     * @param spec           节点元数据
+     * @return 逐 token 文本片段流
+     */
+    default Flux<String> stream(String promptTemplate, Map<String, Object> variables, GenericAgentSpec spec) {
+        return Flux.just(call(promptTemplate, variables, spec));
+    }
+
+    /**
+     * 带工具的流式模型调用。
+     *
+     * @see #stream(String, Map, GenericAgentSpec)
+     */
+    default Flux<String> stream(String promptTemplate, Map<String, Object> variables,
+                                GenericAgentSpec spec, List<AgentTool> tools) {
+        return Flux.just(call(promptTemplate, variables, spec, tools));
     }
 }
