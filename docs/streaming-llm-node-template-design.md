@@ -173,6 +173,7 @@ sequenceDiagram
 
 ```java
 public record LlmRequestContext(
+    String agentCode,           // 智能体产品/入口编码，整次请求不变（见下）
     String graphId,
     String nodeId,
     String runId,
@@ -181,7 +182,134 @@ public record LlmRequestContext(
 ) {}
 ```
 
-### 4.3 Resolver 接口
+#### `agentCode`：为什么要有、怎么用（定案）
+
+**为什么要加进上下文（动机，先读这个）**
+
+业务很常见的做法是：先用 **`agentCode` 圈定「这个智能体」能用的资源大盘**（提示词、MCP、Skill、模型配置等），再在节点上用勾选的 key 细到具体条目。
+
+- 这一层**还没细到节点**，只是「客服助手」和「订单助手」各自能看见的资源范围不同  
+- **怎么按 `agentCode` 过滤，完全是业务开发的事**（查自家注册中心、DB、配置……）  
+- **ace-graph-dsl 产品只负责一件事**：在请求上下文里**提供可设置、可获取的 `agentCode`**，并保证从入口到每个 Resolver 调用都能读到**同一个值**——不替业务写过滤逻辑，也不规定过滤规则长什么样
+
+没有这个字段，业务只能自己往 `OverAllState` 塞私货或靠猜 `graphId`/`nodeId`，框架与业务约定不清晰，也容易在扇出、多节点时丢。
+
+**一句话结论**：`LlmRequestContext` **必须带 `agentCode`**；在 **Controller 入口写死（或按路径解析一次）**，写入本次执行的 state 保留键，**整次请求生命周期不变**；业务在 Prompt/MCP/Skill 等 Resolver 里用 `ctx.agentCode()` 做**资源范围初筛**（可选，但是框架保证你拿得到）。
+
+**它不是什么**（避免和现有字段混）：
+
+| 字段 | 管什么 | 例子 |
+|---|---|---|
+| `agentCode` | **哪个智能体产品/业务入口**；业务可据此做资源大盘初筛 | `cs-assistant`、`order-helper` |
+| `graphId` | 跑的是哪张编排图 | `graph-refund-v3` |
+| `nodeId` | 图里当前是哪个节点（细粒度勾选在 Binding 上） | `agent_translate` |
+| `runId` | 这一次执行的追踪号 | UUID |
+
+关系可以记成：
+
+```text
+agentCode  →  这个智能体能碰哪些资源（业务初筛，可选）
+节点 Binding → 本节点实际勾了哪些 key（框架按勾选加载）
+```
+
+**产品边界（谁做什么）**：
+
+| 谁 | 做什么 | 不做什么 |
+|---|---|---|
+| **ace-graph-dsl** | 入口可写入；state 保留键贯穿；`LlmRequestContext.agentCode()` 可读；关键日志建议带上该字段 | **不**内置「按 agentCode 过滤 prompt/mcp/skill」的实现 |
+| **业务开发** | 决定要不要按 `agentCode` 过滤、过滤规则、数据从哪来 | 不必改框架；在自己的 Resolver / Catalog 实现里读 `ctx.agentCode()` 即可 |
+
+业务 Resolver 示意（过滤怎么写由业务定，这里只说明「能读到」）：
+
+```java
+@Bean
+PromptContentResolver prompts(MyPromptClient client) {
+    return (ctx, keys) -> {
+        // 可选：先按智能体产品缩小可见范围，再按节点勾选的 keys 取正文
+        return client.load(ctx.agentCode(), keys);
+    };
+}
+```
+
+**谁在入口写死**：
+
+业务自己的执行入口（或框架执行 Controller 由业务包一层）在进图之前定好，例如：
+
+```java
+@PostMapping("/agents/cs-assistant/stream")
+public SseEmitter streamCs(@RequestBody ExecutionRequest req) {
+    // 本入口写死：就是客服助手
+    String agentCode = "cs-assistant";
+    log.info("智能体请求入口: agentCode={}, graphId={}", agentCode, graphId);
+    // 与 runId 一样写入 state 保留键，后面所有节点 / Resolver 共用
+    inputs.put(LlmRequestContext.ACE_AGENT_CODE_KEY, agentCode);
+    inputs.put(ModelOverrideSpec.ACE_RUN_ID_KEY, runId);
+    // ... 再 stream / invoke
+}
+```
+
+保留键常量（与 `ace.graph.dsl.runId` 同前缀，避免泄漏到最终业务结果）：
+
+```java
+/** state 保留键：本次请求的智能体入口编码，整次 run 不变 */
+public static final String ACE_AGENT_CODE_KEY = "ace.graph.dsl.agentCode";
+```
+
+**怎么贯穿生命周期**：
+
+```text
+Controller 入口写死 agentCode
+    → 写入初始 OverAllState（保留键）
+    → 图内每个 GenericAgentNode 从 state 读出
+    → 填进 LlmRequestContext.agentCode
+    → 设计期 Catalog / 运行期 Resolver 都能读到（用途不同，见 §4.3）
+    → 同一 run 内扇出/多节点：值不变
+```
+
+节点组装上下文示意：
+
+```java
+String agentCode = StateValues.getString(state, LlmRequestContext.ACE_AGENT_CODE_KEY, "");
+if (agentCode.isBlank()) {
+    log.error("节点 {} 缺少 agentCode（state 保留键 {} 为空）。"
+            + "请在执行入口写入该键，禁止在节点内猜默认值",
+            nodeId, LlmRequestContext.ACE_AGENT_CODE_KEY);
+}
+LlmRequestContext ctx = new LlmRequestContext(
+        agentCode, graphId, nodeId, runId, state, ResourceBindings.fromSpec(spec));
+```
+
+**明确不做什么**：
+
+- 框架**不实现**按 `agentCode` 的资源过滤（那是业务的工作）  
+- 不在节点里根据 `nodeId` / `graphId` **猜** `agentCode`  
+- 框架**不提供**全局默认 `agentCode`  
+- Catalog 的 `agentDefId`（注册式节点定义 id）**不等于** `agentCode`；按产品过滤资源列表时用查询参数 / `ctx` 上的 **`agentCode`**（§7.2）
+
+**怎么验收**：
+
+1. 入口写入后，同一 run 内每个 Agent 节点 / Resolver 读到的 `agentCode` 相同  
+2. 设计期 Catalog 能按 `agentCode` 返回列表（无节点 keys）；运行期 Resolver 能同时拿到 `ctx.agentCode()` 与已勾选 keys  
+3. 故意不写保留键时，节点侧出现上述 error 日志（不静默当空字符串用完）
+
+### 4.3 Resolver 接口（运行期：此时 key 已经有了）
+
+先分清两个时刻，避免把「按 agentCode 圈大盘」和「按节点勾选的 key 取正文」混在一个接口里：
+
+| 时刻 | 谁在用 | 有没有节点勾选的 key | 走哪类接口 |
+|---|---|---|---|
+| **设计期（UI 勾选前/勾选时）** | ace-graph-dsl-ui 属性面板要展示「可选列表」 | **还没有**（用户正在选，或尚未保存） | **Catalog 列表**（§7.2）：入参主要是 `agentCode`（+ 可选 graphId 等），**不传** `promptKeys` / `mcpKeys` … |
+| **运行期（图已保存、节点在执行）** | Template 按 Binding 加载 | **已经有了**（落库在节点 `ResourceBinding` 里） | **本节 Resolver**：`resolve(ctx, keys)`，**既有** `ctx.agentCode()`，**也有** keys |
+
+所以你的判断对了一半：
+
+- **「初筛 / 列出这个智能体能用的资源大盘」** → 确实**不能、也不该**往函数里塞节点 key；那时 key 还不存在。应走 Catalog（或业务自己的 list），只凭 `agentCode` 等圈范围。  
+- **「运行期按勾选 key 取内容」** → key **可以、也必须**入参；它们来自 UI 已保存的配置，不是现场猜的。业务若还想再校验「这个 key 是否属于该 agentCode」，可以在 Resolver 里同时读 `ctx.agentCode()` + keys，那是**二次校验**，不是初筛。
+
+```text
+设计期：agentCode ──► Catalog.list ──► UI 勾选 ──► 保存 promptKeys/mcpKeys/…
+运行期：agentCode + 已保存的 keys ──► Resolver.resolve(ctx, keys) ──► 模型调用
+```
 
 ```java
 /** 按有序 keys 合并提示词（顺序有意义，例如两套 prompt 拼接） */
@@ -213,12 +341,28 @@ public interface McpToolResolver {
     List<NamedToolCallback> resolve(LlmRequestContext ctx, List<String> mcpKeys);
 }
 
-/** Skill：仅目录元数据 */
+/** Skill：仅目录元数据（运行期；keys = 本节点白名单） */
 @FunctionalInterface
 public interface SkillCatalogResolver {
     List<SkillDescriptor> resolve(LlmRequestContext ctx, List<String> skillKeys);
 }
+```
 
+> 命名提醒：`SkillCatalogResolver` 名字带 Catalog，但职责是**运行期按节点 skillKeys 取 L1 元数据**，不是 UI 的资源列表。UI 列 Skill 候选走 §7.2 的 `AgentResourceCatalog`（`ResourceType.SKILL`）。
+
+业务运行期示意（keys 来自节点配置；agentCode 用于可选的范围校验）：
+
+```java
+@Bean
+PromptContentResolver prompts(MyPromptClient client) {
+    return (ctx, keys) -> {
+        // keys：UI 已勾选并落库；agentCode：入口写入，用于确认这些 key 仍在本智能体范围内
+        return client.load(ctx.agentCode(), keys);
+    };
+}
+```
+
+```java
 public record SkillDescriptor(
     String key,
     String name,
@@ -284,40 +428,55 @@ PromptContentResolver nacosPrompts(ConfigService cs) {
 
 **它不是「禁用节点」**。`enableModel=false` 时节点照常执行。
 
-#### `modelConfigKey` 解析失败时，是否回落到内联（定案）
+#### 静态层整路择一：不完整就报错（修订定案）
 
-因为 key 排在内联**之前**，「解析不出来」就有了歧义，必须区分两种情况：
+先前写过「三路对 baseUrl/apiKey/modelId **逐字段**取第一个非空」。这会让人很懵，例如：
 
-| 情况 | 行为 | 理由 |
-|---|---|---|
-| `ModelMountResolver` **抛异常**（key 不存在、注册中心不可达、鉴权失败） | **fail fast，不回落** | 这是配置或环境故障。静默降级到内联会让线上悄悄用错模型——比直接失败危险得多 |
-| Resolver **正常返回，但某字段为空**（含返回 `null`） | 该字段**继续取内联** | 空值是「这一路没配这个字段」的正常表达，逐字段回落即可 |
+> 没传请求级 Override，勾了 `modelConfigKey`，但注册中心返回缺 `modelId`；日志里却发现用了节点上残留的内联 `modelId`。
 
-一句话：**异常 = 出错了，要炸；空值 = 没配，往下找。**
+开发和用户都会问：我明明选的是注册中心这一路，为什么偷偷拼了内联？
 
-#### 逐字段合并，不是整体替换（重要）
+**改成下面这套（更符合直觉）：**
 
-三路**不是**「谁赢谁全拿」，而是对 `baseUrl` / `apiKey` / `modelId` **各自独立**取第一个非空值。
+| 步骤 | 规则 |
+|---|---|
+| 1. 选**静态底座**（两选一，整路拿走） | 若 `enableModel=true` 且 `modelConfigKey` 非空 → **只用**注册中心返回的那一套；否则 → **只用**节点内联那一套 |
+| 2. 底座必须齐全 | 选中的那一路若缺 `baseUrl` 或 `modelId`（api-key 按业务要求）→ **直接报错**，**禁止**再去另一路捡字段补齐 |
+| 3. 请求级 Override（若有） | 才允许**逐字段补丁**盖在底座上（例如只改 `modelId` 做 A/B） |
 
-原因：请求级覆盖最常见的用法是「只换 `modelId` 做 A/B 对比」，若整体替换，`baseUrl` 与 `apiKey` 就丢了，直接调用失败。现网 `GenericAgentSpec.withOverride` 已是逐字段语义（`ov.modelBaseUrl() != null ? ov.modelBaseUrl() : modelBaseUrl`），此处延续。
+大白话：
 
-举例：Override 只给 `modelId=qwen-max`，`modelConfigKey` 取回完整三项 → 最终 `modelId` 取 Override，`baseUrl`/`apiKey` 取注册中心。
+```text
+先认准「我这次听谁的」——注册中心 或 内联，二选一，不拼盘。
+听谁的，谁就要给齐；给不齐就报错，别偷用另一路的字段。
+只有「请求里临时覆盖」可以改其中一两个字段。
+```
+
+**`modelConfigKey` 解析失败 / 不完整：**
+
+| 情况 | 行为 |
+|---|---|
+| Resolver **抛异常**（key 不存在、注册中心挂了、鉴权失败） | **报错**，不回落内联 |
+| Resolver 返回了，但缺 `baseUrl` / `modelId` 等必要项 | **报错**，不回落内联 |
+| 未勾选 Model / 未填 key | 整路改用内联；内联也不齐 → 报错 |
+
+**为什么 Override 仍允许逐字段？**
+
+请求级覆盖最常见的是「只换模型名做对比」，底座的地址和密钥还用静态配置。若 Override 也强制「整包替换」，只传 `modelId` 会把 `baseUrl`/`apiKey` 弄丢。这和「注册中心与内联拼盘」不是一类需求：前者是**用户显式传入的临时补丁**，后者是**两套静态配置偷偷混用**。
 
 #### 分层职责
 
 | 组件 | 职责 |
 |---|---|
 | `ModelMountResolver`（业务实现） | **只负责 key 这一路**：按 `modelConfigKey` 从注册中心取配置 |
-| `ModelEndpointResolver`（框架内部） | 负责三路合并；按需调用上者 |
-
-这样业务 SPI 保持单一职责，不必关心优先级。
+| `ModelEndpointResolver`（框架内部） | 先整路选定底座，校验齐全，再套 Override 补丁 |
 
 ```java
 /**
- * 模型端点三路合并解析器（框架内部，非业务 SPI）。
+ * 模型端点解析（框架内部）。
  *
- * <p>优先级：请求级 Override &gt; modelConfigKey（需 enableModel）&gt; 节点内联字段。
- * 逐字段独立取首个非空值，而非整体替换。</p>
+ * <p>静态层：modelConfigKey 与内联二选一（整路），不齐则报错，禁止拼盘。
+ * 请求级 Override：仅在此底座上逐字段补丁。</p>
  */
 public final class ModelEndpointResolver {
 
@@ -326,95 +485,72 @@ public final class ModelEndpointResolver {
     private final ModelMountResolver mountResolver;
     private final SecretResolver secretResolver;
 
-    /** 字段取值来源，仅用于日志与 api-key 还原判定 */
-    private enum Source { OVERRIDE, INLINE, CONFIG_KEY, NONE }
+    private enum BaseSource { CONFIG_KEY, INLINE }
 
-    /**
-     * 解析本次调用最终生效的模型端点。
-     *
-     * @param ctx      请求上下文（含 binding）
-     * @param inline   节点内联模型字段（可空）
-     * @param override 本节点生效的请求级覆盖（可空，已由 ModelOverrideSpec.effectiveFor 解析）
-     * @return 非空端点；三路均无有效值时抛出可操作异常
-     */
     public ModelEndpoint resolve(LlmRequestContext ctx, InlineModel inline, ModelOverride override) {
         ResourceBinding b = ctx.binding();
 
-        // 第二路惰性解析：enableModel=false 或 key 为空时完全不调远程
-        ModelEndpoint fromKey = null;
+        // 1) 整路选定静态底座
+        ModelEndpoint base;
+        BaseSource baseSource;
         if (b.enableModel() && isNotBlank(b.modelConfigKey())) {
-            fromKey = resolveByKeyOrFail(ctx, b.modelConfigKey());
-        }
-
-        String baseUrl = firstNonBlank(
-                override == null ? null : override.modelBaseUrl(),
-                fromKey == null ? null : fromKey.baseUrl(),
-                inline == null ? null : inline.baseUrl());
-        String modelId = firstNonBlank(
-                override == null ? null : override.modelId(),
-                fromKey == null ? null : fromKey.modelId(),
-                inline == null ? null : inline.modelId());
-
-        // api-key 需连带记录来源：只有「内联且已掩码」才走 SecretResolver 还原
-        String rawApiKey;
-        Source keySource;
-        if (override != null && isNotBlank(override.modelApiKey())) {
-            rawApiKey = override.modelApiKey();
-            keySource = Source.OVERRIDE;          // 请求级传入，视为明文（延续现网语义）
-        } else if (fromKey != null && isNotBlank(fromKey.apiKey())) {
-            rawApiKey = fromKey.apiKey();
-            keySource = Source.CONFIG_KEY;        // 注册中心取回，视为明文
-        } else if (inline != null && isNotBlank(inline.apiKey())) {
-            rawApiKey = inline.apiKey();
-            keySource = Source.INLINE;            // 唯一可能是掩码的来源
+            base = requireComplete(ctx, resolveByKeyOrFail(ctx, b.modelConfigKey()),
+                    "modelConfigKey=" + b.modelConfigKey());
+            baseSource = BaseSource.CONFIG_KEY;
+            // 内联即使有值也不参与补缺；并存时编译期已 warn
         } else {
-            rawApiKey = null;
-            keySource = Source.NONE;
+            base = requireComplete(ctx, fromInline(inline), "节点内联模型字段");
+            baseSource = BaseSource.INLINE;
         }
-        String apiKey = (keySource == Source.INLINE && inline.apiKeyMasked())
-                ? secretResolver.resolve(ctx.graphId(), ctx.nodeId(), rawApiKey)
-                : rawApiKey;
 
-        assertResolved(ctx, baseUrl, modelId, b);
-        // 关键节点日志：打印各字段来源，便于排查「覆盖为何没生效」；api-key 只打来源不打值
-        log.info("节点 {} 模型解析完成: modelId={}({}), baseUrl={}({}), apiKey来源={}",
-                ctx.nodeId(), modelId, sourceOf(override, inline, fromKey, ModelField.MODEL_ID),
-                baseUrl, sourceOf(override, inline, fromKey, ModelField.BASE_URL), keySource);
-        return new ModelEndpoint(baseUrl, apiKey, modelId, extrasOf(fromKey));
+        // 2) 请求级 Override：仅逐字段盖在底座上（可只改 modelId）
+        String baseUrl = firstNonBlank(override == null ? null : override.modelBaseUrl(), base.baseUrl());
+        String modelId = firstNonBlank(override == null ? null : override.modelId(), base.modelId());
+        String apiKey;
+        String apiKeySource;
+        if (override != null && isNotBlank(override.modelApiKey())) {
+            apiKey = override.modelApiKey();          // 请求传入，视为明文
+            apiKeySource = "OVERRIDE";
+        } else if (baseSource == BaseSource.INLINE && inline != null && inline.apiKeyMasked()) {
+            apiKey = secretResolver.resolve(ctx.graphId(), ctx.nodeId(), base.apiKey());
+            apiKeySource = "INLINE(masked→resolved)";
+        } else {
+            apiKey = base.apiKey();
+            apiKeySource = baseSource.name();
+        }
+
+        log.info("节点 {} 模型解析完成: 静态底座={}, modelId={}, baseUrl={}, apiKey来源={}, 是否有Override补丁={}",
+                ctx.nodeId(), baseSource, modelId, baseUrl, apiKeySource, override != null && !override.isEmpty());
+        return new ModelEndpoint(baseUrl, apiKey, modelId, base.extras());
     }
 
-    /**
-     * 按 key 解析，异常一律上抛不降级。
-     *
-     * <p>「Resolver 抛异常」与「返回值字段为空」语义不同：前者是配置/环境故障，
-     * 静默回落内联会导致线上悄悄用错模型；后者是「这一路没配该字段」，由调用方逐字段继续回落。</p>
-     */
+    /** 选中的那一路必须给齐必要字段，禁止再向下一路捡漏 */
+    private static ModelEndpoint requireComplete(LlmRequestContext ctx, ModelEndpoint ep, String which) {
+        if (ep != null && isNotBlank(ep.baseUrl()) && isNotBlank(ep.modelId())) {
+            return ep;
+        }
+        log.error("节点 {} 的 {} 模型配置不完整: baseUrl={}, modelId={}；不会用其它来源字段拼盘",
+                ctx.nodeId(), which,
+                ep == null ? null : ep.baseUrl(),
+                ep == null ? null : ep.modelId());
+        throw new IllegalStateException(String.format(
+                "节点 %s 的 %s 不完整（需要 baseUrl + modelId）。"
+                        + "请补全该来源配置；若改用另一来源：勾选/取消 Model，或填写内联字段。"
+                        + "不会自动用另一路字段补齐。",
+                ctx.nodeId(), which));
+    }
+
     private ModelEndpoint resolveByKeyOrFail(LlmRequestContext ctx, String modelConfigKey) {
         try {
             return mountResolver.resolve(ctx, modelConfigKey);
         } catch (RuntimeException e) {
-            // 不 catch 后静默返回 null：宁可失败，也不静默用错模型
-            log.error("节点 {} 按 modelConfigKey={} 解析模型配置失败，不回落内联字段",
+            log.error("节点 {} 按 modelConfigKey={} 解析失败，不回落内联",
                     ctx.nodeId(), modelConfigKey, e);
             throw new IllegalStateException(String.format(
                     "节点 %s 的 modelConfigKey=%s 解析失败：%s。"
-                            + "请检查该 key 是否存在于模型配置中心及其连通性；"
-                            + "如需临时改用节点内联模型，请取消勾选 Model",
+                            + "请检查 key 与注册中心；临时改用内联请取消勾选 Model",
                     ctx.nodeId(), modelConfigKey, e.getMessage()), e);
         }
-    }
-
-    /** 三路皆空时给出可操作错误，而非等到调用模型才失败 */
-    private static void assertResolved(LlmRequestContext ctx, String baseUrl,
-                                       String modelId, ResourceBinding b) {
-        if (isNotBlank(baseUrl) && isNotBlank(modelId)) {
-            return;
-        }
-        throw new IllegalStateException(String.format(
-                "节点 %s 无法确定模型（baseUrl=%s, modelId=%s）。请任选其一："
-                        + "①勾选 Model 并配置 modelConfigKey（当前 enableModel=%s, modelConfigKey=%s）；"
-                        + "②在节点上填写内联模型字段；③请求体传 modelOverrides",
-                ctx.nodeId(), baseUrl, modelId, b.enableModel(), b.modelConfigKey()));
     }
 }
 ```
@@ -428,15 +564,12 @@ public record InlineModel(String baseUrl, String apiKey, boolean apiKeyMasked, S
 
 #### 该优先级的已知副作用
 
-`modelConfigKey` 优先于内联，意味着**一旦勾选 Model 并填了 key，节点上原有的内联模型字段就静默失效**。典型场景：某节点长期用内联字段指向一个专用端点跑得很好，后来有人为了统一管理给它勾上了 Model + key，该节点就悄悄换成了注册中心的模型，而界面上两处配置都还在。
-
-相比反向顺序（内联优先），这个副作用**可预期性更好**：勾选 + 填 key 是一次明确的人工操作，而「残留的旧内联字段」是无人记得的历史包袱。但仍需提示。
-
-缓解措施（**必须实现**）：编译期检测「`enableModel=true` 且 `modelConfigKey` 非空，同时内联字段也非空」时打印 warn，明确告知内联字段不会生效及涉及的 `nodeId`。
+勾选 Model 并填了 key 后，节点上的内联字段**整路不用**（也不会拿来补缺）。编译期仍要 warn，避免界面上两套配置都在、运行却只听 key：
 
 ```java
-log.warn("节点 {} 同时存在 modelConfigKey={} 与内联模型字段，按优先级 key 生效、内联字段不会被使用；"
-        + "若希望改用内联模型，请取消勾选 Model", nodeId, modelConfigKey);
+log.warn("节点 {} 同时存在 modelConfigKey={} 与内联模型字段：静态底座只用 key，内联整路忽略；"
+        + "内联不会用来补齐 key 缺的字段。若要用内联，请取消勾选 Model",
+        nodeId, modelConfigKey);
 ```
 
 ### 4.4.2 Prompt 变量渲染（A4 定案）
@@ -480,6 +613,30 @@ log.warn("节点 {} 同时存在 modelConfigKey={} 与内联模型字段，按�
 **⑤ skill L1 目录与工具目录在渲染之后拼接**
 
 这两段是框架生成的，不该被当成用户模板。若先拼后渲染，skill 描述里恰好出现 `{{...}}` 就会被误替换。
+
+#### 「已渲染纯文本」会不会没法动态取值？（常见疑问）
+
+**不会有问题——但要把「动态」说清楚指哪一层。**
+
+| 你说的「动态」 | 本方案支不支持 | 怎么做的 |
+|---|---|---|
+| **每次跑图 / 每个节点执行时**，订单号、上游输出等来自当前 `OverAllState` | **支持，这就是主路径** | 进 Template 时对 state **拍一次快照**，把 `{{order_no}}` 等换成**这一次**的真实值，再交给 Spring AI |
+| **同一节点里**，模型调了 Tool，Tool 结果要进下一轮对话 | **支持，但不靠再渲染 `{{}}`** | Spring AI tool-calling 把 Tool 返回值做成 **tool 消息** 追加进 messages；system/user 首轮文本保持不变（与 Skill L2「Tool 结果 append」一致） |
+| **同一节点里**，Tool 跑完后希望 **整段 system 按新 state 再渲染一遍** | **首期不做** | 需要的话应拆成下一节点，或以后另开「多轮前可重渲染」开关；默认不重渲染，避免和单遍快照、防注入规则打架 |
+| 把未替换的模板交给 Spring AI，让它用 `{key}` / `.param()` 再渲染 | **明确不做** | Spring AI 单花括号会和 prompt 里的 JSON 示例冲突；动态值已由框架在调用前注入 |
+
+所以：
+
+1. **「交给 Spring AI 的是纯文本」** = 不再让 Spring AI 做第二遍模板引擎；**不是**说变量永远写死在配置文件里。  
+2. **动态值从哪来**：节点执行那一刻的 state（上游节点刚写入的、请求入口塞进的）。每个节点、每次 run 都可以不同。  
+3. **Tool 带来的新信息**：走消息列表追加，不走「再扫一遍 `{{...}}`」。若业务把 Tool 结果又写回了 state、且还想再进 prompt——用**下一个 Agent 节点**读 state 再渲染，而不是在同一节点内偷偷重渲染。
+
+```text
+请求进来 → state 里已有/上游写入动态值
+    → 本节点：快照 → {{}} 换成纯文本 → ChatClient
+    →（如有 Tool）Tool 结果进 messages，不重渲 system
+    → 写回 outputKey → 下一节点再快照、再渲染
+```
 
 #### 完整装配顺序
 
@@ -650,7 +807,7 @@ public record LlmResolvers(
  * 避免同一份配置在两处出现导致不一致。</p>
  */
 public record LlmCallRequest(
-    LlmRequestContext context,      // 含 graphId/nodeId/runId/state/binding
+    LlmRequestContext context,      // 含 agentCode/graphId/nodeId/runId/state/binding
     String userMessage,             // 本次用户输入（已由节点从 state 取好）
     String outputKey,               // 结果写回 state 的 key
     String streamResponseKind,      // 节点配置的 kind KEY，可空（按 §9.7.4 回落）
@@ -1042,8 +1199,275 @@ L3：read_skill_resource(code, path) 按需读脚本/附件
 
 1. L2/L3 内容作为 **Tool 结果 append 进 messages**，不修改已固定的 system 前缀  
 2. 同一 `code` 重复加载：**去重**（已激活可返回短提示）  
-3. **强制激活**（用户/上游已指定 skill）：节点入参或前置逻辑可直接调 `load_skill`，再进入模型轮次  
-4. **模型自选**：依赖 L1 description（写清「做什么 + 何时用」；勿在 description 里写完整流程）
+3. **强制激活**：见 §6.3.1（用户/上游怎么指定）  
+4. **模型自选**：依赖 L1 description（写清「做什么 + 何时用」；勿在 description 里写完整流程）；模型调用内置工具 `ace__skill__load_skill`
+
+### 6.3.1 用户 / 上游「指定要用哪个 Skill」用什么格式（定案）
+
+先承认缺口：此前只写了「可强制 `load_skill`」，**没写清人怎么指定、state 里什么形状**。这里补齐。
+
+#### 三种激活方式（谁说了算）
+
+| 方式 | 谁发起 | 框架认什么 | 聊天口令谁定 |
+|---|---|---|---|
+| A. 模型自选 | 模型看 L1 目录后调 `load_skill` | 工具参数里的 `code`（= skill key） | 无 |
+| B. 上游 / 业务强制激活 | 前置节点、BFF、业务 Controller | **state 保留键里的结构化列表**（见下） | 无（已是结构化） |
+| C. 终端用户在对话里点名 | 用户打字或点 UI | **不直接解析聊天原文**；由业务前端/前置逻辑转成方式 B | **业务定**，框架不强制口令 |
+
+**一句话**：框架只约定 **state 里怎么写「要强制激活的 skill」**；**不约定**用户必须说 `/skill xxx` 还是「用退款技能」——避免又变成框架私定交互协议（和流式协议归属同一原则）。
+
+#### 框架约定的唯一结构化格式（方式 B）
+
+保留键（与 `agentCode` / `runId` 同前缀）：
+
+```java
+/** 本次节点执行前要强制激活的 skill key 列表（有序；可空） */
+public static final String ACE_FORCE_SKILLS_KEY = "ace.graph.dsl.forceSkills";
+```
+
+**state 里的值形态**（落库 / 入口写入时建议统一成 JSON 数组可读的结构）：
+
+```json
+["skill.refund", "skill.invoice"]
+```
+
+或 Java：
+
+```java
+List<String> forceSkills = List.of("skill.refund", "skill.invoice");
+state.put(ACE_FORCE_SKILLS_KEY, forceSkills);
+```
+
+规则：
+
+| 规则 | 说明 |
+|---|---|
+| 元素含义 | 与 UI `skillKeys`、L1 的 `code` **同一套 key**（例如 `skill.refund`） |
+| 有序 | 按列表顺序依次 `load_skill`，先激活的先回灌 |
+| 不在白名单 | **跳过该 code** + **info** 日志（多节点场景很常见，不要打成 error）；**不删** state 里的列表，留给后续节点 |
+| 空 / 缺键 | 不强制激活，走模型自选即可 |
+| 写入时机 | 建议在 **图执行入口** 写入初始 state（与 `runId` / `agentCode` 一起）；整次 run 内随 `OverAllState` 往后传，**中间节点不要清掉** |
+| 多节点传递 | **能传到第 N 个节点**（见 §6.3.2） |
+
+节点执行顺序（有强制列表时）：
+
+```text
+读 ACE_FORCE_SKILLS_KEY
+  → 对每个 code（∈ 本节点 skillKeys）先 load_skill，正文进 messages
+  → 不在本节点白名单的 code：跳过 + 日志（不删 state 里的列表）
+  → 再进入正常 ChatClient 轮次（模型仍可再 load 其它白名单 skill）
+```
+
+#### 不同项目聊天口令不一样时，怎么激活？（必读）
+
+现实里很常见：
+
+| 项目 | 前端/业务约定的用户输入 | 真正要激活的 skill key |
+|---|---|---|
+| 项目 A | `/ {{monitor-third-mcp\|企业邮件/CC 聊天记录查询（MCP）}}`  
+即 `/ {{skill_code \| skill_name}}` | `monitor-third-mcp` |
+| 项目 B | `/monitor-third-mcp` | `monitor-third-mcp` |
+
+**ace-graph-dsl 两种都不解析。** 激活路径一律是：
+
+```text
+用户按「该项目自己的口令」输入
+    → 该项目的前端 或 BFF 或前置节点：按自己的约定抠出 skill_code
+    → 写入 state：ace.graph.dsl.forceSkills = ["monitor-third-mcp"]
+    → 进入图 / Agent 节点
+    → 框架只读 forceSkills，按 key 做 load_skill（并校验本节点白名单）
+```
+
+项目 A 解析示意（业务自己写，框架不内置）：
+
+```text
+输入：/ {{monitor-third-mcp|企业邮件/CC 聊天记录查询（MCP）}}
+解析：取 | 左侧 → monitor-third-mcp
+写入：forceSkills = ["monitor-third-mcp"]
+```
+
+项目 B 解析示意：
+
+```text
+输入：/monitor-third-mcp
+解析：去掉前导 / → monitor-third-mcp
+写入：forceSkills = ["monitor-third-mcp"]
+```
+
+两边进到框架之后**完全一样**。  
+`skill_name`（中文名）只给人看；**框架激活只认 key（code）**，与 UI `skillKeys`、工具参数 `code` 一致。
+
+若前端已经点选技能、不走文本口令：直接 `forceSkills = ["monitor-third-mcp"]`，连解析都不用。
+
+**不要**指望在 Template 里用正则同时兼容 A、B 及以后第三种口令——那会变成框架替所有业务定交互协议，且永远跟不齐。
+
+#### 样例代码（业务侧，框架不内置）
+
+下面都是**接入方自己的代码**示意：解析各自口令 → 写入保留键 → 再调图执行。类名、包名按业务项目改即可。
+
+**1）项目 A：解析 `/ {{code|name}}`，写入 state**
+
+```java
+/** 项目 A 约定：/ {{skill_code|skill_name}} → 只取 code */
+public final class ProjectASkillMentionParser {
+
+    private static final Logger log = LoggerFactory.getLogger(ProjectASkillMentionParser.class);
+
+    // 匹配：/ {{code|任意说明}} ，允许花括号内外有空格
+    private static final Pattern PATTERN = Pattern.compile(
+            "/\\s*\\{\\{\\s*([^|{}]+?)\\s*\\|[^}]*}}");
+
+    private ProjectASkillMentionParser() {}
+
+    /**
+     * 从用户原文解析要强制激活的 skill key 列表。
+     * @param userText 用户输入，例如：/ {{monitor-third-mcp|企业邮件/CC 聊天记录查询（MCP）}}
+     * @return 例如 ["monitor-third-mcp"]；解析不到则空列表
+     */
+    public static List<String> parseForceSkills(String userText) {
+        if (userText == null || userText.isBlank()) {
+            return List.of();
+        }
+        List<String> codes = new ArrayList<>();
+        Matcher m = PATTERN.matcher(userText);
+        while (m.find()) {
+            String code = m.group(1).trim();
+            if (!code.isEmpty()) {
+                codes.add(code);
+            }
+        }
+        log.info("项目A技能口令解析: 原文长度={}, forceSkills={}", userText.length(), codes);
+        return List.copyOf(codes);
+    }
+}
+```
+
+**2）项目 B：解析 `/code`，写入 state**
+
+```java
+/** 项目 B 约定：/monitor-third-mcp → code 即 monitor-third-mcp */
+public final class ProjectBSkillSlashParser {
+
+    private static final Logger log = LoggerFactory.getLogger(ProjectBSkillSlashParser.class);
+
+    // 行首或空白后的 /xxx（不含空格与 |）
+    private static final Pattern PATTERN = Pattern.compile("(?:^|\\s)/([A-Za-z0-9_.\\-]+)");
+
+    private ProjectBSkillSlashParser() {}
+
+    public static List<String> parseForceSkills(String userText) {
+        if (userText == null || userText.isBlank()) {
+            return List.of();
+        }
+        List<String> codes = new ArrayList<>();
+        Matcher m = PATTERN.matcher(userText);
+        while (m.find()) {
+            codes.add(m.group(1));
+        }
+        log.info("项目B技能口令解析: 原文长度={}, forceSkills={}", userText.length(), codes);
+        return List.copyOf(codes);
+    }
+}
+```
+
+**3）业务执行入口：解析后写入保留键，再跑图**
+
+```java
+@PostMapping("/agents/cs-assistant/stream")
+public SseEmitter stream(@RequestBody ChatRequest req) {
+    String agentCode = "cs-assistant";   // 本入口写死
+    String runId = UUID.randomUUID().toString();
+
+    Map<String, Object> inputs = new LinkedHashMap<>();
+    if (req.inputs() != null) {
+        inputs.putAll(req.inputs());
+    }
+    inputs.put(LlmRequestContext.ACE_AGENT_CODE_KEY, agentCode);
+    inputs.put(ModelOverrideSpec.ACE_RUN_ID_KEY, runId);
+
+    // 选本项目自己的解析器（A 或 B），不要两套混用同一入口
+    List<String> forceSkills = ProjectASkillMentionParser.parseForceSkills(req.userText());
+    // List<String> forceSkills = ProjectBSkillSlashParser.parseForceSkills(req.userText());
+    inputs.put(LlmRequestContext.ACE_FORCE_SKILLS_KEY, forceSkills);
+
+    log.info("智能体入口: agentCode={}, runId={}, forceSkills={}", agentCode, runId, forceSkills);
+    // 再调用 graph.stream(inputs, ...) / 框架执行 API
+    return executionService.stream(graphId, inputs, runId);
+}
+```
+
+**4）前端点选技能（不走文本口令）**
+
+```javascript
+// ace-graph-dsl-ui 业务定制页：用户勾选技能后直接塞初始 state
+const inputs = {
+  'ace.graph.dsl.agentCode': 'cs-assistant',
+  'ace.graph.dsl.runId': crypto.randomUUID(),
+  'ace.graph.dsl.forceSkills': ['monitor-third-mcp'],  // 与节点 skillKeys 同一套 key
+  // ... 其它业务字段
+}
+await api.stream(graphId, { inputs })
+```
+
+**5）框架侧读取（实现 Template / Agent 节点时，产品内代码）**
+
+```java
+@SuppressWarnings("unchecked")
+List<String> forceSkills = Optional.ofNullable(state.value(LlmRequestContext.ACE_FORCE_SKILLS_KEY).orElse(null))
+        .map(v -> {
+            if (v instanceof List<?> list) {
+                return list.stream().map(String::valueOf).toList();
+            }
+            log.warn("节点 {} 的 forceSkills 类型不是 List: {}", nodeId, v.getClass().getName());
+            return List.<String>of();
+        })
+        .orElse(List.of());
+
+for (String code : forceSkills) {
+    if (!binding.skillKeys().contains(code)) {
+        // 多节点场景很常见：意图留给后面的节点，本节点白名单故意不含 → info 而非 error
+        log.info("节点 {} 的 forceSkills 含 {}，但不在本节点白名单，跳过加载（保留键仍留给后续节点）",
+                nodeId, code);
+        continue;
+    }
+    // load_skill(code) → 正文 append 进 messages（实现细节见 §6.3）
+    log.info("节点 {} 强制激活 skill={}", nodeId, code);
+}
+```
+
+#### 终端用户聊天口令：框架不规定，给业务参考即可
+
+下面**不是**框架协议，只是业务可选用的参考；解析后必须写入 `ACE_FORCE_SKILLS_KEY`，框架才认：
+
+| 参考做法 | 示例 | 谁解析 |
+|---|---|---|
+| 斜杠 + code | `/monitor-third-mcp` | 业务网关 / 前置节点 |
+| 斜杠 + `{{code\|name}}` | `/ {{monitor-third-mcp\|企业邮件…}}` | 同上（取 `\|` 左侧为 code） |
+| UI 点选 | 用户在前端选技能 | 前端直接塞 state 列表 |
+| 自然语言 | 「查一下企业邮件」 | 业务 NLU，或交给模型自选（方式 A） |
+
+**明确不做**：
+
+- 框架在 Template 里用正则抠用户原文里的 `SKILL:xxx` / `/skill`（易误伤正文，且和「协议归业务」冲突）  
+- 另搞一套与 `skillKeys` 不同的「展示名 / 别名」协议却不写映射表（若业务要别名，在写入 forceSkills **之前**自己映射成正式 key）
+
+#### `code` 参数长什么样（模型调工具时）
+
+内置工具对模型暴露的名字是 `ace__skill__load_skill`（§5.3），参数：
+
+```json
+{ "code": "skill.refund" }
+```
+
+`code` 必须等于白名单里的 key；description 里应写明「code 取自可用技能目录中的 key」。
+
+#### 怎么验收
+
+1. 入口写入 `forceSkills=["skill.refund"]` 且节点白名单含该项 → 进模型前日志有「强制激活 skill.refund」，且 messages 中已有 L2 正文  
+2. 写入不在白名单的 code → 跳过 + 日志，节点不整体失败；**state 中 forceSkills 仍保留**，可供后续节点使用  
+3. 用户只说自然语言、业务未写 forceSkills → 不报错，靠模型自选 `load_skill`  
+4. 业务自己做了 `/skill` 解析并写入 forceSkills → 行为与方式 B 相同  
+5. **多节点**：入口写入后，仅第 N 个节点勾选该 skill → 前序节点跳过（info）、第 N 个强制激活（§6.3.2）
 
 ### 6.4 Resolver 职责划分
 
@@ -1272,19 +1696,24 @@ private static final Map<String, String> REMOVED_FIELDS = Map.of(
 | `AgentTool` | 删除（A8 已定，统一到 `ToolCallback`） |
 | `McpServerConfig` | **保留**，`tools()` 仍是 server 级白名单来源 |
 
-### 7.2 Catalog 列表 API
+### 7.2 Catalog 列表 API（设计期：只有 agentCode，没有节点 keys）
 
-开发者实现则返回可选 key；未实现默认空列表。UI 始终支持手动添加 key。
+**干什么**：给 UI 勾选用的「可选资源列表」。此时用户还没勾完（或正在勾），**没有** `promptKeys` / `mcpKeys` 等可传。
+
+**初筛靠什么**：业务在实现里用查询参数里的 **`agentCode`**（必填建议）圈定这个智能体的资源大盘；可选再带 `graphId` / 注册式节点定义 id。  
+**不把**节点 Binding 里的 keys 当作列表入参——那些 keys 是列表勾选的**结果**，不是列表的前提。
 
 ```text
-GET /api/agent-resources/prompts?graphId=&agentId=
-GET /api/agent-resources/models?...
-GET /api/agent-resources/tools?...
-GET /api/agent-resources/mcp?...
-GET /api/agent-resources/skills?...
+GET /api/agent-resources/prompts?agentCode=&graphId=&agentDefId=
+GET /api/agent-resources/models?agentCode=&...
+GET /api/agent-resources/tools?agentCode=&...
+GET /api/agent-resources/mcp?agentCode=&...
+GET /api/agent-resources/skills?agentCode=&...
 ```
 
-> 不含 `agent-cards`（本期不做）。
+> 不含 `agent-cards`（本期不做）。  
+> 参数名：`agentCode` = 智能体产品入口编码（与 §4.2 同一概念）；`agentDefId` = 注册式 Agent 节点定义 id（可选，旧文案里的 `agentId` 易与 agentCode 混淆，故改名）。
+
 响应示例：
 
 ```json
@@ -1298,7 +1727,13 @@ GET /api/agent-resources/skills?...
 ```java
 public interface AgentResourceCatalog {
     ResourceType type();
-    List<ResourceItem> list(String graphId, String agentId);
+    /**
+     * 列出可供 UI 勾选的资源。
+     * @param agentCode 智能体产品编码，业务据此做资源大盘初筛（可空则业务自行决定是否返回空/全量）
+     * @param graphId   可选
+     * @param agentDefId 可选，注册式节点定义 id
+     */
+    List<ResourceItem> list(String agentCode, String graphId, String agentDefId);
     // 默认：return List.of();
 }
 
@@ -1310,7 +1745,18 @@ public enum ResourceType {
 public record ResourceItem(String key, String label, String description) {}
 ```
 
+开发者实现则返回可选 key；未实现默认空列表。UI 始终支持手动添加 key（手填的 key 仍在运行期走 Resolver）。
+
 **约束（软）**：Catalog 返回的 key **宜**与运行时 Resolver 使用同一 key 空间。框架**不在保存期强制对齐**（见 §7.4）；不一致时以运行期加载结果为准，并通过错误日志与调试 UI 暴露。
+
+**和 Resolver 的分工（再强调一次）**：
+
+| | Catalog（本节） | Resolver（§4.3） |
+|---|---|---|
+| 时机 | 设计期 UI | 运行期 Template |
+| 入参 keys | **无** | **有**（节点已勾选） |
+| agentCode | 有（查询参数） | 有（`ctx.agentCode()`） |
+| 典型用途 | 圈大盘、填下拉 | 按勾选加载正文/工具 |
 
 ### 7.3 前端交互
 
@@ -1470,7 +1916,7 @@ public interface ResourceKeyValidator {
      * @return 校验结果；unknown/不可达时应返回 {@code skipped} 而非伪造失败，
      *         以免远端抖动误拦保存
      */
-    ValidationResult validate(ResourceType type, String key, String graphId, String agentId);
+    ValidationResult validate(ResourceType type, String key, String agentCode, String graphId, String agentDefId);
 }
 
 public record ValidationResult(
@@ -2555,7 +3001,7 @@ public final class StreamingLlmTemplate {
         var b = req.binding();                 // 委派 context.binding()，单一来源
         long startNanos = System.nanoTime();
 
-        // 模型三路合并（§4.4.1）：Override > modelConfigKey > 内联，逐字段取首个非空
+        // 模型解析（§4.4.1）：静态层 key/内联整路二选一（不齐报错），再套 Override 逐字段补丁
         ModelEndpoint endpoint = resolvers.modelEndpoints()
             .resolve(ctx, req.inlineModel(), req.modelOverride());
         ChatClient.Builder builder = ChatClient.builder(
@@ -2658,8 +3104,13 @@ public final class StreamingLlmTemplate {
 ```java
 public Map<String, Object> apply(OverAllState state) {
     LlmRequestContext ctx = new LlmRequestContext(
+        StateValues.getString(state, LlmRequestContext.ACE_AGENT_CODE_KEY, ""),
         graphId, nodeId, StateValues.getString(state, ModelOverrideSpec.ACE_RUN_ID_KEY, ""),
         state, ResourceBindings.fromSpec(spec));
+    if (ctx.agentCode() == null || ctx.agentCode().isBlank()) {
+        log.error("节点 {} 缺少 agentCode，入口未写入保留键 {}",
+                nodeId, LlmRequestContext.ACE_AGENT_CODE_KEY);
+    }
 
     // 请求级覆盖：从 state 保留键读取并解析出本节点生效项（§4.4.1 最高优先级）
     ModelOverrideSpec overrides = StateValues.get(state, ModelOverrideSpec.ACE_MODEL_OVERRIDES_KEY);
@@ -2856,7 +3307,7 @@ starter **compile 依赖** `ace-graph-dsl-ai`，保证全家桶开箱可用（st
 | 维度 | 结论 | 说明 |
 |---|---|---|
 | 边界 | 通过 | Function 入参把注册中心选型踢出 backend |
-| 请求级模型 | 部分缺口 | Override / 内联字段 / modelConfigKey 三路优先级未写死 |
+| 请求级模型 | **已闭环** | §4.4.1：Override 补丁 + 静态层 key/内联整路二选一，不齐报错 |
 | 工具冲突 | **已闭环** | D1（§5.1.1）uniqueName 经 `toModelCallback` 落到 `ToolDefinition.name`；D2（§5.3）分隔符改 `__` 修正端点 400 缺陷、关闭短名、冲突组 description 补来源标识、system 不拼工具目录；BUILTIN 优先级保留，短名保留名规则取消 |
 | Skill 懒加载 | **已闭环** | §6 渐进披露；UI 勾选 = 白名单；内置工具命名/去重/越权与路径校验已定；§10 骨架已接线 |
 | 多模态 | **已闭环** | §8.2：`mediaInputKey` UI 可配 / state 存 Map + REPLACE / mime 五级补全 / SSRF 与超时约束 / Template 组装接线 |
@@ -2889,9 +3340,9 @@ starter **compile 依赖** `ace-graph-dsl-ai`，保证全家桶开箱可用（st
 |---|---|---|---|
 | A1 | **AgentCard** | ~~Binding 有字段无消费~~ | **本期明确不做**；不阻塞其余闭环。后续单独立项 |
 | A2 | **多模态** | 已闭环（§8.2）：UI 填 `mediaInputKey`；state 存 `List<Map>` + `REPLACE`；`MediaRef{url 必有, mime 可空}`；mime 五级补全；失败跳过+warn；SSRF/超时/条数/缓存约束；Template 组装步骤与 `LlmCallRequest` 字段已定 | 仅剩编码实现 |
-| A3 | **Skill 触发加载** | 已闭环（§6）：渐进披露三层 + `skillKeys` 白名单 + `load_skill`/`read_skill_resource` 内置工具（BUILTIN 优先、保留名、越权与路径穿越校验）+ 多轮由 Spring AI tool-calling 承担 + 骨架已接线 | 仅剩编码实现（P1） |
+| A3 | **Skill 触发加载** | **已闭环（§6 + §6.3.1）**：三层披露 + 白名单 + `load_skill`/`read_skill_resource`。**补定用户指定格式**：框架只认 state 保留键 `ace.graph.dsl.forceSkills = ["skill.xxx",…]`（与 skillKeys 同一套 key）；终端聊天口令（`/skill` 等）**不由框架规定**，业务解析后写入该键；模型自选走工具参数 `code` | 实现：读 forceSkills 预激活 + 白名单校验日志 |
 | A4 | **Prompt 变量渲染** | **已定案（§4.4.2）**。先纠正一处误解：现网 `{{state.key}}` **从未实现**——`GenericAgentNode` 只把 `inputKeySet()` 收集成 `variables` 原样下传，core 无任何替换，Stub 仅回显；渲染责任被隐式推给 `AgentChatClient` 实现方且无人实现。定案五条：①渲染收归框架层，交给 Spring AI 的是**已渲染纯文本**，不用其 `PromptTemplate`（其单花括号 `{}` 与 prompt 内 JSON 示例冲突）；②语法仅 `{{state.key}}`，`state.` 前缀可选；③**严格单遍替换**防模板注入，替换值不再被扫描，且必须 `Matcher.quoteReplacement`；④system/user **共用同一变量快照**（「谁先」的实质是同源而非先后），多 promptKeys **先按序合并再统一渲染一次**；⑤skill L1 目录与工具目录**在渲染之后**追加，不作为用户模板。缺失变量默认空串+warn，可配严格模式；`Map`/`List` 走 JSON 而非 `toString` | 实现项：`PromptRenderer` + `PromptVars.snapshot` + `PromptRenderProperties`（严格模式/单值上限/总长上限）+ **编译期占位符与 `inputKeys` 双向比对 warn**；`LlmResolvers` 加 `promptRenderer`、`LlmCallRequest` 加 `inputKeys` |
-| A5 | **模型三路来源** | **已定案（§4.4.1）**：优先级 **Override > modelConfigKey（需 enableModel）> 节点内联**，即注册中心为权威来源、内联退化为兜底与本地调试；**逐字段独立取首个非空**而非整体替换（延续现网 `withOverride` 语义，避免只覆盖 modelId 时丢掉 baseUrl/apiKey）；`enableModel=false` 仅表示「跳过 key 这一路、不调远程」而**非禁用节点**；**key 解析抛异常则 fail fast 不回落内联**（避免静默用错模型），返回值字段为空才逐字段回落；三路皆空 fail fast 并给出三种补救方式；api-key 仅在「内联且 apiKeyMasked」时走 SecretResolver；日志打印各字段来源但不打 key 值 | 实现项：`ModelEndpointResolver` + `InlineModel` + `LlmCallRequest` 加 2 字段 + **编译期 warn**（key 与内联并存时提示内联不生效） |
+| A5 | **模型三路来源** | **已定案（§4.4.1，已修订）**：优先级仍是 Override > modelConfigKey > 内联，但**静态层改为整路二选一**——勾了 key 就只用注册中心那一套，缺字段**报错**，禁止用内联字段拼盘补齐（避免「配的是 key，日志里却是内联 modelId」）。**仅请求级 Override** 允许在底座上逐字段补丁（只改 modelId 做 A/B）。enableModel=false = 跳过 key 路而非禁用节点 | 实现：requireComplete + 整路底座 + Override 补丁；编译期 key/内联并存 warn |
 | A6 | **`LlmCallRequest` / `ChatModelFactory`** | **已闭环（§4.5）**：纠正「Resolver 当请求级字段」的概念错位，拆为单例 `LlmResolvers`（10 项，含非空校验）+ 请求级 `LlmCallRequest`（8 字段 + Builder + 参数归一）；`binding` 唯一来源为 `context`；`ChatModelFactory` 返回原生 `ChatModel`，默认实现按端点 **LRU 有界缓存**（上限 64，超限 warn 提示动态 key 误用）、api-key 严禁入日志；`ChatClientFactory`/`AgentChatClient` 标 deprecated 且**不提供桥接**（语义不可逆） | 实现项：两 record + Builder + 缓存工厂 + 自动配置默认回落 |
 | A8 | **Template 的模块归属与 spring-ai 依赖** | **已定案（§12.1）**：新建 `ace-graph-dsl-ai` 承载模型层；`AgentTool` 删除、统一到 `ToolCallback`；core 保持不依赖 spring-ai；core 新增 `GraphBoundAgentNode` + `GenericAgentNodeFactory` 两个抽象，`DynamicGraphBuilder` 改注入工厂；starter compile 依赖 ai | 实现项：建模块 + 6 类迁移（含单测）+ 工厂抽象 + 缺失时可操作报错 |
 | A7 | **注册式 Agent** | 已定案（§11.1）：两字段只存 `GenericAgentDefinition.spec`，图内不可覆写，节点面板为唯一编辑入口 | 实现项：属性面板对注册式保持只读+跳转；编译期忽略图上残留字段并 warn |
@@ -3017,14 +3468,15 @@ starter **compile 依赖** `ace-graph-dsl-ai`，保证全家桶开箱可用（st
 | P0 | `ResourceBinding` + UI 开关/手动 key（**零兼容映射**） |
 | P0 | **旧字段清理**：删 `tools`/`promptKey`/`skillKey`/`mcpKey`/`skill`/`mcp`，`prompt` 改纯追加语义；`mcpToolWhitelist` + `McpToolFilter` 承接 MCP 工具级过滤；`REMOVED_FIELDS` 检出 fail fast；UI MCP 改三级树（§7.1.1 / D3） |
 | P0 | `PromptRenderer` 单遍渲染（防注入 + quoteReplacement）+ 统一变量快照 + 集合类 JSON 化 + 长度护栏 + 编译期占位符/`inputKeys` 比对 warn（§4.4.2） |
-| P0 | `ModelEndpointResolver` 三路逐字段合并 + `InlineModel` + key 解析异常不回落 + 三路皆空 fail fast + 各字段来源日志 + 编译期「key 遮蔽内联」warn（§4.4.1） |
+| P0 | `ModelEndpointResolver`：静态层 key/内联**整路二选一**（不齐报错、禁止拼盘）+ Override 逐字段补丁 + 来源日志 + 编译期并存 warn（§4.4.1） |
+| P0 | `LlmRequestContext` 必含 **`agentCode`**：Controller 入口写死并写入 state 保留键 `ace.graph.dsl.agentCode`，节点只读不猜；缺则 error 日志（§4.2） |
 | P0 | `LlmResolvers` + `LlmCallRequest`（含 Builder 与校验）+ `CachingChatModelFactory`（LRU 有界）+ 自动配置默认回落；`ChatClientFactory`/`AgentChatClient` 标 deprecated（§4.5） |
 | P0 | 注册式 Agent：两字段写入 `GenericAgentDefinition.spec`；节点面板编辑器补资源勾选 + 流式类型；属性面板保持只读+跳转（§11.1） |
 | P1 | `AgentResourceCatalog` 列表 API（**不做**默认保存期 key 存在性校验）；Nacos/K8s 示例 |
 | P0 | 运行期资源加载失败：**error 日志** + 分层策略（Prompt/Model 硬失败，MCP/Tool/Skill 单项跳过）；`ResourceLoadDiagnostics` |
 | P0 | `/debug/stream` 增发 `resource_miss`；调试 UI 展示失败 key 列表（§7.4 / C2） |
 | P1 | 可选 `ResourceKeyValidator` 挂钩保存入口（有 Bean 才校验；无则跳过）（§7.4 / C1） |
-| P1 | Skill：L1 白名单目录 + `load_skill` / `read_skill_resource` + ContentLoader 回灌 messages（§6） |
+| P1 | Skill：L1 白名单 + `load_skill` / `read_skill_resource` + 读 `ACE_FORCE_SKILLS_KEY` 预激活（§6 / §6.3.1） |
 | P0 | **调试端点** `/execution/{graphId}/debug/stream` + `DebugStreamingChunkFormatter`（带 `nodeId`/`streamKind`/`seq`/`ts`）+ 接口文档版本化；UI 加「调试格式」提示文案（§9.6.7） |
 | P0 | 新设计器 API 挂菜单守卫：catalog/kinds→`graph:view`，`/debug/stream`→`graph:validate`（§7.5 / C4）；生产 `/stream` 不挂图编辑菜单 |
 | P1 | 调试端点鉴权与图编辑权限对齐（并入 C4）；禁止对生产终端用户开放；UI 调试按钮绑 `MENU.GRAPH_VALIDATE` |
@@ -3091,11 +3543,15 @@ starter **compile 依赖** `ace-graph-dsl-ai`，保证全家桶开箱可用（st
 | 2026-09-08 | 闭环 B8：删除 `defaultSelected` 字段（JSON 契约 + `StreamResponseKindItem`），改为 `order`；「默认 = 列表首位」成为全链路唯一规则 |
 | 2026-09-08 | 新增 §13.2 待产品确认清单：B3（节点内中途切 kind）、B7（执行/调试面板渲染）各 3 个候选及取舍；修正 B3 原误标「定案」为待确认。两项均不阻塞 P0 |
 | 2026-09-08 | **定案 A4（§4.4.2）：Prompt 变量渲染**。查证发现现网 `{{state.key}}` **从未实现**（javadoc 有承诺、core 无替换代码、责任被推给 `AgentChatClient` 实现方），故本次为首次定义并将渲染收归框架层。五条：①不使用 Spring AI `PromptTemplate`（单花括号与 prompt 内 JSON 示例冲突），传入已渲染纯文本；②`{{state.key}}` 单命名空间、前缀可选；③**严格单遍替换**，替换值不再参与扫描（防模板注入），替换时用 `Matcher.quoteReplacement` 规避 `$`/`\` 组引用；④system/user 共用**同一变量快照**，多 promptKeys 先合并后渲染一次；⑤skill L1 目录与工具目录在渲染后追加。缺失变量默认空串+warn（可切严格模式），`Map`/`List` 走 JSON 序列化。新增编译期占位符与 `inputKeys` 双向比对 warn，可回吐 UI 做自动补全（P1）；新增单变量/总长护栏防上下文击穿 |
+| 2026-09-09 | **补定 §6.3.2：forceSkills 多节点传递**。入口写入的 `ace.graph.dsl.forceSkills` 随 OverAllState 贯穿整次 run，能传到第 N 个节点。前序节点白名单不含该 skill → 只跳过+日志、**不删列表**；第 N 个节点勾选后才预激活。若前序节点也勾了同一 skill 则会在那些节点也激活——「只在第 N 个用」靠白名单控制，不靠框架按节点序号丢弃。默认激活后不从 state 清除 |
+| 2026-09-09 | **补定 §6.3.1：用户/上游指定 Skill 的格式**。此前只写「可强制 load_skill」未写格式。定案：框架唯一认 state 保留键 `ace.graph.dsl.forceSkills`（JSON 数组 / `List&lt;String&gt;`，元素与 UI skillKeys 同一 key，如 `skill.refund`）；进节点前按序预激活。终端聊天口令（`/skill`、自然语言等）**框架不规定**，业务解析后写入该键——与「流式协议归业务」一致。模型自选则调 `ace__skill__load_skill`，参数 `{"code":"skill.refund"}`。不在白名单则跳过+日志；不做框架内正则抠用户原文 |
+| 2026-09-09 | **修订 A5（§4.4.1）：取消静态层逐字段拼盘**。原「baseUrl/apiKey/modelId 各路取第一个非空」会导致：勾了 modelConfigKey 但注册中心缺 modelId 时，静默用上内联 modelId，开发和用户都觉得怪。改为：**静态层整路二选一**（有 key 用 key，否则用内联），选中路不齐就**报错**，禁止跨路补缺；**仅请求级 Override** 仍可在底座上逐字段补丁（只改 modelId 做 A/B 的合理需求）。异常与不完整一律 fail fast |
 | 2026-09-08 | **定案 A5（§4.4.1）：模型来源优先级 = 请求级 Override > modelConfigKey（需 enableModel）> 节点内联字段**。意图是让注册中心成为权威来源（改一处 key 指向即全局切换模型），内联字段退化为兜底与本地调试。明确四点：①**逐字段独立取首个非空**而非整体替换，延续现网 `withOverride` 语义，使「只覆盖 modelId」不会丢掉 baseUrl/apiKey；②`enableModel=false` 含义为「跳过 key 这一路并省掉远程调用」，**不是禁用节点**；③**key 解析抛异常时 fail fast、不回落内联**（异常=故障，静默降级会让线上悄悄用错模型），仅「正常返回但字段为空」才逐字段回落；④三路皆空 fail fast 并提示三种补救方式。api-key 仅在「内联且 `apiKeyMasked`」时走 SecretResolver，Override/注册中心来源视为明文；日志打印各字段来源但**不打 key 值**。新增框架内部 `ModelEndpointResolver`（业务 SPI `ModelMountResolver` 仅负责 key 这一路，保持单一职责）与 `InlineModel`；`LlmCallRequest` 增 `inlineModel`/`modelOverride` 两字段。**副作用与缓解**：勾选 Model 并填 key 后内联字段静默失效，故要求编译期检测二者并存并 warn |
 | 2026-09-08 | **闭环 A6（§4.5）**：纠正早期骨架把 Resolver 当请求级字段的概念错位（原致 `LlmCallRequest` 需 18 个构造参数），拆为**单例 `LlmResolvers`**（10 项 + 非空校验）与**请求级 `LlmCallRequest`**（8 字段 + Builder + 参数归一）；`binding` 唯一来源为 `context.binding()`；新增 `ChatModelFactory`（返回原生 `ChatModel`），默认 `CachingChatModelFactory` 按端点 LRU 有界缓存（上限 64，超限 warn 提示动态 api-key 误用），api-key 严禁进日志与异常；`ChatClientFactory`/`AgentChatClient` 标 deprecated 且不提供桥接（`String` vs `ChatModel` 语义不可逆）。§10 骨架调用点同步改为 `resolvers.xxx()` 并补充耗时日志 |
 | 2026-09-08 | **定案 B7（§9.6.7）：ace-graph-dsl-ui 调试界面只用框架标准 SSE 格式**。理由：ui 为通用产品，跟随业务协议将导致每接一个业务方都要做一次前端协议适配。落地为新增独立端点 `/execution/{graphId}/debug/stream` + 内置 `DebugStreamingChunkFormatter`（含 `nodeId`/`streamKind`/`seq`/`ts`），刻意不调 `resolveFormatter()` 使业务 Bean 不介入；调试格式属框架自有契约故**可带 `streamKind`**，与 §9.6.3「默认输出不带」不矛盾。风险「调试所见≠生产所下发」由 UI 明示提示 + 业务压 `/stream` 抓包应对。§9.6.1「控制器零改动」修正为「**现有端点**零改动 + 新增调试端点」。流式类型 B1–B8 至此全部闭环 |
 | 2026-09-08 | **定案 A8（§12.1）：新建 `ace-graph-dsl-ai` 模块 + 彻底迁移**。核查发现 backend 原先无任何模块直接依赖 spring-ai（`AgentTool` 刻意隔离），与需求 11 冲突。定案：模型层全部移入 ai 模块、删除 `AgentTool` 统一到 `ToolCallback`、core 保持干净并新增 `GraphBoundAgentNode`/`GenericAgentNodeFactory` 两个抽象（依赖倒置），`DynamicGraphBuilder` 改为注入工厂、缺失时给可操作报错；starter compile 依赖 ai。该项为 P0 最先做，否则其余 P0 无法编译 |
 | 2026-09-08 | **闭环 D1（§5.1.1）**：Spring AI 从 `ToolCallback.getToolDefinition().name()` 读工具名，仅改 record 字段无效。定案 `toModelCallback()` 包装改名（保留 description/inputSchema）、同名不多包一层、挂载前断言 name 全局唯一 fail fast、日志打印 `原名->uniqueName`。`NamedToolCallback.source` 由字符串改为 `ToolSource` 枚举 |
+| 2026-09-09 | **定案 `agentCode`（§4.2）**：`LlmRequestContext` 必含 `agentCode`。在 Controller 入口写死（或按路径解析一次），写入 state 保留键 `ace.graph.dsl.agentCode`，与 `runId` 一样贯穿整次执行；图内每个 Agent 节点只读该键填入上下文，**禁止在节点内按 nodeId/graphId 猜默认**。与 graphId（哪张图）、nodeId（哪个节点）、runId（哪次执行）分工明确。框架不提供全局默认码；缺键打 error。Resolver/日志/观测一律可从 `ctx.agentCode()` 取值；Catalog 的 `agentId`（节点定义 id）不等于 `agentCode` |
 | 2026-09-08 | **文风加严**：方案糊了不但读者费解，后续 review 也会「不知道自己写了什么」而靠聊天/代码推断。定案必须自带五句话（结论、对象、怎么做、不做什么、怎么验收）；缺口表「已定案」若链过去仍要猜，视为未闭环。review 以本节白纸黑字为准，不得用推断补结论 |
 | 2026-09-08 | **定案 C4（§7.5）：设计器接口鉴权对齐现网菜单权限**。澄清「与图编辑权限对齐」并非新造权限模型，而是把 catalog / kinds / `/debug/stream` 挂到现有 `GraphMenuAccessControl` + `MenuPermissionGuard`。映射表：`GET /api/agent-resources/**` 与 `GET /api/stream-response-kinds` → `graph:view`（Agent 库场景允许 OR `agent-node:view`）；dry-run 与 **`/debug/stream`** → `graph:validate`；Agent 试跑保持 `agent-node:test`。生产 `/stream` **明确不挂**图编辑菜单（受众是业务运行态，由宿主 Security/网关保护；框架仅用 `ace.graph.dsl.web.execution.enabled` 开关）。权限配置入口：宿主实现 `GraphMenuAccessControl` Bean（见 `MENU_PERMISSION_INTEGRATION.md`），前端 `stores/permissions.js`；未接入默认全放行。资源内容级 ACL（某个 prompt key 谁能看）不归菜单管，由业务 Catalog/Resolver 过滤。不新增菜单 key，降低宿主映射成本 |
 | 2026-09-08 | **定案 C1/C2（§7.4）：资源 key 默认先保存、运行期验证**。prompt/mcp/skill/model/localTool **不做**默认保存期存在性校验（流式 kind 仍按 §9.4 必选校验）。理由：资源常在外部系统、Catalog≠Resolver、硬拦会误伤「先画图后上资源」。运行期加载失败必须 **error 日志**（graphId/nodeId/type/key）；失败策略分层——Model/Prompt 硬失败，MCP/LocalTool/Skill 单项跳过继续。调试 `/debug/stream` 增发 `resource_miss`（仅调试、不进生产 `/stream`），UI 列出失败 key。可选 `ResourceKeyValidator`：业务能廉价判断时提供 Bean，保存期才拦截 MISSING/ERROR；无 Bean 则跳过。明确**不用** Catalog.list 差集冒充校验。C1「同一 key 空间」收束为软约定 + 可选 Validator + 运行期真相 |
@@ -3104,3 +3560,4 @@ starter **compile 依赖** `ace-graph-dsl-ai`，保证全家桶开箱可用（st
 | 2026-09-08 | **定案 D2（§5.3）：关闭短名，模型可见名一律用 uniqueName，system 不写工具目录文案**。查证中发现一处会让请求直接失败的缺陷：原格式 `mcp:weather:get_forecast` **含冒号，违反端点 `^[a-zA-Z0-9_-]{1,64}$` 约束会被 400 拒绝**（`ace:skill:load_skill` 同），故分隔符改 `__` 并 sanitize，超 64 时保留 originalName 尾部 + 8 位哈希（哈希基于完整 uniqueName，压缩后仍唯一）。核心澄清：**技术路由与语义选择是两层**——name 闭环（发出与回查同一字符串）保证路由正确，但两个 MCP 的同名工具改名后 description 仍相同，模型无从选择，故冲突组内 description 前置 `[来源: {serverKey}]`，无冲突则原样保留；§5.1.1「description 原样保留」修正为仅适用无冲突场景。不写 system 目录：工具经请求体 `tools` 参数下发不走 prompt，重复一遍既每轮烧 token 又可能与实际 tools 不一致。不做「无冲突用短名」：会使工具名随新增 MCP 突然变化，破坏 prompt 与埋点稳定性。顺带取消 §6.4.1 短名保留名规则（统一前缀后天然不撞）；挂载前断言升级为唯一性 + 合法性两条 |
 | 2026-09-08 | **定案 B3 = ①首期不做**：一个节点固定一个 kind；「节点A(BIZ 思考/处理) → 节点B(OUTPUT 总结)」编排已完整支持——带外通道保证前端实时收字（`blockLast()` 只阻塞图引擎不影响前端）、`outputKey`→`inputKeys` 传递完整文本、片段携带 `nodeId`+kind 供前端路由渲染。将来如需单节点内分段可平滑追加 `emitKind` 可选 API，不影响已落库图。流式类型仅剩 B7 待拍 |
 | 2026-09-08 | 定案 B1/B2（§9.7）：空 KEY / 无效 KEY 归一化采用**编译期 normalize + 运行期兜底**双保险，统一走 `resolveOrDefault` 并与 UI 默认同源（同一 Catalog、同一 `ORDER` 比较器）；落点 `DynamicGraphBuilder#resolveGenericAgent`，同处收集 `nodeId → kind` 映射顺带闭环 B6；明确不做保存时 normalize，且不在 `GenericAgentSpec` 构造器兜底（默认值依赖运行时配置） |
+| 2026-09-09 | **澄清设计期 vs 运行期（§4.3 / §7.2）**：UI 勾选的 promptKeys/mcpKeys 等**设计期尚不存在**，不能作为「按 agentCode 初筛」的入参。初筛走 Catalog.list（入参 agentCode，无节点 keys）；运行期 Resolver.resolve(ctx, keys) 时 keys 已从节点 Binding 落库，可同时读 agentCode 做范围校验。Catalog 查询参数改为 `agentCode` + 可选 `agentDefId`（原 agentId 易混淆） |
