@@ -21,6 +21,10 @@
         </dependency>
         <dependency>
             <groupId>io.acelance</groupId>
+            <artifactId>ace-graph-dsl-ai</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>io.acelance</groupId>
             <artifactId>ace-graph-dsl-persistence</artifactId>
         </dependency>
         <dependency>

@@ -104,9 +104,42 @@ export function createGraphApi(options = '/') {
      * @param handlers { onEvent, onSubgraphInterrupted, onError, onComplete }
      * @returns AbortController（可调 .abort() 取消）
      */
-    streamGraph: (graphId, inputs, threadId, handlers = {}) => {
-      return streamSse(`/execution/${graphId}/stream`, { inputs: inputs || {}, threadId }, handlers, http)
+    streamGraph: (graphId, inputs, threadId, handlers = {}, options = {}) => {
+      const body = {
+        inputs: inputs || {},
+        threadId,
+        agentCode: options.agentCode || undefined
+      }
+      return streamSse(`/execution/${graphId}/stream`, body, handlers, http)
     },
+
+    /**
+     * 调试流式执行（SSE）：固定走框架 DebugStreamingChunkFormatter，与生产协议分离。
+     * 需 graph:validate 权限。
+     */
+    debugStreamGraph: (graphId, inputs, threadId, handlers = {}, options = {}) => {
+      const body = {
+        inputs: inputs || {},
+        threadId,
+        agentCode: options.agentCode || undefined
+      }
+      return streamSse(`/execution/${graphId}/debug/stream`, body, handlers, http)
+    },
+
+    /**
+     * 已实现流式响应类型目录（设计器下拉）。
+     * @param graphId 可选，部分业务 Catalog 按图裁剪
+     */
+    listStreamResponseKinds: (graphId) =>
+      http.get('/api/stream-response-kinds', { params: graphId ? { graphId } : {} }).then(r => r.data),
+
+    /**
+     * 设计期资源 Catalog（P1.1）。
+     * @param {'prompts'|'models'|'tools'|'mcp'|'skills'} kind
+     * @param {{ agentCode?: string, graphId?: string, agentDefId?: string }} params
+     */
+    listAgentResources: (kind, params = {}) =>
+      http.get(`/api/agent-resources/${kind}`, { params }).then(r => r.data),
 
     /**
      * HITL 恢复执行（SSE）。
@@ -186,6 +219,9 @@ export const getMenuPermissions = (...args) => defaultApi.getMenuPermissions(...
 export const getExecutionState = (...args) => defaultApi.getExecutionState(...args)
 export const getSubgraphState = (...args) => defaultApi.getSubgraphState(...args)
 export const streamGraph = (...args) => defaultApi.streamGraph(...args)
+export const debugStreamGraph = (...args) => defaultApi.debugStreamGraph(...args)
+export const listStreamResponseKinds = (...args) => defaultApi.listStreamResponseKinds(...args)
+export const listAgentResources = (...args) => defaultApi.listAgentResources(...args)
 export const resumeGraph = (...args) => defaultApi.resumeGraph(...args)
 
 /**

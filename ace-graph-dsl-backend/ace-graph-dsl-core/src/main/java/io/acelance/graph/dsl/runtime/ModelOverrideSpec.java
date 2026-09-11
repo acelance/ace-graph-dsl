@@ -7,7 +7,7 @@ import java.util.Map;
  *
  * <p>由各执行入口（如 {@code GraphExecutionController}）在组装初始 {@code OverAllState} 时，
  * 以保留键 {@link #ACE_MODEL_OVERRIDES_KEY} 注入；随后由
- * {@link io.acelance.graph.dsl.agent.GenericAgentNode} 从 state 保留键读取并在每次 LLM
+ * {@link io.acelance.graph.dsl.agent.GraphBoundAgentNode} 从 state 保留键读取并在每次 LLM
  * 调用前解析生效。走 state 而非 {@code RunnableConfig.metadata} 是为了让异步扇出分支
  * （其 RunnableConfig 不携带 threadId）也能延续同一覆盖。
  * 优先级：nodeId 精确覆盖 &gt; 全局覆盖 &gt; 图定义静态值。</p>

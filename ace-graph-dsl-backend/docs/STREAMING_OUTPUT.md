@@ -32,9 +32,13 @@ ace:
 
 | 方法 | 路径 | 说明 |
 | --- | --- | --- |
-| `POST` | `/execution/{graphId}/stream` | 流式执行（SSE），逐 token 下发 |
+| `POST` | `/execution/{graphId}/stream` | **生产**流式执行（SSE）；走业务 Formatter |
+| `POST` | `/execution/{graphId}/debug/stream` | **设计器调试**；强制框架 `DebugStreamingChunkFormatter`，需 `graph:validate` |
 | `POST` | `/execution/{graphId}/invoke` | 同步执行，返回最终状态 |
 | `POST` | `/execution/{graphId}/resume` | HITL 恢复（SSE） |
+
+> 协议归属与业务接入模板见仓库根文档 [`docs/streaming-protocol-business-template.md`](../../docs/streaming-protocol-business-template.md)。  
+> **禁止**把 `/debug/stream` 暴露给生产终端用户。
 
 请求体：
 
@@ -87,31 +91,28 @@ ace:
 
 ## 4. 接入真实 LLM 流式（逐 token 的来源）
 
-框架本身不绑定具体 LLM 实现，core 内置 `StubChatClientFactory` 仅用于端到端验证（其 `stream()` 退化为单次 `call` 的单个片段）。
+框架本身不绑定具体 LLM 实现，内置 `StubChatModelFactory` 仅用于端到端验证（其 `stream()` 将终稿拆成前后两段）。
 
-业务引入真实 LLM 适配模块（如 `ace-graph-dsl-agent`）后，需让 `AgentChatClient` 的 **`stream(...)` 返回真正的逐 token `Flux`**：
+业务需注册 `ChatModelFactory`，返回原生 spring-ai `ChatModel`；`GenericAgentNode` 经 `StreamingLlmTemplate` 调用 `ChatClient.stream().content()`，会**逐 token**经 `GraphStreamBridge` 推送给 SSE：
 
 ```java
-// 真实 LLM 适配模块中实现 AgentChatClient
-public class OpenAiAgentChatClient implements AgentChatClient {
-
-    private final OpenAiChatModel chatModel;
-
-    @Override
-    public String call(String prompt, Map<String, Object> vars, GenericAgentSpec spec) {
-        return chatModel.call(render(prompt, vars)).getContent();
-    }
-
-    // 覆写 stream：返回逐 token Flux —— 节点侧会自动订阅并经桥接通道透传给 SSE
-    @Override
-    public Flux<String> stream(String prompt, Map<String, Object> vars, GenericAgentSpec spec) {
-        return chatModel.stream(render(prompt, vars))
-                        .map(resp -> resp.getResult().getOutput().getContent());
-    }
+// 业务工程中实现 ChatModelFactory
+@Bean
+ChatModelFactory chatModelFactory() {
+    return endpoint -> OpenAiChatModel.builder()
+            .openAiApi(OpenAiApi.builder()
+                    .baseUrl(endpoint.baseUrl())
+                    .apiKey(endpoint.apiKey())
+                    .build())
+            .defaultOptions(OpenAiChatOptions.builder()
+                    .model(endpoint.modelId())
+                    .streamUsage(true)
+                    .build())
+            .build();
 }
 ```
 
-只要 `AgentChatClient.stream()` 返回多元素 `Flux`，`GenericAgentNode` 就会**逐 token**推送，无需改任何图定义。
+只要 `ChatModel.stream()` 返回多元素 `Flux`，节点就会**逐 token**推送，无需改任何图定义。
 
 > 若未覆写 `stream()`，节点退化为单次片段（一个 chunk 包含完整回复），流式机制本身依然工作，只是没有"逐字"效果。
 
@@ -144,8 +145,9 @@ public class OpenAiAgentChatClient implements AgentChatClient {
 | `isStreaming()` | 是否来自 LLM 流式输出 |
 | `getOutputType()` | 流式输出类型（`AGENT_MODEL_STREAMING` / `AGENT_MODEL_FINISHED` 等）；非流式为 `null` |
 | `isLast()` | 是否为本段流的最后一个片段（`TokenChunk.last()` 或 `OutputType` 以 `_FINISHED` 结尾） |
+| `getResponseKind()` | 节点 `streamResponseKind` 标签（BIZ/OUTPUT/自定义）；可空，由业务自行解释 |
 
-`TokenChunk` 字段：`nodeId` / `token`（文本片段）/ `outputType` / `last`。
+`TokenChunk` 字段：`nodeId` / `token`（文本片段）/ `outputType` / `responseKind` / `last`。
 
 ### 5.3 示例：业务私有 JSON 协议（thinking / isEnd）
 
@@ -271,7 +273,7 @@ public GraphExecutionEventAdapter myEventAdapter() {
 
 | 类型 | 位置 | 作用 |
 | --- | --- | --- |
-| `AgentChatClient.stream(...)` | `io.acelance.graph.dsl.agent` | 逐 token 模型调用 SPI；默认退化为单片段 |
+| `ChatModelFactory` / `ChatModel.stream` | `io.acelance.graph.dsl.ai.model` | 原生模型工厂；流式由 Template 订阅并推送 |
 | `GraphStreamBridge` / `ReactorGraphStreamBridge` / `NOOP` | `io.acelance.graph.dsl.streaming` | 按 runId 汇聚 token 的桥接通道 |
 | `TokenChunk` | `io.acelance.graph.dsl.streaming` | 一个 LLM token 片段（`nodeId`/`token`/`outputType`/`last`） |
 | `StreamingChunkFormatter` | `io.acelance.graph.dsl.execution` | **格式定制 SPI**，优先级最高 |

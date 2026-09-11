@@ -196,13 +196,36 @@ public class AceGraphDslAutoConfiguration {
     public GenericAgentNodeService genericAgentNodeService(
             GenericAgentDefinitionRepository genericAgentDefinitionRepository,
             io.acelance.graph.dsl.registry.GraphNodeRegistry nodeRegistry,
-            org.springframework.context.ApplicationContext applicationContext,
-            GraphAuditLogger auditLogger) {
+            io.acelance.graph.dsl.agent.GenericAgentNodeFactory genericAgentNodeFactory,
+            GraphAuditLogger auditLogger,
+            ObjectProvider<io.acelance.graph.dsl.resource.ResourceKeyValidator> resourceKeyValidator) {
         return new GenericAgentNodeService(
                 genericAgentDefinitionRepository,
                 nodeRegistry,
-                applicationContext,
-                auditLogger);
+                genericAgentNodeFactory,
+                auditLogger,
+                resourceKeyValidator.getIfAvailable());
+    }
+
+    @Bean
+    @ConditionalOnMissingBean(io.acelance.graph.dsl.streamkind.StreamResponseKindCatalog.class)
+    public io.acelance.graph.dsl.streamkind.StreamResponseKindCatalog streamResponseKindCatalog() {
+        return new io.acelance.graph.dsl.streamkind.DefaultStreamResponseKindCatalog();
+    }
+
+    @Bean
+    @ConditionalOnMissingBean(io.acelance.graph.dsl.streamkind.StreamResponseKindResolver.class)
+    public io.acelance.graph.dsl.streamkind.StreamResponseKindResolver streamResponseKindResolver(
+            io.acelance.graph.dsl.streamkind.StreamResponseKindCatalog streamResponseKindCatalog) {
+        return new io.acelance.graph.dsl.streamkind.StreamResponseKindResolver(streamResponseKindCatalog);
+    }
+
+    @Bean
+    @ConditionalOnMissingBean(io.acelance.graph.dsl.prompt.PromptRenderer.class)
+    public io.acelance.graph.dsl.prompt.PromptRenderer promptRenderer(
+            @Qualifier(AceGraphDslBeans.OBJECT_MAPPER) ObjectMapper objectMapper) {
+        return new io.acelance.graph.dsl.prompt.PromptRenderer(
+                objectMapper, io.acelance.graph.dsl.prompt.PromptRenderProperties.defaults());
     }
 
     @Bean

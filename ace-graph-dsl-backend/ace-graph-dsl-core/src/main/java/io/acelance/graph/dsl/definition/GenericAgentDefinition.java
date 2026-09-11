@@ -60,8 +60,7 @@ public record GenericAgentDefinition(
             permissionTags = Set.of();
         }
         if (spec == null) {
-            spec = new GenericAgentSpec(null, null, false, null, null, null,
-                    null, null, null, null, List.of(), null, GenericAgentSpec.DEFAULT_OUTPUT_KEY);
+            spec = new GenericAgentSpec(null, null, null, null);
         }
     }
 
@@ -103,9 +102,12 @@ public record GenericAgentDefinition(
         Map<String, GraphNodeDescriptor.PropertySchema> props = new LinkedHashMap<>();
         props.put("modelId", new GraphNodeDescriptor.PropertySchema("string", "模型", spec.modelId(), Map.of()));
         props.put("modelBaseUrl", new GraphNodeDescriptor.PropertySchema("string", "模型端点", spec.modelBaseUrl(), Map.of()));
-        props.put("prompt", new GraphNodeDescriptor.PropertySchema("string", "prompt 模板", spec.prompt(), Map.of()));
-        props.put("promptKey", new GraphNodeDescriptor.PropertySchema("string", "prompt key", spec.promptKey(), Map.of()));
+        props.put("prompt", new GraphNodeDescriptor.PropertySchema("string", "prompt 追加", spec.prompt(), Map.of()));
+        props.put("promptKeys", new GraphNodeDescriptor.PropertySchema("string", "prompt keys",
+                String.join(",", spec.promptKeys()), Map.of()));
         props.put("outputKey", new GraphNodeDescriptor.PropertySchema("string", "输出 key", spec.effectiveOutputKey(), Map.of()));
+        props.put("streamResponseKind", new GraphNodeDescriptor.PropertySchema(
+                "string", "流式类型", spec.streamResponseKind(), Map.of()));
         return new GraphNodeDescriptor(
                 nodeId,
                 effectiveDisplayName(),

@@ -238,13 +238,14 @@ PromptContentResolver prompts(MyPromptClient client) {
 ```java
 @PostMapping("/agents/cs-assistant/stream")
 public SseEmitter streamCs(@RequestBody ExecutionRequest req) {
-    // 本入口写死：就是客服助手
+    // 本入口写死：智能体 + 绑哪张图（完整选图见 §4.2.1）
     String agentCode = "cs-assistant";
+    String graphId = "graph-refund-v3";
     log.info("智能体请求入口: agentCode={}, graphId={}", agentCode, graphId);
     // 与 runId 一样写入 state 保留键，后面所有节点 / Resolver 共用
     inputs.put(LlmRequestContext.ACE_AGENT_CODE_KEY, agentCode);
     inputs.put(ModelOverrideSpec.ACE_RUN_ID_KEY, runId);
-    // ... 再 stream / invoke
+    // ... runtime.get(graphId) / executionFacade.stream(graphId, inputs, runId)
 }
 ```
 
@@ -291,6 +292,121 @@ LlmRequestContext ctx = new LlmRequestContext(
 1. 入口写入后，同一 run 内每个 Agent 节点 / Resolver 读到的 `agentCode` 相同  
 2. 设计期 Catalog 能按 `agentCode` 返回列表（无节点 keys）；运行期 Resolver 能同时拿到 `ctx.agentCode()` 与已勾选 keys  
 3. 故意不写保留键时，节点侧出现上述 error 日志（不静默当空字符串用完）
+
+### 4.2.1 图定义好了，Controller 怎么调到正确的图？（定案）
+
+**一句话结论**：跑哪张图靠 **`graphId`**；框架现网执行 API 已在路径上带它：`POST /execution/{graphId}/stream`。业务要么直接打这个 URL，要么自写 Controller 里**写死 / 映射出** `graphId`，再调 `GraphRuntime.get(graphId)`。
+
+**对象**：图已在设计器保存并发布（或草稿试跑）；业务 HTTP 入口要把一次用户请求接到那张图。
+
+**怎么做（两种常见写法）**：
+
+| 方式 | 谁提供 graphId | 适用 |
+|---|---|---|
+| A. 直调框架执行端点 | 调用方 URL 路径：`/execution/{graphId}/stream` | 调试、简单宿主、一个入口对应多图（前端传不同 graphId） |
+| B. 业务自己的产品入口 | **业务代码写死或配置映射**（如 `cs-assistant` → `graph-cs-v3`），再调 runtime / 转发到 A | 线上产品口：用户只认「客服助手」，不认图 id |
+
+```text
+设计器保存图 graphId=graph-cs-v3
+        │
+        ▼
+发布 / 加载进 GraphRuntime（按 graphId 索引 CompiledGraph）
+        │
+        ▼
+HTTP 请求携带或映射出 graphId
+        │
+        ▼
+runtime.get(graphId).stream(inputs, config)
+```
+
+**关键样例 A：直调现网框架端点（图 id 在路径）**
+
+```java
+// 现网：GraphExecutionController（ace.graph.dsl.web.execution.enabled=true）
+// POST /execution/{graphId}/stream
+@PostMapping(value = "/{graphId}/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
+public SseEmitter stream(@PathVariable String graphId,
+                         @RequestBody(required = false) ExecutionRequest req) {
+    String threadId = resolveThreadId(req);
+    CompiledGraph graph = runtime.get(graphId);   // 按路径上的 graphId 取已编译图
+    log.info("执行流式图: graphId={}, threadId={}", graphId, threadId);
+    return toSse(graph.stream(inputs(req, threadId), buildConfig(threadId)),
+            graphId, threadId, resolveFormatter());
+}
+```
+
+前端 / 调试台：
+
+```http
+POST /execution/graph-cs-v3/stream
+Content-Type: application/json
+
+{
+  "inputs": {
+    "ace.graph.dsl.agentCode": "cs-assistant",
+    "ace.graph.dsl.runId": "…",
+    "user_text": "帮我查订单"
+  }
+}
+```
+
+**关键样例 B：业务产品入口写死 graphId（推荐线上）**
+
+```java
+@RestController
+@RequestMapping("/agents/cs-assistant")
+public class CsAssistantController {
+
+    /** 本产品入口固定绑定的编排图（发布后的 graphId） */
+    private static final String GRAPH_ID = "graph-cs-v3";
+    private static final String AGENT_CODE = "cs-assistant";
+
+    private final GraphRuntime runtime;
+    // … 构造注入
+
+    @PostMapping(value = "/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
+    public SseEmitter stream(@RequestBody ChatRequest req) {
+        String runId = UUID.randomUUID().toString();
+        Map<String, Object> inputs = new LinkedHashMap<>();
+        if (req.inputs() != null) {
+            inputs.putAll(req.inputs());
+        }
+        inputs.put(LlmRequestContext.ACE_AGENT_CODE_KEY, AGENT_CODE);
+        inputs.put(ModelOverrideSpec.ACE_RUN_ID_KEY, runId);
+        // forceSkills 等业务字段按需写入……
+
+        log.info("智能体入口: agentCode={}, graphId={}, runId={}", AGENT_CODE, GRAPH_ID, runId);
+        CompiledGraph graph = runtime.get(GRAPH_ID);
+        if (graph == null) {
+            log.error("图未加载或不存在: graphId={}（请确认已发布且 GraphRuntime 已索引）", GRAPH_ID);
+            throw new IllegalStateException("图不存在: " + GRAPH_ID);
+        }
+        // 也可内部转发 HTTP 到 /execution/{GRAPH_ID}/stream，效果等价
+        return toSse(graph.stream(inputs, buildConfig(runId)), GRAPH_ID, runId, resolveFormatter());
+    }
+}
+```
+
+**agentCode 与 graphId 不是一回事**：
+
+| 字段 | 回答的问题 | 例子 |
+|---|---|---|
+| `agentCode` | 哪个智能体产品入口（资源大盘、日志归类） | `cs-assistant` |
+| `graphId` | 这次跑哪张编排图 | `graph-cs-v3` |
+
+一个 `agentCode` 可绑一张图，也可按版本/场景映射多张图（业务自己做映射表）；框架**不会**根据 `agentCode` 自动猜 `graphId`。
+
+**明确不做什么**：
+
+- 框架**不**在执行时用「最新一张图」「唯一一张图」之类默认值代替缺失的 `graphId`  
+- 框架**不**规定业务必须用路径参数还是常量写死——两种都行，但**必须有明确来源**  
+- 不把 `nodeId` 当成选图依据  
+
+**怎么验收**：
+
+1. 发布 `graph-cs-v3` 后，`POST /execution/graph-cs-v3/stream` 能跑通；换一个不存在的 id → 明确失败（图未找到）  
+2. 业务入口写死 `GRAPH_ID` 时，日志同时打出 `agentCode` + `graphId`，且实际执行的是该图  
+3. 故意漏传 / 映射错 graphId → 不会静默跑到另一张图  
 
 ### 4.3 Resolver 接口（运行期：此时 key 已经有了）
 
@@ -682,6 +798,9 @@ log.warn("节点 {} 的 inputKeys 声明了 {} 但 prompt 未引用，建议移�
 #### 长度护栏
 
 上游节点输出动辄数十 KB，直接拼进 prompt 会击穿上下文窗口且费用失控。约定**单变量截断上限**与**渲染后总长上限**（默认值走配置），超限截断并 warn，日志给出 `nodeId` 与变量名。
+
+> **截断只作用于「喂给模型的字符串」**，**不会**改写 state 里的上游原文。  
+> 节点间大结果、文件 URL 怎么放 state：见 **§8.3**（默认完整透传；文件只传 URL；按需另写 summary key）。
 
 ```java
 /**
@@ -1372,10 +1491,13 @@ public final class ProjectBSkillSlashParser {
 
 **3）业务执行入口：解析后写入保留键，再跑图**
 
+> `graphId` 从哪来：见 **§4.2.1**（入口写死 / 配置映射，框架不按 agentCode 猜图）。
+
 ```java
 @PostMapping("/agents/cs-assistant/stream")
 public SseEmitter stream(@RequestBody ChatRequest req) {
-    String agentCode = "cs-assistant";   // 本入口写死
+    String agentCode = "cs-assistant";           // 本入口写死
+    String graphId = "graph-refund-v3";          // 本入口绑哪张图（§4.2.1）
     String runId = UUID.randomUUID().toString();
 
     Map<String, Object> inputs = new LinkedHashMap<>();
@@ -1390,9 +1512,10 @@ public SseEmitter stream(@RequestBody ChatRequest req) {
     // List<String> forceSkills = ProjectBSkillSlashParser.parseForceSkills(req.userText());
     inputs.put(LlmRequestContext.ACE_FORCE_SKILLS_KEY, forceSkills);
 
-    log.info("智能体入口: agentCode={}, runId={}, forceSkills={}", agentCode, runId, forceSkills);
-    // 再调用 graph.stream(inputs, ...) / 框架执行 API
-    return executionService.stream(graphId, inputs, runId);
+    log.info("智能体入口: agentCode={}, graphId={}, runId={}, forceSkills={}",
+            agentCode, graphId, runId, forceSkills);
+    // 框架执行口等价：POST /execution/{graphId}/stream
+    return executionFacade.stream(graphId, inputs, runId);
 }
 ```
 
@@ -1561,6 +1684,97 @@ public record ResourceBinding(
     List<String> skillKeys
 ) {}
 ```
+
+#### `ResourceBindings.fromSpec(spec)`：谁实现？（定案）
+
+**一句话结论**：这是 **ace-graph-dsl 产品内**的纯映射工具，**不是**业务 SPI，业务**不必、也不该**自己实现 `fromSpec`。
+
+把它拆开看就不会混：
+
+| 东西 | 谁提供 | 干什么 |
+|---|---|---|
+| UI 勾选结果落在 `GenericAgentSpec` / 定义库 | 框架存取 + UI 编辑 | 保存 enableXxx + keys |
+| `ResourceBinding` 记录类型 | **框架** | 运行期「本节点勾了什么」的只读视图 |
+| `ResourceBindings.fromSpec(spec)` | **框架** | 从 Spec **抄出** Binding，字段一一对应，无 IO、无远程 |
+| Prompt/MCP/Skill/… **Resolver** | **业务**实现 Bean | **按 key 取真实内容**（Nacos / DB / 文件…） |
+| Catalog.list | **业务**实现 Bean | 设计期给 UI 的可选列表 |
+
+```text
+UI 勾选 → 落库 GenericAgentSpec.resourceBinding（或等价字段）
+                │
+                ▼  框架节点执行时（业务薄节点 / GenericAgentNode）
+    ResourceBindings.fromSpec(spec)  →  ResourceBinding（只有开关和 keys）
+                │
+                ▼  框架 Template
+    resolvers.prompt().resolve(ctx, binding.promptKeys())  → 业务才真正去拉正文
+```
+
+关键样例（**产品内代码**，放在 `ace-graph-dsl-ai` / core，业务项目直接调用）：
+
+```java
+/** 框架工具类：Spec → 运行期 Binding；禁止业务再写一份不一致的拷贝逻辑 */
+public final class ResourceBindings {
+
+    private ResourceBindings() {}
+
+    /**
+     * 从节点 Spec 抽出资源勾选视图。
+     * 仅做字段映射；key 是否存在、内容如何加载一律不在这里做。
+     */
+    public static ResourceBinding fromSpec(GenericAgentSpec spec) {
+        Objects.requireNonNull(spec, "GenericAgentSpec 不能为空");
+        // 若 Spec 已内嵌 resourceBinding 字段，直接返回副本即可：
+        // return Objects.requireNonNullElseGet(spec.resourceBinding(), ResourceBinding::disabledAll);
+        // 若仍扁平挂在 Spec 上，则显式组装：
+        ResourceBinding b = new ResourceBinding(
+                spec.enablePrompt(),
+                List.copyOf(nullToEmpty(spec.promptKeys())),
+                spec.enableModel(),
+                spec.modelConfigKey(),
+                spec.enableLocalTools(),
+                List.copyOf(nullToEmpty(spec.localToolKeys())),
+                spec.enableMcp(),
+                List.copyOf(nullToEmpty(spec.mcpKeys())),
+                Map.copyOf(nullToEmptyMap(spec.mcpToolWhitelist())),
+                spec.enableSkill(),
+                List.copyOf(nullToEmpty(spec.skillKeys()))
+        );
+        log.debug("ResourceBindings.fromSpec: node 侧开关 prompt={}, model={}, mcp={}, skill={}",
+                b.enablePrompt(), b.enableModel(), b.enableMcp(), b.enableSkill());
+        return b;
+    }
+
+    private static List<String> nullToEmpty(List<String> list) {
+        return list == null ? List.of() : list;
+    }
+
+    private static Map<String, List<String>> nullToEmptyMap(Map<String, List<String>> map) {
+        return map == null ? Map.of() : map;
+    }
+}
+```
+
+节点里那行的真实含义：
+
+```java
+// graphId / nodeId：构图时框架已注入本节点
+// agentCode / runId：从入口写入的 state 保留键读取
+// binding：框架从本节点 Spec 映射 —— 不是业务传进来的「实现」
+LlmRequestContext ctx = new LlmRequestContext(
+        agentCode, graphId, nodeId, runId, state, ResourceBindings.fromSpec(spec));
+```
+
+**明确不做**：
+
+- 不要求业务实现 `ResourceBindings` / `fromSpec`  
+- `fromSpec` **不**调 Resolver、**不**校验 key 是否存在（校验见 §7.4）  
+- 业务只实现「按 key 取数」的 Resolver；勾选矩阵的读写与映射归框架
+
+**怎么验收**：
+
+1. UI 勾选 `promptKeys=["cs.sys"]` 保存后，节点执行时 `ctx.binding().promptKeys()` 即为该列表  
+2. 业务工程中**搜不到**自写的 `fromSpec`；只有框架模块里有一份  
+3. 关掉某类型 enable 后，Template 跳过对应 Resolver（与 §7.1 总开关一致）
 
 > **本期不做 AgentCard**：不纳入 `ResourceBinding`、不设计 Resolver、Template 亦不消费。  
 > 后续若要从 Card 汇总 skill/工具/安全信息，再单独立项（绑定 + 解析 + 与独立 skill/mcp keys 的优先级）。
@@ -2208,7 +2422,256 @@ String mediaInputKey;             // 来自 GenericAgentSpec，可空
 - 上传场景：外置对象存储，state 只存 `mediaId` / `url`，**上传时即记录 mime**，从源头避免后续猜类型
 - 对 `messages` 与多模态 refs 注册明确的 `KeyStrategy`（refs 用 `REPLACE`，见 §8.2.1.1），避免 resume 丢 key
 
-### 8.3 ChatClient 入参位置（重要）
+### 8.3 节点间大结果与产物 URL 怎么投递？（定案 + 使用建议）
+
+业务节点输出经常是：几 KB～几十 KB 文本，或 Skill 产出的 Excel / Word / PDF / 图片——最终往往只要**可下载 URL**。问题就变成：这些东西怎么交给下游节点？是写进 state「原样透传」，还是先精简再当下游入参？
+
+#### 一句话结论
+
+| 投递什么 | 放哪 | 何时精简 |
+|---|---|---|
+| **给下游 LLM 看的文字** | 仍走 state：`outputKey` → 下游 `inputKeys` / `{{var}}` | **进 prompt 时**由框架长度护栏截断（§4.4.2）；生产侧也可另写「摘要 key」 |
+| **文件本体（xlsx/pdf/图二进制）** | **绝不进 state**；先上传外置存储 | state 只留 URL / mediaId（与 §8.2 MediaRef 同一原则） |
+| **给前端下载 / 非 LLM 节点用的 URL** | state 里单独 key（或结构化 Map 的字段）透传 | 一般**不精简** URL；短字符串原样往后传 |
+
+**默认做法：完整结构化结果进 state 透传；精简发生在「消费方拼 prompt」时，而不是生产方一写 state 就砍掉。**  
+例外：生产方已经确定「后面永远只要 URL」时，上传后**只写 URL**，不要把几 MB 正文再塞进 state。
+
+#### 原生 Graph：上一个节点怎么把结果写进 state？（机制 + 样例）
+
+**一句话**：节点**不用**自己调 `state.put(...)`。实现 `NodeAction`（或 `AsyncNodeAction`），在 `apply` 里 **`return Map.of(key, value)`**；引擎按图上声明的 **`KeyStrategy`** 把这份 Map **合并**进 `OverAllState`，下一节点再用 `state.value(key)` 读。
+
+```text
+NodeAction.apply(state)
+    → return { "reply_draft": "……", "report_url": "https://…" }
+    → CompiledGraph 按 KeyStrategy（多为 REPLACE）合并进 OverAllState
+    → 下一节点 apply 时 state 里已有这些 key
+```
+
+**原生最小样例**（与仓库单测 `SubgraphStateIsolationTest` 同口径）：
+
+```java
+import static com.alibaba.cloud.ai.graph.action.AsyncNodeAction.node_async;
+
+// 构图时：每个会写入的 key 都要有 KeyStrategy（ace-graph-dsl 图定义里的 keyStrategies）
+StateGraph graph = new StateGraph(() -> Map.of(
+        "reply_draft", KeyStrategy.REPLACE,
+        "report_url", KeyStrategy.REPLACE
+));
+
+// 节点 A：产出写回 = return 的 Map（不是手写 state.put）
+graph.addNode("node_a", node_async((NodeAction) state -> {
+    String text = "……几 KB 文本……";
+    String url = "https://oss.example.com/a.xlsx";   // 文件只传 URL
+    log.info("节点A写回 state: reply_draft.length={}, report_url={}", text.length(), url);
+    return Map.of(
+            "reply_draft", text,
+            "report_url", url
+    );
+}));
+
+// 节点 B：读上游写进 state 的 key
+graph.addNode("node_b", node_async((NodeAction) state -> {
+    String draft = state.value("reply_draft").map(Object::toString).orElse("");
+    String url = state.value("report_url").map(Object::toString).orElse("");
+    log.info("节点B读到上游: draftLen={}, url={}", draft.length(), url);
+    return Map.of("final_out", "已处理, url=" + url);
+}));
+
+graph.addEdge(StateGraph.START, "node_a");
+graph.addEdge("node_a", "node_b");
+graph.addEdge("node_b", StateGraph.END);
+```
+
+**现网 GenericAgent 同一套路**（`GenericAgentNode#toAction` / `#execute`）：
+
+```java
+// toAction：从 state 按 inputKeys 取值 → execute → return { outputKey: 模型全文 }
+return (OverAllState state) -> {
+    Map<String, Object> variables = new LinkedHashMap<>();
+    for (String key : spec.inputKeySet()) {
+        variables.put(key, state.value(key).orElse(null));
+    }
+    return execute(variables, readRunId(state), readOverrides(state));
+};
+
+// execute 末尾：
+Map<String, Object> result = new LinkedHashMap<>();
+result.put(resolved.effectiveOutputKey(), response);  // 默认 key 常为 agent_result
+return result;   // ← 引擎据此合并进 OverAllState
+```
+
+`DynamicGraphBuilder` 用 `node_async(genericAgent.toAction(...))` 挂到 `StateGraph`；图定义里的 `keyStrategies` 必须覆盖该 `outputKey`（`GraphValidator` 会检查缺失）。
+
+| 要点 | 说明 |
+|---|---|
+| 写入口 | **`return Map`**，不是节点内 `state.put` |
+| 合并规则 | 图级 `KeyStrategy`：`REPLACE`（覆盖）/ `APPEND`（追加）等 |
+| 多字段 | 一次 return 多个 entry 即可（摘要 + URL 并列，见上节） |
+| 读入口 | 下游 `state.value("key")` 或按 `inputKeys` 抽变量 |
+| 与 §8.3 | 大文本/URL 都走同一写回机制；二进制仍不要放进 Map 值里 |
+
+#### ace-graph-dsl 怎么给 state「指定 key」赋值？（定案）
+
+**一句话结论**：**写到哪个 key，由节点配置里的 `outputKey`（UI / `GenericAgentSpec`）决定**，不是靠提示词里写「请输出到 xxx」。Agent 节点把**整段模型回复字符串**塞进这一个 key；**首期不做**「按提示词约定 JSON 字段自动拆成多个 state key」，也**未接** Spring AI Structured Output 自动映射多 key。
+
+```text
+UI 填 outputKey = "reply_draft"（空则默认 agent_result）
+        │
+        ▼
+GenericAgentNode / StreamingLlmTemplate 调模型
+        │
+        ▼
+return Map.of("reply_draft", 模型全文)   ← 只有这一对
+        │
+        ▼
+引擎按 keyStrategies["reply_draft"]=REPLACE 合并进 OverAllState
+```
+
+| 方式 | 现网 / 方案是否支持 | 说明 |
+|---|---|---|
+| **配置 `outputKey`** | **支持（主路径）** | 属性面板填一个写回 key；与 `inputKeys` 对称 |
+| **提示词规定输出长什么样** | **只影响正文内容** | 可要求模型吐 JSON/Markdown；但整段仍进**同一个** `outputKey`，框架**不解析** |
+| **格式化 / Structured Output 自动拆多 key** | **首期不做** | 若要 `summary`+`url` 两个 state key，用下面「业务拆分」 |
+| **业务 / 脚本节点 `return` 多 entry** | **支持** | 原生 `Map` 可一次写多个 key（§8.3 样例） |
+
+**提示词能做什么、不能做什么**：
+
+- **能**：约束模型「只输出 JSON」「字段含 summary / download_url」——方便人读或下游再解析。  
+- **不能**：单靠提示词让框架把 `summary` 写进 `state.summary`、把 `url` 写进 `state.report_url`。框架看不到「字段名 → state key」的契约，除非你另写解析节点。
+
+**若需要多 key，推荐三条落地路径（业务选）**：
+
+```text
+① Agent 只写一个 outputKey（整段 JSON 字符串）
+    → 下一脚本/Java 节点：解析 JSON → return Map.of("summary",…, "report_url",…)
+
+② 纯业务 NodeAction / Skill 工具回调里已算好字段
+    → 直接 return Map.of("summary",…, "report_url",…)（不经过 Agent 单 key）
+
+③ 两个 Agent 串联：节点A 产出摘要写 summary_key；节点B 只负责整理下载说明写 url_key
+```
+
+```java
+// 路径①：解析节点示意（业务脚本 / Java 节点）
+public Map<String, Object> apply(OverAllState state) {
+    String raw = state.value("agent_result").map(Object::toString).orElse("");
+    // 业务自己用 Jackson 解析；失败打 error 日志
+    JsonNode n = objectMapper.readTree(raw);
+    String summary = n.path("summary").asText("");
+    String url = n.path("download_url").asText("");
+    log.info("解析 Agent JSON 写回多 key: summaryLen={}, url={}", summary.length(), url);
+    return Map.of(
+            "report_summary", summary,
+            "report_url", url
+    );
+}
+```
+
+**明确不做（首期）**：
+
+- 不在 Template 里根据 prompt「猜测」要写哪些 key  
+- 不把 Structured Output / `BeanOutputConverter` 默认接到多 key 写回（若以后做，单独立项：声明 schema ↔ state key 映射）  
+- 不因提示词写了字段名就自动改 `outputKey`
+
+**怎么验收**：
+
+1. 面板把 `outputKey` 改成 `reply_draft` → 跑图后 state 有 `reply_draft`，默认不再出现（或不再依赖）`agent_result`  
+2. prompt 要求输出 JSON，但未加解析节点 → state 里仍是**一个**字符串值，不会自动出现多个业务 key  
+3. 加解析节点后 → `report_summary` / `report_url` 同时存在且 `keyStrategies` 已声明
+
+#### 为什么用 state，而不是旁路塞给下一节点
+
+图执行的标准总线就是 `OverAllState`：
+
+```text
+节点 A return Map.of(outputKey, value)
+        → 合并进 OverAllState（KeyStrategy 多为 REPLACE）
+        → 节点 B 经 inputKeys / mediaInputKey / 业务自读 state 拿到
+```
+
+框架**没有**第二套「节点间私信通道」。旁路（ThreadLocal、外部缓存只记 runId）会在扇出、HITL resume、多实例下丢，首期不推荐。
+
+#### 推荐形态：一个结构化产出，按需多 key（或一 Map 多字段）
+
+不要把「模型全文 + 文件 URL + 给下一模型的摘要」糊成一个巨大纯字符串（下游只能整段吃或整段砍）。建议业务约定一种可 JSON 化的结构（存 state 用 `Map`，理由同 §8.2.1.1）：
+
+```json
+{
+  "summary": "给下游模型看的短结论（建议 < 2KB）",
+  "detail_text": "可选：完整说明文字（几 KB～几十 KB）",
+  "artifacts": [
+    { "url": "https://oss.../report.xlsx", "mime": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "name": "对账表" },
+    { "url": "https://oss.../chart.png", "mime": "image/png", "name": "趋势图" }
+  ],
+  "meta": { "row_count": 1200, "skill": "monitor-third-mcp" }
+}
+```
+
+编排时拆 key 更清晰（也方便可达性校验）：
+
+| state key 示例 | 谁写 | 谁读 | 典型用途 |
+|---|---|---|---|
+| `step_a_summary` | 节点 A | 下游 Agent 的 `inputKeys` / prompt | 进大模型，控制 token |
+| `step_a_detail` | 节点 A | 只要全文的脚本节点 / 最终 API | 不进下一模型也可 |
+| `step_a_artifacts` | 节点 A（Skill 上传后） | 输出节点、前端、或下游 `mediaInputKey` | 下载链接 / 再挂多模态 |
+
+```java
+// 业务节点 / Skill 工具回调结束后写回（示意）
+Map<String, Object> artifact = Map.of(
+        "url", uploadedUrl,
+        "mime", "application/pdf",
+        "name", "对账单.pdf");
+log.info("节点产物已外置: nodeId={}, url={}, bytes={}", nodeId, uploadedUrl, byteSize);
+
+return Map.of(
+        "report_summary", summaryForNextLlm,           // 短
+        "report_artifacts", List.of(artifact),         // 只 URL
+        spec.effectiveOutputKey(), summaryForNextLlm  // 若该节点仍是 Agent，outputKey 建议放「给下游默认读的那份」
+);
+```
+
+下游 Agent：`inputKeys` 只勾 `report_summary`，**不要**把 `report_artifacts` 整表 JSON 拼进 system（除非 prompt 明确要列下载链接）。  
+下游若要把图片再喂给视觉模型：把 artifacts 里的图 URL 写成 §8.2 的 refs，填 `mediaInputKey`。
+
+#### 「先精简再赋值」还是「原样进 state」？
+
+| 策略 | 何时用 | 代价 |
+|---|---|---|
+| **A. 原样进 state，消费时再截**（默认） | 下游可能还要全文 / 审计 / 二次加工；只有某一个下游 Agent 嫌长 | state 变大；进 prompt 靠 §4.4.2 护栏；checkpoint 体积上升 |
+| **B. 生产时就写摘要 + URL** | 已确定后面只要结论和下载链 | 丢了中间全文就再也没有（除非外置存了一份正文 URL） |
+| **C. 全文外置，state 只留指针** | 单字段就要上百 KB，或要过 checkpoint / 跨进程 | 多一次对象存储；读全文要再拉 |
+
+**使用建议（人话）**：
+
+1. **几 KB～几十 KB 文本**：可以进 state（策略 A）。下游 Agent 用 `inputKeys` 引用；真拼进 prompt 时靠护栏，或业务另产 `*_summary`。  
+2. **Excel/Word/PDF/大图**：上传后 state **只留 URL**（策略 B/C），与多模态同一原则——二进制不进 OverAllState。  
+3. **不要**在「赋值给下一节点入参」前由框架自动摘要——框架不知道下游要细节还是要结论；摘要是**业务节点或单独摘要节点**的事。  
+4. **Agent 的 `outputKey`**：写「下游默认会读的那份」（多为摘要或最终回复），大产物用并列 key，避免一个 `agent_result` 既当 prompt 燃料又塞满 URL 列表还难拆。  
+5. **最终给用户下载**：输出节点 / Controller 从 state 读 `*_artifacts` 的 url 下发即可，不必再经大模型「复述」一遍二进制。
+
+#### 和现有机制怎么对齐
+
+| 机制 | 角色 |
+|---|---|
+| `outputKey` / `inputKeys` | 文本与结构化字段在图内的主投递路径 |
+| §4.4.2 长度护栏 | **仅**限制「渲染进 prompt 的变量」，**不删** state 里的原值 |
+| §8.2 `MediaRef` / `mediaInputKey` | 图片等还要再进模型时用；纯下载链不必进 media |
+| Skill `load_skill` 正文 | 进的是**当前节点 messages**，不是自动写成下游 state；要投递下游须业务/工具显式 `return` 写 key |
+
+#### 明确不做
+
+- 框架**不**在节点边界自动「精简后再写入下游入参」  
+- 框架**不**把文件字节塞进 state 或 SSE  
+- 框架**不**规定必须用上面的 JSON 字段名——那是业务约定；框架只保证 state 透传与 prompt 护栏
+
+#### 怎么验收
+
+1. 节点 A 写出 30KB `detail` + 1 个 xlsx URL；节点 B 的 prompt 只引用 `summary` → B 的请求体无上下文不出现 30KB 全文，但 state 在 B 执行前仍能读到 `detail` 与 URL  
+2. checkpoint / resume 后 URL 仍在；从未出现「state 里躺着整个 xlsx 字节数组」  
+3. 故意把 30KB 配进 B 的 `{{detail}}` → 触发 §4.4.2 截断 warn，节点不静默撑爆上下文
+
+### 8.4 ChatClient 入参位置（重要）
 
 多模态 **不挂在** `ChatClient.Builder` 上，而挂在 **某次请求的 `UserMessage.media`**：
 
@@ -3561,3 +4024,7 @@ starter **compile 依赖** `ace-graph-dsl-ai`，保证全家桶开箱可用（st
 | 2026-09-08 | **定案 B3 = ①首期不做**：一个节点固定一个 kind；「节点A(BIZ 思考/处理) → 节点B(OUTPUT 总结)」编排已完整支持——带外通道保证前端实时收字（`blockLast()` 只阻塞图引擎不影响前端）、`outputKey`→`inputKeys` 传递完整文本、片段携带 `nodeId`+kind 供前端路由渲染。将来如需单节点内分段可平滑追加 `emitKind` 可选 API，不影响已落库图。流式类型仅剩 B7 待拍 |
 | 2026-09-08 | 定案 B1/B2（§9.7）：空 KEY / 无效 KEY 归一化采用**编译期 normalize + 运行期兜底**双保险，统一走 `resolveOrDefault` 并与 UI 默认同源（同一 Catalog、同一 `ORDER` 比较器）；落点 `DynamicGraphBuilder#resolveGenericAgent`，同处收集 `nodeId → kind` 映射顺带闭环 B6；明确不做保存时 normalize，且不在 `GenericAgentSpec` 构造器兜底（默认值依赖运行时配置） |
 | 2026-09-09 | **澄清设计期 vs 运行期（§4.3 / §7.2）**：UI 勾选的 promptKeys/mcpKeys 等**设计期尚不存在**，不能作为「按 agentCode 初筛」的入参。初筛走 Catalog.list（入参 agentCode，无节点 keys）；运行期 Resolver.resolve(ctx, keys) 时 keys 已从节点 Binding 落库，可同时读 agentCode 做范围校验。Catalog 查询参数改为 `agentCode` + 可选 `agentDefId`（原 agentId 易混淆） |
+| 2026-09-10 | **补定 §4.2.1：Controller 如何选对图**。必须有明确 `graphId`；现网口 `POST /execution/{graphId}/stream`；业务可写死/映射 graphId，框架不按 agentCode 猜图。补全入口样例（常量 GRAPH_ID + agentCode + runId）。**补定 §7.1：`ResourceBindings.fromSpec` 归框架**——纯 Spec→Binding 字段映射，业务不实现；业务只实现按 key 取数的 Resolver。此前样例裸写 graphId/fromSpec 未交代归属，视为文档缺口已闭环 |
+| 2026-09-10 | **补定 §8.3：节点间大结果与产物 URL 投递**。默认完整结构化结果进 `OverAllState` 透传（`outputKey`→`inputKeys`）；精简发生在消费方拼 prompt（§4.4.2 护栏），框架不在节点边界自动摘要。文件本体不进 state，只传 URL/mediaId（与 MediaRef 同原则）。推荐拆 `summary` / `detail` / `artifacts` 多 key；Agent 的 outputKey 放下游默认读的那份 |
+| 2026-09-10 | **补定 §8.3 原生写回样例**：节点通过 `NodeAction.apply` **return Map** 由引擎按 `KeyStrategy` 合并进 state（非手写 `state.put`）；附原生双节点样例 + 现网 `GenericAgentNode` return `outputKey` 片段；`keyStrategies` 须覆盖输出 key |
+| 2026-09-10 | **补定 §8.3：ace-graph-dsl 指定 key 赋值**。Agent 写回 key 唯一来源是配置字段 `outputKey`（默认 `agent_result`），整段模型回复进这一个 key。提示词只能约束正文形态（含 JSON），框架不解析、不拆多 key；Structured Output 首期不做。多 key 靠下游解析节点或业务 NodeAction `return` 多 entry |

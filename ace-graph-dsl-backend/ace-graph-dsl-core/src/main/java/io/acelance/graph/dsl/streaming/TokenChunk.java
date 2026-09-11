@@ -5,10 +5,25 @@ import com.alibaba.cloud.ai.graph.streaming.OutputType;
 /**
  * 一个 LLM 流式 token 片段（框架无关），经 {@link GraphStreamBridge} 由节点推给控制器。
  *
- * <p>选择「自定义记录」而非复用框架 {@code StreamingOutput}，是因为后者构造器对 {@code chunk}
- * 字段的赋值规则随版本不稳定（多数构造器不赋值、且无法同时指定 outputType），直接 new 极易错位。
- * 本记录仅携带格式化所需的最小信息，由 {@link io.acelance.graph.dsl.execution.StreamingChunkFormatter}
- * 决定最终下发形状。</p>
+ * <p>{@code responseKind} 为流式类型标签（BIZ/OUTPUT/扩展），仅供业务
+ * {@link io.acelance.graph.dsl.execution.StreamingChunkFormatter} 读取；默认下发协议
+ * <b>不</b>自动附带该字段（§9.6.3）。</p>
+ *
+ * @param nodeId       产出节点
+ * @param token        文本片段
+ * @param outputType   框架 OutputType
+ * @param responseKind 流式响应类型 KEY，可空
+ * @param last         是否本段结束
  */
-public record TokenChunk(String nodeId, String token, OutputType outputType, boolean last) {
+public record TokenChunk(
+        String nodeId,
+        String token,
+        OutputType outputType,
+        String responseKind,
+        boolean last
+) {
+    /** 兼容旧调用：无 responseKind */
+    public TokenChunk(String nodeId, String token, OutputType outputType, boolean last) {
+        this(nodeId, token, outputType, null, last);
+    }
 }

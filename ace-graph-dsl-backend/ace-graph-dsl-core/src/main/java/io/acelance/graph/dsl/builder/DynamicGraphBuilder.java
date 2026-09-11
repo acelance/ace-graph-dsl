@@ -18,7 +18,11 @@ import io.acelance.graph.dsl.registry.RegisteredAgentNode;
 import io.acelance.graph.dsl.registry.RegisteredGraphNode;
 import io.acelance.graph.dsl.script.ScriptEdgeActionFactory;
 import io.acelance.graph.dsl.script.ScriptNodeFactory;
-import io.acelance.graph.dsl.agent.GenericAgentNode;
+import io.acelance.graph.dsl.agent.GenericAgentNodeFactory;
+import io.acelance.graph.dsl.agent.GraphBoundAgentNode;
+import io.acelance.graph.dsl.definition.GenericAgentSpec;
+import io.acelance.graph.dsl.streamkind.StreamResponseKind;
+import io.acelance.graph.dsl.streamkind.StreamResponseKindResolver;
 import com.alibaba.cloud.ai.graph.CompileConfig;
 import com.alibaba.cloud.ai.graph.CompiledGraph;
 import com.alibaba.cloud.ai.graph.KeyStrategy;
@@ -37,6 +41,7 @@ import com.alibaba.cloud.ai.graph.state.strategy.MergeStrategy;
 import com.alibaba.cloud.ai.graph.state.strategy.ReplaceStrategy;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.context.ApplicationContext;
 import org.springframework.stereotype.Component;
 
@@ -74,6 +79,8 @@ public class DynamicGraphBuilder {
     private final DynamicNodeDefinitionRepository nodeDefRepository;
     private final ScriptNodeFactory scriptNodeFactory;
     private final GraphDefinitionRepository definitionRepository;
+    /** 可选：未引入 ace-graph-dsl-ai 时为空，遇 GENERIC_AGENT 给出可操作报错 */
+    private final ObjectProvider<GenericAgentNodeFactory> agentNodeFactory;
 
     public DynamicGraphBuilder(GraphNodeRegistry nodeRegistry,
                                EdgeDispatcherRegistry dispatcherRegistry,
@@ -84,7 +91,8 @@ public class DynamicGraphBuilder {
                                List<GraphExecutionListener> executionListeners,
                                DynamicNodeDefinitionRepository nodeDefRepository,
                                ScriptNodeFactory scriptNodeFactory,
-                               GraphDefinitionRepository definitionRepository) {
+                               GraphDefinitionRepository definitionRepository,
+                               ObjectProvider<GenericAgentNodeFactory> agentNodeFactory) {
         this.nodeRegistry = nodeRegistry;
         this.dispatcherRegistry = dispatcherRegistry;
         this.validator = validator;
@@ -95,6 +103,7 @@ public class DynamicGraphBuilder {
         this.nodeDefRepository = nodeDefRepository;
         this.scriptNodeFactory = scriptNodeFactory;
         this.definitionRepository = definitionRepository;
+        this.agentNodeFactory = agentNodeFactory;
     }
 
     /**
@@ -296,23 +305,72 @@ public class DynamicGraphBuilder {
      *
      * <p><b>通道二 · 注册式</b>：图里只留 {@code nodeId}，元数据来自已入库并注册的
      * {@code GenericAgentDefinition}。注册实例是「无图归属」的共享定义，此处
-     * {@link GenericAgentNode#withGraphId(String)} 克隆出绑定当前图的副本再执行，
+     * {@link GraphBoundAgentNode#withGraphId(String)} 克隆出绑定当前图的副本再执行，
      * 保证 {@code SecretResolver} 拿到正确的图命名空间，杜绝跨图串用。</p>
      */
-    private GenericAgentNode resolveGenericAgent(GraphDefinition def, NodeRef ref) throws GraphStateException {
+    private GraphBoundAgentNode resolveGenericAgent(GraphDefinition def, NodeRef ref) throws GraphStateException {
+        GenericAgentNodeFactory factory = agentNodeFactory == null ? null : agentNodeFactory.getIfAvailable();
+        if (factory == null) {
+            throw new GraphStateException("图 " + def.graphId() + " 含 GENERIC_AGENT 节点 " + ref.nodeId()
+                    + "，但未找到 GenericAgentNodeFactory；请引入 ace-graph-dsl-ai 依赖");
+        }
         if (ref.agentSpec() != null) {
-            return new GenericAgentNode(ref.nodeId(), def.graphId(), ref.agentSpec(), applicationContext);
+            GenericAgentSpec normalized = normalizeStreamKind(def.graphId(), ref.nodeId(), ref.agentSpec());
+            log.info("内联装配 GenericAgent: graphId={}, nodeId={}, streamResponseKind={}",
+                    def.graphId(), ref.nodeId(), normalized.streamResponseKind());
+            return factory.create(ref.nodeId(), def.graphId(), normalized);
         }
         if (!nodeRegistry.contains(ref.nodeId())) {
             throw new GraphStateException("通用 agent 节点既无内联 agentSpec，也未在注册中心找到已入库定义: "
                     + ref.nodeId() + "（请先在设计器创建 agent 节点定义，或为该节点补内联元数据）");
         }
         RegisteredGraphNode registered = nodeRegistry.get(ref.nodeId());
-        if (!(registered instanceof GenericAgentNode registeredAgent)) {
+        if (!(registered instanceof GraphBoundAgentNode agentNode)) {
             throw new GraphStateException("节点 " + ref.nodeId() + " 已注册但并非通用 agent 节点: "
                     + registered.getClass().getName());
         }
-        return registeredAgent.withGraphId(def.graphId());
+        // 注册式：编译期 normalize kind 后经工厂重建绑定副本
+        GenericAgentSpec registeredSpec = agentNode.agentSpec();
+        if (registeredSpec != null) {
+            GenericAgentSpec normalized = normalizeStreamKind(def.graphId(), ref.nodeId(), registeredSpec);
+            if (!java.util.Objects.equals(normalized.streamResponseKind(), registeredSpec.streamResponseKind())) {
+                log.info("注册式 GenericAgent 编译期归一化 streamResponseKind: graphId={}, nodeId={}, {} -> {}",
+                        def.graphId(), ref.nodeId(),
+                        registeredSpec.streamResponseKind(), normalized.streamResponseKind());
+                return factory.create(ref.nodeId(), def.graphId(), normalized);
+            }
+        }
+        return agentNode.withGraphId(def.graphId());
+    }
+
+    /**
+     * 编译期归一化 {@code streamResponseKind}（空值回落目录首位，§9.7 / P0.4）。
+     */
+    private GenericAgentSpec normalizeStreamKind(String graphId, String nodeId, GenericAgentSpec spec) {
+        if (spec == null) {
+            return null;
+        }
+        StreamResponseKindResolver resolver = findStreamKindResolver();
+        if (resolver == null) {
+            log.warn("未找到 StreamResponseKindResolver，跳过编译期 normalize: graphId={}, nodeId={}",
+                    graphId, nodeId);
+            return spec;
+        }
+        StreamResponseKind kind = resolver.resolveOrDefault(graphId, spec.streamResponseKind());
+        if (java.util.Objects.equals(kind.code(), spec.streamResponseKind())) {
+            return spec;
+        }
+        log.info("编译期 normalize streamResponseKind: graphId={}, nodeId={}, raw={} -> {}",
+                graphId, nodeId, spec.streamResponseKind(), kind.code());
+        return spec.withStreamResponseKind(kind.code());
+    }
+
+    private StreamResponseKindResolver findStreamKindResolver() {
+        try {
+            return applicationContext.getBean(StreamResponseKindResolver.class);
+        } catch (Exception e) {
+            return null;
+        }
     }
 
     /**

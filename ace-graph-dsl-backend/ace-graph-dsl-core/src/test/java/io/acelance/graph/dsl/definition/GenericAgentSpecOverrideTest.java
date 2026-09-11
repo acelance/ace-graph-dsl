@@ -4,6 +4,7 @@ import io.acelance.graph.dsl.runtime.ModelOverride;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
+import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertSame;
@@ -14,8 +15,10 @@ class GenericAgentSpecOverrideTest {
     @Test
     void withOverride_replacesNonNullAndUnmasksApiKey() {
         GenericAgentSpec base = new GenericAgentSpec(
-                "https://base", "sk-abc", false, "qwen-plus", "p", null,
-                null, null, null, null, List.of(), null, "out");
+                "https://base", "sk-abc", false, "qwen-plus", "p",
+                null, "out", null, null,
+                true, List.of(), false, null, false, List.of(),
+                false, List.of(), Map.of(), false, List.of());
 
         ModelOverride ov = new ModelOverride("gpt-4o", "https://other", "sk-xyz");
         GenericAgentSpec r = base.withOverride(ov);
@@ -31,8 +34,10 @@ class GenericAgentSpecOverrideTest {
     @Test
     void withOverride_nullReturnsSelf() {
         GenericAgentSpec base = new GenericAgentSpec(
-                null, null, false, "qwen-plus", "p", null,
-                null, null, null, null, List.of(), null, "out");
+                null, null, false, "qwen-plus", "p",
+                null, "out", null, null,
+                true, List.of(), false, null, false, List.of(),
+                false, List.of(), Map.of(), false, List.of());
         assertSame(base, base.withOverride(null));
     }
 }

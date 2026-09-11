@@ -12,11 +12,15 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import io.acelance.graph.dsl.autoconfigure.AceGraphDslBeans;
 import io.acelance.graph.dsl.runtime.ModelOverrideSpec;
 import io.acelance.graph.dsl.execution.AdapterDelegatingStreamingChunkFormatter;
+import io.acelance.graph.dsl.execution.DebugStreamingChunkFormatter;
 import io.acelance.graph.dsl.execution.DefaultGraphExecutionEventAdapter;
 import io.acelance.graph.dsl.execution.DefaultStreamingChunkFormatter;
 import io.acelance.graph.dsl.execution.GraphExecutionEventAdapter;
 import io.acelance.graph.dsl.execution.StreamingChunkFormatter;
 import io.acelance.graph.dsl.execution.StreamingContext;
+import io.acelance.graph.dsl.llm.LlmRequestContext;
+import io.acelance.graph.dsl.security.menu.GraphMenuPermissionResolver;
+import io.acelance.graph.dsl.security.menu.GraphMenuPermissions;
 import io.acelance.graph.dsl.streaming.GraphStreamBridge;
 import io.acelance.graph.dsl.streaming.TokenChunk;
 import io.acelance.graph.dsl.store.GraphRuntime;
@@ -67,17 +71,20 @@ public class GraphExecutionController {
     private final ObjectMapper objectMapper;
     private final GraphStreamBridge streamBridge;
     private final ObjectProvider<StreamingChunkFormatter> formatterProvider;
+    private final GraphMenuPermissionResolver menuPermissions;
 
     public GraphExecutionController(GraphRuntime runtime,
                                     GraphExecutionEventAdapter eventAdapter,
                                     @Qualifier(AceGraphDslBeans.OBJECT_MAPPER) ObjectMapper objectMapper,
                                     GraphStreamBridge streamBridge,
-                                    ObjectProvider<StreamingChunkFormatter> formatterProvider) {
+                                    ObjectProvider<StreamingChunkFormatter> formatterProvider,
+                                    GraphMenuPermissionResolver menuPermissions) {
         this.runtime = runtime;
         this.eventAdapter = eventAdapter;
         this.objectMapper = objectMapper;
         this.streamBridge = streamBridge;
         this.formatterProvider = formatterProvider;
+        this.menuPermissions = menuPermissions;
     }
 
     /** 同步执行，返回最终状态。 */
@@ -96,8 +103,27 @@ public class GraphExecutionController {
                              @RequestBody(required = false) ExecutionRequest req) {
         String threadId = resolveThreadId(req);
         CompiledGraph graph = runtime.get(graphId);
+        log.info("图流式执行: graphId={}, threadId={}, agentCode={}",
+                graphId, threadId, resolveAgentCode(req));
         return toSse(graph.stream(inputs(req, threadId), buildConfig(threadId)),
                 graphId, threadId, resolveFormatter());
+    }
+
+    /**
+     * 调试流式执行（SSE）：固定使用 {@link DebugStreamingChunkFormatter}，与生产协议分离。
+     * 需 {@code graph:validate} 菜单权限（C4）。
+     */
+    @PostMapping(value = "/{graphId}/debug/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
+    public SseEmitter debugStream(@PathVariable String graphId,
+                                  @RequestBody(required = false) ExecutionRequest req) {
+        MenuPermissionGuard.require(menuPermissions, GraphMenuPermissions.GRAPH_VALIDATE,
+                "无权使用调试流式执行");
+        String threadId = resolveThreadId(req);
+        CompiledGraph graph = runtime.get(graphId);
+        log.info("图调试流式执行: graphId={}, threadId={}, agentCode={}",
+                graphId, threadId, resolveAgentCode(req));
+        return toSse(graph.stream(inputs(req, threadId), buildConfig(threadId)),
+                graphId, threadId, new DebugStreamingChunkFormatter());
     }
 
     /** HITL 恢复执行（SSE）：写回反馈 / 状态后从断点继续。
@@ -261,15 +287,18 @@ public class GraphExecutionController {
     private StreamingChunkFormatter resolveFormatter() {
         StreamingChunkFormatter custom = formatterProvider.getIfAvailable();
         if (custom != null) {
+            log.info("流式 Formatter 生效: custom={}", custom.getClass().getName());
             return custom;
         }
         if (!(eventAdapter instanceof DefaultGraphExecutionEventAdapter)) {
+            log.info("流式 Formatter 生效: AdapterDelegating → {}", eventAdapter.getClass().getName());
             return new AdapterDelegatingStreamingChunkFormatter(eventAdapter);
         }
+        log.info("流式 Formatter 生效: DefaultStreamingChunkFormatter");
         return new DefaultStreamingChunkFormatter();
     }
 
-    /** 合并用户 inputs 与运行态保留键（runId + 模型覆盖），注入初始 state。 */
+    /** 合并用户 inputs 与运行态保留键（runId + agentCode + 模型覆盖），注入初始 state。 */
     private static Map<String, Object> inputs(ExecutionRequest req, String threadId) {
         Map<String, Object> base = new LinkedHashMap<>();
         if (req != null && req.inputs() != null) {
@@ -280,7 +309,31 @@ public class GraphExecutionController {
         if (req != null && req.modelOverrides() != null) {
             base.put(ModelOverrideSpec.ACE_MODEL_OVERRIDES_KEY, req.modelOverrides());
         }
+        // agentCode：请求顶层优先；否则保留 inputs 里已有值；都不存在则写空串并打日志由节点侧 error
+        String agentCode = resolveAgentCode(req);
+        if (agentCode != null && !agentCode.isBlank()) {
+            base.put(LlmRequestContext.ACE_AGENT_CODE_KEY, agentCode);
+        } else if (!base.containsKey(LlmRequestContext.ACE_AGENT_CODE_KEY)) {
+            base.put(LlmRequestContext.ACE_AGENT_CODE_KEY, "");
+        }
         return base;
+    }
+
+    /** 解析 agentCode：请求顶层 &gt; inputs 保留键。 */
+    private static String resolveAgentCode(ExecutionRequest req) {
+        if (req == null) {
+            return null;
+        }
+        if (req.agentCode() != null && !req.agentCode().isBlank()) {
+            return req.agentCode();
+        }
+        if (req.inputs() != null) {
+            Object v = req.inputs().get(LlmRequestContext.ACE_AGENT_CODE_KEY);
+            if (v instanceof String s && !s.isBlank()) {
+                return s;
+            }
+        }
+        return null;
     }
 
     /** 构造执行配置（仅 threadId）。模型覆盖走 state 保留键，故无需写入 metadata。 */
@@ -314,8 +367,14 @@ public class GraphExecutionController {
     public record ExecutionRequest(
             @JsonProperty("inputs") Map<String, Object> inputs,
             @JsonProperty("threadId") String threadId,
-            @JsonProperty("modelOverrides") ModelOverrideSpec modelOverrides
-    ) {}
+            @JsonProperty("modelOverrides") ModelOverrideSpec modelOverrides,
+            @JsonProperty("agentCode") String agentCode
+    ) {
+        /** 兼容旧 3 字段反序列化 / 手工构造 */
+        public ExecutionRequest(Map<String, Object> inputs, String threadId, ModelOverrideSpec modelOverrides) {
+            this(inputs, threadId, modelOverrides, null);
+        }
+    }
 
     /** HITL 恢复请求体：threadId + 写回状态 + 可选子图节点 ID（G4 子图内 HITL resume）。
      *

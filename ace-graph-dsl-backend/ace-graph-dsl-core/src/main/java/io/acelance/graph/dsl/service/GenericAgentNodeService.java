@@ -1,6 +1,7 @@
 package io.acelance.graph.dsl.service;
 
-import io.acelance.graph.dsl.agent.GenericAgentNode;
+import io.acelance.graph.dsl.agent.GenericAgentNodeFactory;
+import io.acelance.graph.dsl.agent.GraphBoundAgentNode;
 import io.acelance.graph.dsl.audit.GraphAuditActions;
 import io.acelance.graph.dsl.audit.GraphAuditEvent;
 import io.acelance.graph.dsl.audit.GraphAuditLogger;
@@ -8,15 +9,19 @@ import io.acelance.graph.dsl.definition.GenericAgentDefinition;
 import io.acelance.graph.dsl.definition.GenericAgentSpec;
 import io.acelance.graph.dsl.persistence.GenericAgentDefinitionRepository;
 import io.acelance.graph.dsl.registry.GraphNodeRegistry;
+import io.acelance.graph.dsl.resource.ResourceBinding;
+import io.acelance.graph.dsl.resource.ResourceBindings;
+import io.acelance.graph.dsl.resource.ResourceKeyValidationGate;
+import io.acelance.graph.dsl.resource.ResourceKeyValidator;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.context.ApplicationContext;
 
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 
 /**
  * 通用 agent 节点定义应用服务：校验、试跑、CRUD 与启动重载。
@@ -38,23 +43,34 @@ public class GenericAgentNodeService {
 
     private final GenericAgentDefinitionRepository repository;
     private final GraphNodeRegistry nodeRegistry;
-    private final ApplicationContext applicationContext;
+    private final GenericAgentNodeFactory agentNodeFactory;
     private final GraphAuditLogger auditLogger;
+    private final ResourceKeyValidator resourceKeyValidator;
 
     public GenericAgentNodeService(GenericAgentDefinitionRepository repository,
                                    GraphNodeRegistry nodeRegistry,
-                                   ApplicationContext applicationContext) {
-        this(repository, nodeRegistry, applicationContext, null);
+                                   GenericAgentNodeFactory agentNodeFactory) {
+        this(repository, nodeRegistry, agentNodeFactory, null, null);
     }
 
     public GenericAgentNodeService(GenericAgentDefinitionRepository repository,
                                    GraphNodeRegistry nodeRegistry,
-                                   ApplicationContext applicationContext,
+                                   GenericAgentNodeFactory agentNodeFactory,
                                    GraphAuditLogger auditLogger) {
+        this(repository, nodeRegistry, agentNodeFactory, auditLogger, null);
+    }
+
+    public GenericAgentNodeService(GenericAgentDefinitionRepository repository,
+                                   GraphNodeRegistry nodeRegistry,
+                                   GenericAgentNodeFactory agentNodeFactory,
+                                   GraphAuditLogger auditLogger,
+                                   ResourceKeyValidator resourceKeyValidator) {
         this.repository = repository;
         this.nodeRegistry = nodeRegistry;
-        this.applicationContext = applicationContext;
+        this.agentNodeFactory = Objects.requireNonNull(agentNodeFactory,
+                "GenericAgentNodeFactory 不能为空（请引入 ace-graph-dsl-ai）");
         this.auditLogger = auditLogger;
+        this.resourceKeyValidator = resourceKeyValidator;
     }
 
     // ------------------------------------------------------------------ 生命周期
@@ -135,8 +151,7 @@ public class GenericAgentNodeService {
     /**
      * 校验 agent 元数据。
      *
-     * <p>规则：模型标识必填；{@code prompt} 与 {@code promptKey} 至少给一个；
-     * {@code skill}/{@code skillKey}、{@code mcp}/{@code mcpKey} 不得同时给（语义歧义）。</p>
+     * <p>规则：modelId 必填；prompt 或 promptKeys 至少一项；outputKey 非空。</p>
      */
     public void validateSpec(GenericAgentSpec spec) {
         List<String> errors = new ArrayList<>();
@@ -146,17 +161,8 @@ public class GenericAgentNodeService {
         if (isBlank(spec.modelId())) {
             errors.add("模型标识 modelId 不能为空");
         }
-        if (isBlank(spec.prompt()) && isBlank(spec.promptKey())) {
-            errors.add("prompt 与 promptKey 至少填写一项");
-        }
-        if (!isBlank(spec.prompt()) && !isBlank(spec.promptKey())) {
-            errors.add("prompt 与 promptKey 不能同时填写（内联优先会让 promptKey 失效）");
-        }
-        if (!isBlank(spec.skill()) && !isBlank(spec.skillKey())) {
-            errors.add("skill 与 skillKey 不能同时填写");
-        }
-        if (!isBlank(spec.mcp()) && !isBlank(spec.mcpKey())) {
-            errors.add("mcp 与 mcpKey 不能同时填写");
+        if (isBlank(spec.prompt()) && (spec.promptKeys() == null || spec.promptKeys().isEmpty())) {
+            errors.add("prompt 与 promptKeys 至少填写一项");
         }
         if (isBlank(spec.effectiveOutputKey())) {
             errors.add("输出 key 不能为空");
@@ -164,20 +170,25 @@ public class GenericAgentNodeService {
         if (!errors.isEmpty()) {
             throw new IllegalArgumentException("agent 元数据校验失败：" + String.join("；", errors));
         }
+        // P3.6：可选 ResourceKeyValidator
+        ResourceBinding binding = ResourceBindings.fromSpec(spec);
+        ResourceKeyValidationGate.assertValid(
+                resourceKeyValidator, null, null, null, binding);
     }
 
     /** 试跑草稿元数据（未持久化） */
     public Map<String, Object> testRunDraft(GenericAgentSpec spec, Map<String, Object> mockState) {
         validateSpec(spec);
-        GenericAgentNode node = new GenericAgentNode(
-                GenericAgentDefinition.AGENT_ID_PREFIX + "__draft__", DRAFT_GRAPH_ID, spec, applicationContext);
+        GraphBoundAgentNode node = agentNodeFactory.create(
+                GenericAgentDefinition.AGENT_ID_PREFIX + "__draft__", DRAFT_GRAPH_ID, spec);
+        log.info("agent 试跑草稿: outputKeys 将写入 spec.outputKey");
         return node.execute(pickVariables(spec, mockState));
     }
 
     /** 基于已存定义试跑 */
     public Map<String, Object> testRun(String nodeId, Map<String, Object> mockState) {
         GenericAgentDefinition def = getDefinition(nodeId);
-        GenericAgentNode node = toNode(def).withGraphId(DRAFT_GRAPH_ID);
+        GraphBoundAgentNode node = toNode(def).withGraphId(DRAFT_GRAPH_ID);
         return node.execute(pickVariables(def.spec(), mockState));
     }
 
@@ -191,9 +202,9 @@ public class GenericAgentNodeService {
     }
 
     /** 定义 → 可注册节点（graphId 留空，编译期由 {@code withGraphId} 绑定当前图） */
-    private GenericAgentNode toNode(GenericAgentDefinition def) {
-        return new GenericAgentNode(
-                def.nodeId(), null, def.spec(), applicationContext,
+    private GraphBoundAgentNode toNode(GenericAgentDefinition def) {
+        return agentNodeFactory.create(
+                def.nodeId(), null, def.spec(),
                 def.displayName(), def.description(), def.version(), def.permissionTags());
     }
 
@@ -236,8 +247,13 @@ public class GenericAgentNodeService {
         }
         return new GenericAgentSpec(
                 incoming.modelBaseUrl(), existing.modelApiKey(), existing.apiKeyMasked(), incoming.modelId(),
-                incoming.prompt(), incoming.promptKey(), incoming.skill(), incoming.skillKey(),
-                incoming.mcp(), incoming.mcpKey(), incoming.tools(), incoming.inputKeys(), incoming.outputKey());
+                incoming.prompt(), incoming.inputKeys(), incoming.outputKey(),
+                incoming.streamResponseKind(), incoming.mediaInputKey(),
+                incoming.enablePrompt(), incoming.promptKeys(),
+                incoming.enableModel(), incoming.modelConfigKey(),
+                incoming.enableLocalTools(), incoming.localToolKeys(),
+                incoming.enableMcp(), incoming.mcpKeys(), incoming.mcpToolWhitelist(),
+                incoming.enableSkill(), incoming.skillKeys());
     }
 
     /** 按 inputKeys 白名单从 mock state 提取变量（与图内运行时的取值口径一致） */

@@ -22,7 +22,7 @@ const props = defineProps({
   showActions: { type: Boolean, default: true },
   readOnly: { type: Boolean, default: false }
 })
-const emit = defineEmits(['save', 'validate', 'preview', 'publish', 'undo', 'redo', 'dryRun', 'importDsl', 'exportDsl', 'topology', 'zoomIn', 'zoomOut', 'fit', 'resetZoom', 'autoLayout', 'toggleMinimap', 'createGroup', 'toggleBoxSelect', 'extractSubgraph'])
+const emit = defineEmits(['save', 'validate', 'preview', 'publish', 'undo', 'redo', 'dryRun', 'debugStream', 'importDsl', 'exportDsl', 'topology', 'zoomIn', 'zoomOut', 'fit', 'resetZoom', 'autoLayout', 'toggleMinimap', 'createGroup', 'toggleBoxSelect', 'extractSubgraph'])
 
 const showVersionHistory = ref(false)
 
@@ -277,6 +277,9 @@ async function onPublish() {
         </el-button>
         <el-button v-if="perm.can(MENU.GRAPH_VALIDATE)" :icon="VideoPlay" @click="emit('dryRun')" size="small">
           {{ t('toolbar.dryRun') }}
+        </el-button>
+        <el-button v-if="perm.can(MENU.GRAPH_VALIDATE)" type="warning" plain @click="emit('debugStream')" size="small">
+          {{ t('toolbar.debugStream') }}
         </el-button>
         <el-button v-if="perm.can(MENU.GRAPH_VALIDATE)" :icon="Share" @click="emit('topology')" size="small">
           {{ t('toolbar.topology') }}
