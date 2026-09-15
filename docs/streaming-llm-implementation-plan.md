@@ -45,12 +45,14 @@
 【框架 · 迭代 C】           P3.5 Resolvers 收口 · P3.6 Validator 接线 · P3.7 删旧层（✅）
 【框架 · 迭代 D】           P3.8 对话记忆钩子（AdvisorProvider）；P3.9 按需
 
-【业务进度 · 2026-09-15 午】
-  ✅ 已出口：  … · ①～④ 验收批 · **真 UI WebFlux 镜像第一刀（代码）**
-  下一步：    部署 agent-server 后用 lesso-ai-platform-agent-designer-web 联调真 UI；可选 JDBC / 脚本写 API
-  可选/可缓： Biz.5～7 · Validator · P3.9
-  对齐文档：  lesso-ai-platform-agent-server/docs/ace-graph-dsl-nacos-integration-assessment.md §14.1.1
-  UI 联调：    lesso-ai-project/lesso-ai-platform-agent-designer-web（业务薄宿主）
+【业务进度 · 2026-09-15 晚】
+  ✅ 已出口：  … · ①～④ 验收批 · 真 UI WebFlux 镜像 + 业务薄宿主（已通 28）
+  进行中：    lesso-ai-platform-agent-designer-web 浏览器 E2E（建图→勾选→发布→stream）
+  下一步：    收口真 UI E2E；部署后验 JDBC 落库（ace_graph_dsl_*）；可选脚本写 API
+  搁置/可缓： Catalog 候选过滤优化 · Biz.5～7 · Validator · P3.9
+  对齐文档：  lesso-ai-platform-agent-server/docs/ace-graph-dsl-nacos-integration-assessment.md §14.1.1 / §14.3
+  过滤评估：  lesso-ai-platform-agent-server/docs/designer-catalog-filter-evaluation.md（§6 搁置定案）
+  UI 联调：    lesso-ai-project/lesso-ai-platform-agent-designer-web
 ```
 
 | 泳道 | 迭代/批次 | 包含 | 约人日 | 出口 | 进度 |
@@ -65,9 +67,11 @@
 | 业务 | **热刷新** | Biz.R | 1～2 | MCP/模型变更无需重启 | ✅ 主路径 + **MCP 冒烟 ✅** |
 | 业务 | **记忆批** | Biz.8 | 1～2 | 对话级记忆读写闭环 | ✅ 主路径 + remote 两轮 ✅ |
 | 业务 | **验收批** | 设计器 Catalog · 记忆两轮 · Biz.R 冒烟 · Langfuse 控制台核对 | 1～2 | 对照评估 §14.1 | ✅ ①～④已过 |
-| 业务 | **增强批** | Biz.5 + Biz.6 + Biz.7 | 2～5 | 多模态补全、协议渲染、大结果 | 未开始 |
+| 业务 | **真 UI** | WebFlux 设计器镜像 + `agent-designer-web` 宿主 + 浏览器 E2E | 2～4 | 建图勾选发布 stream | 🟡 镜像+宿主已通；E2E 收口中 |
+| 业务 | **增强批** | Biz.5 + Biz.6 + Biz.7 | 2～5 | 多模态补全、协议渲染、大结果 | 未开始（可缓） |
+| 业务 | **体验优化** | Catalog name/agentCode 过滤 + 后端裁剪 | 1～3 | 候选可筛 | **搁置**（评估 §6） |
 
-**框架 P0～P3.8 已完成；业务主路径 + 验收批（①～④）已出口；真 UI WebFlux 镜像第一刀已编码（待部署 E2E）；增强批可缓（详业务评估 §14）。**
+**框架 P0～P3.8 已完成；业务主路径 + 验收批（①～④）已出口；真 UI 镜像与宿主已通 28、浏览器 E2E 收口中；Catalog 过滤与增强批搁置/可缓（详业务评估 §14 / §14.3）。**
 
 ---
 
@@ -190,7 +194,7 @@ P3.6 ResourceKeyValidator 接线（任意空隙，建议 C）
 
 **验收**：业务 Provider 挂上后，call/stream 均能读到 CONVERSATION_ID；无 Provider / NONE 行为与今日一致。
 
-**出口后业务下一步**：Biz.8 / Biz.R / Biz.9 ✅；验收批 ①～④已收口（评估 §14）；可选真 UI BFF / 增强批。
+**出口后业务下一步**：真 UI 浏览器 E2E 收口（评估 §14.1.1）；Catalog 过滤搁置（§14.3）；增强批可缓。
 
 ### P3.9 —（可选）LlmCallLifecycleListener · 按需
 
@@ -432,4 +436,4 @@ P3.6 ResourceKeyValidator 接线（任意空隙，建议 C）
 | **Biz.9** | ✅ | 现有 Langfuse 控制台 Generation 已核对（产品不做 Langfuse 页面） |
 | **Biz.R** | ✅ 主路径 | MCP 冒烟已过；模型 Config 可选补验 |
 
-**建议下一刀**：验收批已收口；可选真 UI 建图 BFF / 增强批；增强批可缓。
+**建议下一刀**：收口真 UI E2E（`agent-designer-web`）；Catalog 过滤 / JDBC / 增强批见评估 §14.3（搁置或可缓）。
