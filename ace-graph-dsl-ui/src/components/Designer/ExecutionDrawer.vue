@@ -250,8 +250,6 @@ onBeforeUnmount(() => {
 </template>
 
 <style scoped>
-.hint { display: block; margin-top: 4px; font-size: 12px; color: var(--agd-color-text-secondary, #909399); }
-</style>
 .exec-drawer { padding: 4px 2px; }
 .mb { margin-bottom: 12px; }
 .section-title { font-weight: 600; margin: 14px 0 8px; color: var(--agd-color-text, #303133); }

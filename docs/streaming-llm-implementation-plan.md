@@ -30,7 +30,7 @@
 | **Biz.6** | 业务 | 流式 Formatter + 菜单权限接入 | §9 / §7.5 | 未开始 | P1.3 |
 | **Biz.7** | 业务 | 大结果 URL / 投递约定落地 | §8.3 | 未开始 | 业务节点自行 |
 | **Biz.8** | 业务 | 对话记忆 Provider + 入口 BusinessContext | 设计 §4.2.2；评估 §12 | ✅ 主路径 | P3.8 ✅ |
-| **Biz.9** | 业务 | Langfuse：入口绑上下文 + 复用 ObservationFilter | 设计 §4.6；评估 §13 | 🟡 入口已做；Generation 验收待确认 | 随 Biz.2；不依赖产品 Langfuse SPI |
+| **Biz.9** | 业务 | Langfuse 观测接入（入口绑上下文 + ObservationRegistry + 复用业务 Filter） | 设计 §4.6；评估 §13 | ✅ 入口已做；**现有 Langfuse 控制台**已核对 Generation（产品不做 Langfuse 页面） | 随 Biz.2；不依赖产品 Langfuse SPI |
 | **Biz.R** | 业务/SDK | MCP/模型热刷新接线（subscribe / Config listener → invalidate） | 评估 §4.4 / §10 | ✅ 主路径 | MCP RefreshSupport + ModelConfigWatch + RefreshBridge |
 
 图例：`✅` 已完成 · `🟡` 部分完成 · `⏭` 延期 · 空格/未开始 · 框架=`P3.*` · 业务=`Biz.*`
@@ -45,10 +45,12 @@
 【框架 · 迭代 C】           P3.5 Resolvers 收口 · P3.6 Validator 接线 · P3.7 删旧层（✅）
 【框架 · 迭代 D】           P3.8 对话记忆钩子（AdvisorProvider）；P3.9 按需
 
-【业务进度 · 2026-09-15】
-  ✅ 已出口：  Biz.0 图执行入口 · 联调批1～2 · Biz.8 记忆 Provider · Biz.R 热刷新主路径
-  下一步：    两轮同 session 验收记忆；Biz.R 冒烟（改 MCP/ref-model 看日志）；增强批 Biz.5～7 可缓
-  可选：     Biz.1 Validator · Biz.9 Generation 验收 · P3.9 · §10.3 重绑 watches
+【业务进度 · 2026-09-15 午】
+  ✅ 已出口：  … · ①～④ 验收批 · **真 UI WebFlux 镜像第一刀（代码）**
+  下一步：    部署 agent-server 后用 lesso-ai-platform-agent-designer-web 联调真 UI；可选 JDBC / 脚本写 API
+  可选/可缓： Biz.5～7 · Validator · P3.9
+  对齐文档：  lesso-ai-platform-agent-server/docs/ace-graph-dsl-nacos-integration-assessment.md §14.1.1
+  UI 联调：    lesso-ai-project/lesso-ai-platform-agent-designer-web（业务薄宿主）
 ```
 
 | 泳道 | 迭代/批次 | 包含 | 约人日 | 出口 | 进度 |
@@ -60,11 +62,12 @@
 | 业务 | **底座** | Biz.0 图执行入口 + 冒烟图 | 1～1.5 | WebFlux stream/invoke 可跑 | ✅ |
 | 业务 | **联调批 1** | Biz.2 + Biz.1（含 MCP children）+ Biz.9 入口 | 2～4 | Catalog/真模型；OTLP 前提 | ✅ 主路径 |
 | 业务 | **联调批 2** | Biz.3 + Biz.4 | 3～6 | 真 MCP + Skill 渐进披露 | ✅ 主路径 |
-| 业务 | **热刷新** | Biz.R | 1～2 | MCP/模型变更无需重启 | ✅ 主路径 |
+| 业务 | **热刷新** | Biz.R | 1～2 | MCP/模型变更无需重启 | ✅ 主路径 + **MCP 冒烟 ✅** |
+| 业务 | **记忆批** | Biz.8 | 1～2 | 对话级记忆读写闭环 | ✅ 主路径 + remote 两轮 ✅ |
+| 业务 | **验收批** | 设计器 Catalog · 记忆两轮 · Biz.R 冒烟 · Langfuse 控制台核对 | 1～2 | 对照评估 §14.1 | ✅ ①～④已过 |
 | 业务 | **增强批** | Biz.5 + Biz.6 + Biz.7 | 2～5 | 多模态补全、协议渲染、大结果 | 未开始 |
-| 业务 | **记忆批** | Biz.8 | 1～2 | 对话级记忆读写闭环 | ✅ 主路径 |
 
-**框架 P0～P3.8 已完成；业务联调批 1～2 + 底座 + 记忆 + 热刷新主路径已出口；剩余约冒烟验收 + 增强批。**
+**框架 P0～P3.8 已完成；业务主路径 + 验收批（①～④）已出口；真 UI WebFlux 镜像第一刀已编码（待部署 E2E）；增强批可缓（详业务评估 §14）。**
 
 ---
 
@@ -187,7 +190,7 @@ P3.6 ResourceKeyValidator 接线（任意空隙，建议 C）
 
 **验收**：业务 Provider 挂上后，call/stream 均能读到 CONVERSATION_ID；无 Provider / NONE 行为与今日一致。
 
-**出口后业务下一步**：Biz.8 / Biz.R ✅ 主路径；建议两轮同 session 冒烟 + Biz.R 改配置看日志。
+**出口后业务下一步**：Biz.8 / Biz.R / Biz.9 ✅；验收批 ①～④已收口（评估 §14）；可选真 UI BFF / 增强批。
 
 ### P3.9 —（可选）LlmCallLifecycleListener · 按需
 
@@ -215,9 +218,10 @@ P3.6 ResourceKeyValidator 接线（任意空隙，建议 C）
 | 底座 | Biz.0 | 联调前必备 | 1～1.5 | WebFlux 入口 + 保留键 | ✅ |
 | 联调 1 | Biz.2、Biz.1、Biz.9 入口 | 可与框架并行 | 2～4 | Biz.2 须挂 ObservationRegistry | ✅ 主路径 |
 | 联调 2 | Biz.3、Biz.4 | **框架 A（P3.2）出口后** | 3～6 | 多轮未通时联调成本高 | ✅ 主路径 |
-| 热刷新 | Biz.R | 联调 2 后补 | 1～2 | SDK 封装缺口（评估 §10） | ✅ 主路径 |
-| 增强 | Biz.5、Biz.6、Biz.7 | 任意 | 2～5 | — | 未开始 |
-| 记忆 | Biz.8 | **P3.8 出口后** | 1～2 | 无钩子无法挂 Advisor；入口已先做 | ✅ 主路径 |
+| 热刷新 | Biz.R | 联调 2 后补 | 1～2 | SDK 封装缺口（评估 §10） | ✅ 主路径 + MCP 冒烟 ✅ |
+| 记忆 | Biz.8 | **P3.8 出口后** | 1～2 | 无钩子无法挂 Advisor；入口已先做 | ✅ 主路径（remote 两轮待验） |
+| **验收批** | 设计器 E2E · 记忆两轮 · Biz.R 冒烟 · Langfuse 控制台核对 | **主路径出口后立刻** | 1～2 | 对照评估 §14.1 | ✅ **①～④已过** |
+| 增强 | Biz.5、Biz.6、Biz.7 | 验收批后 / 任意 | 2～5 | — | 未开始 |
 | 保存强校验 | Biz.1 Validator | **P3.6 接线后** | +0.5～1 | 可选 | 未开始 |
 
 ### Biz.0 — 图执行入口与冒烟底座 ✅
@@ -337,7 +341,7 @@ P3.6 ResourceKeyValidator 接线（任意空隙，建议 C）
 
 **验收**：同 sessionId 多轮能读到历史；USER/ASSISTANT 由 Advisor 落库；关键日志带齐身份键。
 
-### Biz.9 — Langfuse（业务定制，无产品专用 SPI）· 🟡
+### Biz.9 — Langfuse 观测接入（业务定制；**不**做产品 Langfuse UI）· ✅
 
 **方案**：设计 §4.6 · 评估 §13 · **人日** 0.5～1
 
@@ -346,11 +350,11 @@ P3.6 ResourceKeyValidator 接线（任意空隙，建议 C）
 | 入口绑 `BusinessContext` + `LessoTraceAttributes`(agentCode[, nodeName]) | 与 Biz.8 共用入口（Biz.0） | ✅ |
 | ChatModelFactory 挂 `ObservationRegistry` | Biz.2 | ✅ |
 | 复用既有 `ObservationFilter`（thinking_* / catalog_id 等） | **不**改产品写 langfuse.* | ✅ 现网 |
-| Langfuse UI 可见 Generation 专项验收 | 与 Vertical 对照 | 待确认 |
+| **在现有 Langfuse 服务控制台**核对 Generation | 打开 Langfuse 自带网页，与 Vertical 对照；**非** ace-graph-dsl 自研页面 | ✅ 2026-09-15 |
 | （可选）P3.9 Lifecycle 刷 nodeName | 按需 | ⏭ |
 | 默认不双开 `ace-graph-dsl-langfuse` Ingestion + lesso OTLP | 避免重复上报 | 约定 |
 
-**验收**：Langfuse 可见与 Vertical 同类 Generation 与业务 metadata；产品源码无 `langfuse.observation.metadata` 常量。
+**验收**：在 **Langfuse 服务控制台**可见与 Vertical 同类 Generation 与业务 metadata；产品源码无 `langfuse.observation.metadata` 常量、**无**产品侧 Langfuse 界面。
 
 ### Biz.R — MCP / 模型热刷新 · ✅ 主路径
 
@@ -425,7 +429,7 @@ P3.6 ResourceKeyValidator 接线（任意空隙，建议 C）
 | **Biz.4** | ✅ 主路径 | 口令→forceSkills 可增强 |
 | **Biz.5～7** | 未开始 | 增强批，可缓 |
 | **Biz.8** | ✅ 主路径 | Provider + 冒烟 `memoryMode=READ_WRITE`；两轮同 session 验收 |
-| **Biz.9** | 🟡 | 入口+Registry 已做；Generation UI 验收待确认 |
-| **Biz.R** | ✅ 主路径 | MCP/模型热刷新接线 |
+| **Biz.9** | ✅ | 现有 Langfuse 控制台 Generation 已核对（产品不做 Langfuse 页面） |
+| **Biz.R** | ✅ 主路径 | MCP 冒烟已过；模型 Config 可选补验 |
 
-**建议下一刀**：两轮同 session **验收 Biz.8**；Biz.R 冒烟（改 MCP/ref-model）；Biz.9 Generation UI。
+**建议下一刀**：验收批已收口；可选真 UI 建图 BFF / 增强批；增强批可缓。
