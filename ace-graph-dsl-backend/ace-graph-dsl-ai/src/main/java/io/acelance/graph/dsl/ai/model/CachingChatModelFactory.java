@@ -75,6 +75,34 @@ public final class CachingChatModelFactory implements ChatModelFactory {
         }
     }
 
+    /** 热刷新：清空全部 ChatModel 缓存（下次 create 重建） */
+    public void invalidateAll() {
+        synchronized (cache) {
+            int n = cache.size();
+            cache.clear();
+            log.info("ChatModel 缓存已清空: cleared={}", n);
+        }
+    }
+
+    /**
+     * 热刷新：按 baseUrl 前缀淘汰（dataId 变更后无法精确映射到 modelId 时可用）。
+     */
+    public int invalidateByBaseUrl(String baseUrl) {
+        if (baseUrl == null || baseUrl.isBlank()) {
+            return 0;
+        }
+        String prefix = baseUrl.trim() + "|";
+        synchronized (cache) {
+            int before = cache.size();
+            cache.entrySet().removeIf(e -> e.getKey() != null && e.getKey().startsWith(prefix));
+            int removed = before - cache.size();
+            if (removed > 0) {
+                log.info("ChatModel 缓存按 baseUrl 淘汰: baseUrl={}, removed={}", baseUrl, removed);
+            }
+            return removed;
+        }
+    }
+
     private static String cacheKey(ModelEndpoint ep) {
         return nullToEmpty(ep.baseUrl()) + "|" + nullToEmpty(ep.modelId());
     }

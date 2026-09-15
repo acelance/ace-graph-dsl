@@ -182,7 +182,8 @@ public class GenericAgentNodeController {
                     modelBaseUrl, modelApiKey, Boolean.TRUE.equals(apiKeyMasked), modelId,
                     prompt, inputKeys, outputKey, streamResponseKind, null,
                     true, List.of(), false, null, false, List.of(),
-                    false, List.of(), Map.of(), false, List.of());
+                    false, List.of(), Map.of(), false, List.of(),
+                    io.acelance.graph.dsl.llm.MemoryMode.NONE);
         }
 
         public GenericAgentDefinition toDefinition() {
@@ -218,7 +219,8 @@ public class GenericAgentNodeController {
                     modelBaseUrl, modelApiKey, Boolean.TRUE.equals(apiKeyMasked), modelId,
                     prompt, inputKeys, outputKey, null, null,
                     true, List.of(), false, null, false, List.of(),
-                    false, List.of(), Map.of(), false, List.of());
+                    false, List.of(), Map.of(), false, List.of(),
+                    io.acelance.graph.dsl.llm.MemoryMode.NONE);
         }
     }
 

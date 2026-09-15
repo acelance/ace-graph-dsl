@@ -1,6 +1,7 @@
 package io.acelance.graph.dsl.definition;
 
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
+import io.acelance.graph.dsl.llm.MemoryMode;
 
 import java.util.List;
 import java.util.Map;
@@ -10,7 +11,8 @@ import java.util.stream.Collectors;
 /**
  * 通用 agent 节点元数据（P0.5 D3：旧单 key / tools / 内联 skill·mcp 已删除）。
  *
- * <p>{@code prompt} 仅为节点特化追加；资源走 enable* + *Keys + mcpToolWhitelist。</p>
+ * <p>{@code prompt} 仅为节点特化追加；资源走 enable* + *Keys + mcpToolWhitelist。
+ * {@code memoryMode} 见 P3.8 / 设计 §4.2.2。</p>
  */
 @JsonIgnoreProperties(ignoreUnknown = true)
 public record GenericAgentSpec(
@@ -33,7 +35,8 @@ public record GenericAgentSpec(
         List<String> mcpKeys,
         Map<String, List<String>> mcpToolWhitelist,
         boolean enableSkill,
-        List<String> skillKeys
+        List<String> skillKeys,
+        MemoryMode memoryMode
 ) {
 
     public static final String DEFAULT_OUTPUT_KEY = "agent_result";
@@ -47,6 +50,7 @@ public record GenericAgentSpec(
         mcpKeys = mcpKeys == null ? List.of() : List.copyOf(mcpKeys);
         skillKeys = skillKeys == null ? List.of() : List.copyOf(skillKeys);
         mcpToolWhitelist = mcpToolWhitelist == null ? Map.of() : Map.copyOf(mcpToolWhitelist);
+        memoryMode = memoryMode == null ? MemoryMode.NONE : memoryMode;
     }
 
     /** 测试 / Stub 便捷构造：内联模型 + 内联 prompt */
@@ -54,7 +58,7 @@ public record GenericAgentSpec(
         this(modelBaseUrl, modelApiKey, false, modelId, prompt,
                 null, DEFAULT_OUTPUT_KEY, null, null,
                 true, List.of(), false, null, false, List.of(),
-                false, List.of(), Map.of(), false, List.of());
+                false, List.of(), Map.of(), false, List.of(), MemoryMode.NONE);
     }
 
     /**
@@ -70,6 +74,10 @@ public record GenericAgentSpec(
 
     public String effectiveOutputKey() {
         return (outputKey == null || outputKey.isBlank()) ? DEFAULT_OUTPUT_KEY : outputKey;
+    }
+
+    public MemoryMode effectiveMemoryMode() {
+        return memoryMode == null ? MemoryMode.NONE : memoryMode;
     }
 
     public Set<String> inputKeySet() {
@@ -121,6 +129,6 @@ public record GenericAgentSpec(
                 kind, mediaInputKey,
                 enablePrompt, promptKeys, enableModel, modelConfigKey,
                 enableLocalTools, localToolKeys, enableMcp, mcpKeys, mcpToolWhitelist,
-                enableSkill, skillKeys);
+                enableSkill, skillKeys, memoryMode);
     }
 }

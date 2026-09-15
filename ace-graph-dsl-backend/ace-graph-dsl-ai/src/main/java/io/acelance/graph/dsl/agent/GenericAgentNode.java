@@ -205,8 +205,9 @@ public class GenericAgentNode implements GraphBoundAgentNode {
             }
 
             ResourceBinding binding = ResourceBindings.fromSpec(spec);
+            String conversationId = readConversationId(state);
             LlmRequestContext ctx = new LlmRequestContext(
-                    agentCode, graphId, nodeId, runId, state, binding);
+                    agentCode, graphId, nodeId, runId, conversationId, state, binding);
             List<NamedToolCallback> namedTools = resolveNamedTools(ctx, binding, diag);
             emitResourceMiss(runId, diag);
 
@@ -214,11 +215,14 @@ public class GenericAgentNode implements GraphBoundAgentNode {
             boolean streaming = (bridge != GraphStreamBridge.NOOP) && runId != null && !runId.isBlank();
 
             StreamingLlmTemplate template = resolveTemplate(bridge);
-            log.info("节点 {} Template 挂载工具数={}", nodeId, namedTools.size());
+            String userMessage = resolveUserMessage(variables);
+            log.info("节点 {} Template 挂载工具数={}, memoryMode={}, conversationId={}, userChars={}",
+                    nodeId, namedTools.size(), spec.effectiveMemoryMode(), conversationId,
+                    userMessage.length());
             Map<String, Object> result = template.execute(LlmCallRequest.builder()
                     .context(ctx)
                     .systemTemplate(inlinePrompt)
-                    .userMessage("")
+                    .userMessage(userMessage)
                     .variables(variables != null ? variables : Map.of())
                     .outputKey(spec.effectiveOutputKey())
                     .streaming(streaming)
@@ -227,6 +231,7 @@ public class GenericAgentNode implements GraphBoundAgentNode {
                     .modelOverride(ov)
                     .tools(namedTools)
                     .mediaInputKey(spec.mediaInputKey())
+                    .memoryMode(spec.effectiveMemoryMode())
                     .build());
             response = result.get(spec.effectiveOutputKey()) instanceof String s ? s : String.valueOf(
                     result.get(spec.effectiveOutputKey()));
@@ -314,6 +319,50 @@ public class GenericAgentNode implements GraphBoundAgentNode {
         } catch (RuntimeException ignored) {
             return null;
         }
+    }
+
+    /** 对话会话 ID（≡ sessionId）；空则 Template 跳过记忆 Advisor */
+    private String readConversationId(OverAllState state) {
+        if (state == null) {
+            return null;
+        }
+        try {
+            Object v = state.value(LlmRequestContext.ACE_CONVERSATION_ID_KEY).orElse(null);
+            return v instanceof String s && !s.isBlank() ? s.trim() : null;
+        } catch (RuntimeException ignored) {
+            return null;
+        }
+    }
+
+    /**
+     * 从 input 变量推导 USER 正文（供记忆 Advisor 读写）。
+     * 优先常见键 {@code user_query}/{@code query}/…，否则取 inputKeys 中首个非空值。
+     */
+    private String resolveUserMessage(Map<String, Object> variables) {
+        if (variables == null || variables.isEmpty()) {
+            return "";
+        }
+        for (String key : List.of("user_query", "query", "userQuery", "message", "input", "question")) {
+            String text = asNonBlankText(variables.get(key));
+            if (text != null) {
+                return text;
+            }
+        }
+        for (String key : spec.inputKeySet()) {
+            String text = asNonBlankText(variables.get(key));
+            if (text != null) {
+                return text;
+            }
+        }
+        return "";
+    }
+
+    private static String asNonBlankText(Object v) {
+        if (v == null) {
+            return null;
+        }
+        String s = String.valueOf(v).trim();
+        return s.isEmpty() ? null : s;
     }
 
     /**

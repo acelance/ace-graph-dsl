@@ -257,7 +257,7 @@ public class AceGraphDslAutoConfiguration {
                     new JdbcTemplate(aceGraphDslSqliteDataSourceProvider.getObject()),
                     objectMapper,
                     tablePrefix);
-            default -> new InMemoryDynamicNodeDefinitionRepository();
+            case MEMORY, AUTO, REDIS -> new InMemoryDynamicNodeDefinitionRepository();
         };
     }
 
@@ -290,7 +290,7 @@ public class AceGraphDslAutoConfiguration {
                     new JdbcTemplate(aceGraphDslSqliteDataSourceProvider.getObject()),
                     objectMapper,
                     tablePrefix);
-            default -> new InMemoryGenericAgentDefinitionRepository();
+            case MEMORY, AUTO, REDIS -> new InMemoryGenericAgentDefinitionRepository();
         };
     }
 
@@ -342,7 +342,7 @@ public class AceGraphDslAutoConfiguration {
                     new JdbcTemplate(aceGraphDslSqliteDataSourceProvider.getObject()),
                     objectMapper,
                     properties.getPersistence().getJdbc().getTablePrefix());
-            default -> new InMemoryGraphDefinitionRepository();
+            case MEMORY, AUTO -> new InMemoryGraphDefinitionRepository();
         };
     }
 
@@ -379,7 +379,9 @@ public class AceGraphDslAutoConfiguration {
             ObjectProvider<DataSourceProperties> dataSourcePropertiesProvider) {
 
         String configured = properties.getPersistence().getType();
-        PersistenceType explicit = switch (configured.toLowerCase()) {
+        String normalized = configured == null ? "auto" : configured.trim().toLowerCase();
+        PersistenceType explicit = switch (normalized) {
+            case "memory", "mem", "in-memory", "inmemory" -> PersistenceType.MEMORY;
             case "sqlite" -> PersistenceType.SQLITE;
             case "redis" -> PersistenceType.REDIS;
             case "jdbc" -> PersistenceType.JDBC;
@@ -388,10 +390,15 @@ public class AceGraphDslAutoConfiguration {
         if (explicit != PersistenceType.AUTO) {
             return explicit;
         }
-        if (properties.getPersistence().isPreferRedis() && redisConnectionFactoryProvider.getIfAvailable() != null) {
+        // dynamic/generic 仓储可能不传 Redis Provider（传 null），须判空
+        if (properties.getPersistence().isPreferRedis()
+                && redisConnectionFactoryProvider != null
+                && redisConnectionFactoryProvider.getIfAvailable() != null) {
             return PersistenceType.REDIS;
         }
-        DataSourceProperties dsProps = dataSourcePropertiesProvider.getIfAvailable();
+        DataSourceProperties dsProps = dataSourcePropertiesProvider == null
+                ? null
+                : dataSourcePropertiesProvider.getIfAvailable();
         if (dsProps != null && dsProps.getUrl() != null && !dsProps.getUrl().contains("sqlite")) {
             return PersistenceType.JDBC;
         }

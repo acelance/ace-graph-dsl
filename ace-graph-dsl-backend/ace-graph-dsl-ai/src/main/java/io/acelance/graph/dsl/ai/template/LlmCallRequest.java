@@ -5,6 +5,7 @@ import io.acelance.graph.dsl.ai.tool.NamedToolCallback;
 import io.acelance.graph.dsl.ai.tool.ToolConflictPolicy;
 import io.acelance.graph.dsl.ai.tool.ToolDeduper;
 import io.acelance.graph.dsl.llm.LlmRequestContext;
+import io.acelance.graph.dsl.llm.MemoryMode;
 import io.acelance.graph.dsl.runtime.ModelOverride;
 
 import java.util.List;
@@ -12,7 +13,7 @@ import java.util.Map;
 import java.util.Objects;
 
 /**
- * 请求级 LLM 调用参数（含工具、冲突策略与 mediaInputKey）。
+ * 请求级 LLM 调用参数（含工具、冲突策略、mediaInputKey、memoryMode）。
  */
 public record LlmCallRequest(
         LlmRequestContext context,
@@ -26,7 +27,8 @@ public record LlmCallRequest(
         ModelOverride modelOverride,
         List<NamedToolCallback> tools,
         String mediaInputKey,
-        ToolConflictPolicy conflictPolicy
+        ToolConflictPolicy conflictPolicy,
+        MemoryMode memoryMode
 ) {
     public LlmCallRequest {
         Objects.requireNonNull(context, "context");
@@ -40,6 +42,7 @@ public record LlmCallRequest(
         tools = tools == null ? List.of() : List.copyOf(tools);
         mediaInputKey = mediaInputKey == null || mediaInputKey.isBlank() ? null : mediaInputKey.trim();
         conflictPolicy = conflictPolicy == null ? ToolDeduper.DEFAULT_POLICY : conflictPolicy;
+        memoryMode = memoryMode == null ? MemoryMode.NONE : memoryMode;
     }
 
     public static Builder builder() {
@@ -59,6 +62,7 @@ public record LlmCallRequest(
         private List<NamedToolCallback> tools = List.of();
         private String mediaInputKey;
         private ToolConflictPolicy conflictPolicy;
+        private MemoryMode memoryMode = MemoryMode.NONE;
 
         public Builder context(LlmRequestContext context) {
             this.context = context;
@@ -122,10 +126,16 @@ public record LlmCallRequest(
             return this;
         }
 
+        /** 节点记忆模式；默认 NONE */
+        public Builder memoryMode(MemoryMode memoryMode) {
+            this.memoryMode = memoryMode;
+            return this;
+        }
+
         public LlmCallRequest build() {
             return new LlmCallRequest(context, systemTemplate, userMessage, variables,
                     outputKey, streaming, streamResponseKind, inlineModel, modelOverride, tools,
-                    mediaInputKey, conflictPolicy);
+                    mediaInputKey, conflictPolicy, memoryMode);
         }
     }
 }

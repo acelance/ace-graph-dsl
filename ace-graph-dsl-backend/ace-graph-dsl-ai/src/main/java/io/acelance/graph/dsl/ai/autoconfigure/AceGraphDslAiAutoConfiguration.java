@@ -6,6 +6,8 @@ import io.acelance.graph.dsl.agent.InMemoryPromptRepository;
 import io.acelance.graph.dsl.agent.PromptRepository;
 import io.acelance.graph.dsl.agent.SecretResolver;
 import io.acelance.graph.dsl.agent.SkillRegistry;
+import io.acelance.graph.dsl.ai.advisor.ChatClientAdvisorBundle;
+import io.acelance.graph.dsl.ai.advisor.ChatClientAdvisorProvider;
 import io.acelance.graph.dsl.ai.media.DefaultMediaRefResolver;
 import io.acelance.graph.dsl.ai.media.MediaRefResolver;
 import io.acelance.graph.dsl.ai.model.CachingChatModelFactory;
@@ -85,8 +87,12 @@ public class AceGraphDslAiAutoConfiguration {
         return PromptRepositoryAdapters.from(repo);
     }
 
+    /**
+     * 业务已提供 {@link SkillCatalogResolver}（常同时实现 Content/Resource）时勿再注册空仓，
+     * 否则 {@link LlmResolvers} 注入会因「两个 SkillCatalogResolver」启动失败。
+     */
     @Bean
-    @ConditionalOnMissingBean(InMemorySkillStore.class)
+    @ConditionalOnMissingBean({InMemorySkillStore.class, SkillCatalogResolver.class})
     public InMemorySkillStore inMemorySkillStore() {
         log.info("注册 InMemorySkillStore（Skill L1/L2/L3 默认空仓）");
         return new InMemorySkillStore();
@@ -176,12 +182,23 @@ public class AceGraphDslAiAutoConfiguration {
                                      SkillContentLoader skillContent,
                                      SkillResourceLoader skillResources,
                                      MediaRefResolver media,
-                                     ObjectProvider<StreamResponseKindResolver> kinds) {
-        log.info("注册 LlmResolvers（P3.5 单例依赖集合）");
+                                     ObjectProvider<StreamResponseKindResolver> kinds,
+                                     ObjectProvider<ChatClientAdvisorProvider> advisorProviders) {
+        // 延迟解析：业务 Provider 可能在用户 @Configuration 中晚于本 Bean 定义注册，
+        // 但实际 provide() 时再 getIfAvailable，避免启动瞬间固化 null。
+        ChatClientAdvisorProvider deferred = request -> {
+            ChatClientAdvisorProvider live = advisorProviders.getIfAvailable();
+            if (live == null) {
+                return ChatClientAdvisorBundle.empty();
+            }
+            ChatClientAdvisorBundle bundle = live.provide(request);
+            return bundle == null ? ChatClientAdvisorBundle.empty() : bundle;
+        };
+        log.info("注册 LlmResolvers（P3.5/P3.8）：advisorProvider=deferred(ObjectProvider)");
         return new LlmResolvers(
                 prompts, promptRenderer, modelEndpoints, chatModels,
                 localTools, mcpTools, skillCatalog, skillContent, skillResources,
-                media, kinds.getIfAvailable());
+                media, kinds.getIfAvailable(), deferred);
     }
 
     @Bean

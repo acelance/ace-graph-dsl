@@ -1,6 +1,9 @@
 package io.acelance.graph.dsl.ai.template;
 
 import com.alibaba.cloud.ai.graph.streaming.OutputType;
+import io.acelance.graph.dsl.ai.advisor.ChatClientAdvisorBundle;
+import io.acelance.graph.dsl.ai.advisor.ChatClientAdvisorProvider;
+import io.acelance.graph.dsl.ai.advisor.ChatClientAdvisorRequest;
 import io.acelance.graph.dsl.ai.media.DefaultMediaRefResolver;
 import io.acelance.graph.dsl.ai.media.MediaRefResolver;
 import io.acelance.graph.dsl.ai.model.ChatModelFactory;
@@ -13,6 +16,7 @@ import io.acelance.graph.dsl.ai.tool.NamedToolCallback;
 import io.acelance.graph.dsl.ai.tool.ToolConflictPolicy;
 import io.acelance.graph.dsl.ai.tool.ToolDeduper;
 import io.acelance.graph.dsl.llm.LlmRequestContext;
+import io.acelance.graph.dsl.llm.MemoryMode;
 import io.acelance.graph.dsl.media.MediaRef;
 import io.acelance.graph.dsl.media.MediaRefs;
 import io.acelance.graph.dsl.prompt.PromptContentResolver;
@@ -29,6 +33,8 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.chat.client.advisor.ToolCallAdvisor;
+import org.springframework.ai.chat.client.advisor.api.Advisor;
+import org.springframework.ai.chat.memory.ChatMemory;
 import org.springframework.ai.chat.messages.Message;
 import org.springframework.ai.chat.messages.SystemMessage;
 import org.springframework.ai.chat.messages.UserMessage;
@@ -47,10 +53,12 @@ import java.util.Objects;
 import java.util.Set;
 
 /**
- * 流式 LLM 节点模板：prompt / Skill / Media / 工具 / 流式推送。
+ * 流式 LLM 节点模板：prompt / Skill / Media / 工具 / 记忆 Advisor / 流式推送。
  *
  * <p>P3.2：经原生 {@link ChatClient} 装配并执行；带工具时由 Spring AI 内部完成
  * tool_call → 执行 → 回灌的多轮闭环。</p>
+ * <p>P3.8：可选 {@link ChatClientAdvisorProvider} + {@link MemoryMode}，透传
+ * {@link ChatMemory#CONVERSATION_ID}。</p>
  */
 public class StreamingLlmTemplate {
 
@@ -68,8 +76,9 @@ public class StreamingLlmTemplate {
     private final SkillResourceLoader skillResources;
     private final MediaRefResolver mediaResolver;
     private final PromptContentResolver promptContent;
+    private final ChatClientAdvisorProvider advisorProvider;
 
-    /** P3.5：由 {@link LlmResolvers} 单点注入 */
+    /** P3.5 / P3.8：由 {@link LlmResolvers} 单点注入 */
     public StreamingLlmTemplate(LlmResolvers resolvers, GraphStreamBridge streamBridge) {
         this(Objects.requireNonNull(resolvers, "resolvers").promptRenderer(),
                 resolvers.modelEndpoints(),
@@ -79,7 +88,8 @@ public class StreamingLlmTemplate {
                 resolvers.skillContent(),
                 resolvers.skillResources(),
                 resolvers.media(),
-                resolvers.prompts());
+                resolvers.prompts(),
+                resolvers.advisorProvider());
     }
 
     public StreamingLlmTemplate(PromptRenderer promptRenderer,
@@ -87,7 +97,7 @@ public class StreamingLlmTemplate {
                                 ChatModelFactory chatModelFactory,
                                 GraphStreamBridge streamBridge) {
         this(promptRenderer, endpointResolver, chatModelFactory, streamBridge,
-                null, null, null, null, null);
+                null, null, null, null, null, null);
     }
 
     public StreamingLlmTemplate(PromptRenderer promptRenderer,
@@ -98,7 +108,7 @@ public class StreamingLlmTemplate {
                                 SkillContentLoader skillContent,
                                 SkillResourceLoader skillResources) {
         this(promptRenderer, endpointResolver, chatModelFactory, streamBridge,
-                skillCatalog, skillContent, skillResources, null, null);
+                skillCatalog, skillContent, skillResources, null, null, null);
     }
 
     public StreamingLlmTemplate(PromptRenderer promptRenderer,
@@ -110,7 +120,7 @@ public class StreamingLlmTemplate {
                                 SkillResourceLoader skillResources,
                                 MediaRefResolver mediaResolver) {
         this(promptRenderer, endpointResolver, chatModelFactory, streamBridge,
-                skillCatalog, skillContent, skillResources, mediaResolver, null);
+                skillCatalog, skillContent, skillResources, mediaResolver, null, null);
     }
 
     public StreamingLlmTemplate(PromptRenderer promptRenderer,
@@ -122,6 +132,20 @@ public class StreamingLlmTemplate {
                                 SkillResourceLoader skillResources,
                                 MediaRefResolver mediaResolver,
                                 PromptContentResolver promptContent) {
+        this(promptRenderer, endpointResolver, chatModelFactory, streamBridge,
+                skillCatalog, skillContent, skillResources, mediaResolver, promptContent, null);
+    }
+
+    public StreamingLlmTemplate(PromptRenderer promptRenderer,
+                                ModelEndpointResolver endpointResolver,
+                                ChatModelFactory chatModelFactory,
+                                GraphStreamBridge streamBridge,
+                                SkillCatalogResolver skillCatalog,
+                                SkillContentLoader skillContent,
+                                SkillResourceLoader skillResources,
+                                MediaRefResolver mediaResolver,
+                                PromptContentResolver promptContent,
+                                ChatClientAdvisorProvider advisorProvider) {
         this.promptRenderer = Objects.requireNonNull(promptRenderer, "promptRenderer");
         this.endpointResolver = Objects.requireNonNull(endpointResolver, "endpointResolver");
         this.chatModelFactory = Objects.requireNonNull(chatModelFactory, "chatModelFactory");
@@ -131,6 +155,7 @@ public class StreamingLlmTemplate {
         this.skillResources = skillResources;
         this.mediaResolver = mediaResolver != null ? mediaResolver : new DefaultMediaRefResolver();
         this.promptContent = promptContent;
+        this.advisorProvider = advisorProvider;
     }
 
     public Map<String, Object> execute(LlmCallRequest req) {
@@ -192,23 +217,22 @@ public class StreamingLlmTemplate {
         if (model == null) {
             throw new IllegalStateException("ChatModelFactory 返回 null, nodeId=" + ctx.nodeId());
         }
-        log.info("节点 {} 开始 LLM 调用(ChatClient): streaming={}, kind={}, modelId={}, tools={}, forcedSkills={}, medias={}",
+        log.info("节点 {} 开始 LLM 调用(ChatClient): streaming={}, kind={}, modelId={}, tools={}, forcedSkills={}, medias={}, memoryMode={}, conversationId={}",
                 ctx.nodeId(), req.streaming(), req.streamResponseKind(), endpoint.modelId(),
-                modelTools.size(), forced.size(), mediaResult.medias().size());
+                modelTools.size(), forced.size(), mediaResult.medias().size(),
+                req.memoryMode(), ctx.conversationId());
 
+        List<Message> messages = buildMessages(system, user, forced, mediaResult.medias());
         String full;
         boolean wantStream = req.streaming() && ctx.runId() != null && !ctx.runId().isBlank();
         if (wantStream && modelTools.isEmpty()) {
-            // 无工具：真流式
-            full = streamCall(model, system, user, forced, mediaResult.medias(), ctx,
-                    req.streamResponseKind());
+            full = streamCall(model, messages, modelTools, req, ctx, req.streamResponseKind());
         } else if (wantStream) {
-            // 有工具：先走 ChatClient 多轮 call 闭环，再把终稿切片推送（保证 tool-calling 完整）
             log.info("节点 {} 流式+工具：先 ChatClient.call 多轮，再切片推送终稿", ctx.nodeId());
-            full = syncCall(model, system, user, forced, mediaResult.medias(), modelTools, ctx.nodeId());
+            full = syncCall(model, messages, modelTools, req);
             emitTextChunks(full, ctx, req.streamResponseKind());
         } else {
-            full = syncCall(model, system, user, forced, mediaResult.medias(), modelTools, ctx.nodeId());
+            full = syncCall(model, messages, modelTools, req);
             log.info("节点 {} 同步调用完成: chars={}, kind={}, elapsedMs={}",
                     ctx.nodeId(), full.length(), req.streamResponseKind(),
                     (System.nanoTime() - start) / 1_000_000);
@@ -274,50 +298,91 @@ public class StreamingLlmTemplate {
     }
 
     /**
-     * 同步调用：ChatClient + toolCallbacks + {@link ToolCallAdvisor} 多轮闭环。
+     * sync / stream 共用：挂 ToolCallAdvisor + 业务记忆 Advisor，并透传 CONVERSATION_ID。
      */
-    private String syncCall(ChatModel model, String system, String user,
-                            List<ForceSkillActivator.ActivatedSkill> forced,
-                            List<Media> medias,
-                            List<ToolCallback> tools,
-                            String nodeId) {
-        ChatClient.Builder builder = ChatClient.builder(model);
+    private ChatClient.ChatClientRequestSpec prepareSpec(ChatModel model,
+                                                         List<Message> messages,
+                                                         List<ToolCallback> tools,
+                                                         LlmCallRequest req) {
+        LlmRequestContext ctx = req.context();
+        MemoryMode mode = req.memoryMode() == null ? MemoryMode.NONE : req.memoryMode();
         boolean hasTools = tools != null && !tools.isEmpty();
+
+        ChatClient.Builder builder = ChatClient.builder(model);
+        List<Advisor> defaults = new ArrayList<>();
         if (hasTools) {
-            // Spring AI 1.1：多轮 tool-calling 由 ToolCallAdvisor 驱动
-            builder.defaultAdvisors(ToolCallAdvisor.builder()
+            defaults.add(ToolCallAdvisor.builder()
                     .toolCallingManager(DefaultToolCallingManager.builder().build())
                     .build());
-            log.info("节点 {} ChatClient 已挂载 ToolCallAdvisor，工具数={}", nodeId, tools.size());
+            log.info("节点 {} ChatClient 已挂载 ToolCallAdvisor，工具数={}", ctx.nodeId(), tools.size());
         }
-        ChatClient client = builder.build();
-        ChatClient.ChatClientRequestSpec spec = client.prompt()
-                .messages(buildMessages(system, user, forced, medias));
+
+        ChatClientAdvisorBundle mem = ChatClientAdvisorBundle.empty();
+        if (mode != MemoryMode.NONE
+                && ctx.conversationId() != null && !ctx.conversationId().isBlank()
+                && advisorProvider != null) {
+            mem = advisorProvider.provide(new ChatClientAdvisorRequest(
+                    ctx, mode, req.streaming(), hasTools));
+            if (mem == null) {
+                mem = ChatClientAdvisorBundle.empty();
+            }
+            if (!mem.advisors().isEmpty()) {
+                defaults.addAll(mem.advisors());
+            }
+            log.info("节点 {} 记忆 Advisor 挂载: mode={}, conversationId={}, advisors={}",
+                    ctx.nodeId(), mode, ctx.conversationId(), mem.advisors().size());
+        } else {
+            log.info("节点 {} 跳过记忆 Advisor: mode={}, conversationIdBlank={}, providerNull={}",
+                    ctx.nodeId(), mode,
+                    ctx.conversationId() == null || ctx.conversationId().isBlank(),
+                    advisorProvider == null);
+        }
+
+        if (!defaults.isEmpty()) {
+            builder.defaultAdvisors(defaults.toArray(Advisor[]::new));
+        }
+
+        ChatClient.ChatClientRequestSpec spec = builder.build().prompt().messages(messages);
+
+        Map<String, Object> params = new LinkedHashMap<>();
+        if (mem.advisorParams() != null && !mem.advisorParams().isEmpty()) {
+            params.putAll(mem.advisorParams());
+        }
+        // 框架 conversationId 后写，避免被业务 advisorParams 覆盖
+        if (ctx.conversationId() != null && !ctx.conversationId().isBlank()) {
+            params.put(ChatMemory.CONVERSATION_ID, ctx.conversationId());
+        }
+        if (!params.isEmpty()) {
+            Map<String, Object> finalParams = params;
+            spec = spec.advisors(a -> a.params(finalParams));
+        }
+
         if (hasTools) {
             ToolCallingChatOptions options = ToolCallingChatOptions.builder()
                     .toolCallbacks(tools)
-                    .internalToolExecutionEnabled(false) // 交给 Advisor，避免与模型内部执行重复
+                    .internalToolExecutionEnabled(false)
                     .build();
             spec = spec.toolCallbacks(tools).options(options);
         }
+        return spec;
+    }
+
+    private String syncCall(ChatModel model, List<Message> messages,
+                            List<ToolCallback> tools, LlmCallRequest req) {
+        ChatClient.ChatClientRequestSpec spec = prepareSpec(model, messages, tools, req);
         String content = spec.call().content();
-        log.info("节点 {} ChatClient.call 返回 chars={}", nodeId, content == null ? 0 : content.length());
+        log.info("节点 {} ChatClient.call 返回 chars={}",
+                req.context().nodeId(), content == null ? 0 : content.length());
         return nullToEmpty(content);
     }
 
-    /**
-     * 无工具时的真流式：ChatClient.stream().content()。
-     */
-    private String streamCall(ChatModel model, String system, String user,
-                              List<ForceSkillActivator.ActivatedSkill> forced,
-                              List<Media> medias,
+    private String streamCall(ChatModel model, List<Message> messages,
+                              List<ToolCallback> tools, LlmCallRequest req,
                               LlmRequestContext ctx, String kind) {
         StringBuilder sb = new StringBuilder();
-        ChatClient client = ChatClient.builder(model).build();
+        ChatClient.ChatClientRequestSpec spec = prepareSpec(model, messages, tools, req);
         try {
-            client.prompt()
-                    .messages(buildMessages(system, user, forced, medias))
-                    .stream()
+            spec.stream()
                     .content()
                     .doOnNext(tok -> {
                         if (tok != null && !tok.isEmpty()) {

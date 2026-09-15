@@ -66,6 +66,8 @@
 - 不保证上游 Graph checkpoint 对 `UserMessage.media` 原样恢复（见第 8 节）
 - **不定义 SSE 流式输出协议**：框架不规定 `thinking` / `isEnd` / `phase` 等字段，只提供挂载入口让业务已有协议接入（见 §9.0）
 - **本期不做 AgentCard**：不设计绑定字段消费、不设计 `AgentCardResolver`、Template 不解析 Card（skill/工具/安全等信息若需要，先走独立 Skill/Tools/MCP 勾选）
+- **不实现 ChatMemory Store / 不认识 userId·bizKey**：只提供 Advisor 钩子与 `conversationId`（§4.2.2）
+- **不实现 Langfuse 专用 SPI、不写 `langfuse.*` 元数据键**：观测走原生 ChatModel Observation，定制归业务（§4.6）
 
 ---
 
@@ -177,6 +179,7 @@ public record LlmRequestContext(
     String graphId,
     String nodeId,
     String runId,
+    String conversationId,      // 对话会话 ID（可选；见 §4.2.2）；≠ runId
     OverAllState state,
     ResourceBinding binding
 ) {}
@@ -204,6 +207,7 @@ public record LlmRequestContext(
 | `graphId` | 跑的是哪张编排图 | `graph-refund-v3` |
 | `nodeId` | 图里当前是哪个节点（细粒度勾选在 Binding 上） | `agent_translate` |
 | `runId` | 这一次执行的追踪号 | UUID |
+| `conversationId` | **对话会话**（Spring AI ChatMemory / 业务 sessionId）；可选 | 与 HTTP `Session-Id` 对齐 |
 
 关系可以记成：
 
@@ -407,6 +411,51 @@ public class CsAssistantController {
 1. 发布 `graph-cs-v3` 后，`POST /execution/graph-cs-v3/stream` 能跑通；换一个不存在的 id → 明确失败（图未找到）  
 2. 业务入口写死 `GRAPH_ID` 时，日志同时打出 `agentCode` + `graphId`，且实际执行的是该图  
 3. 故意漏传 / 映射错 graphId → 不会静默跑到另一张图  
+
+### 4.2.2 对话级记忆：conversationId + Advisor 钩子（定案 B）
+
+> 业务整合细节见 `lesso-ai-platform-agent-server/docs/ace-graph-dsl-nacos-integration-assessment.md` §12。  
+> 排期：框架 **P3.8** / 业务 **Biz.8**（`streaming-llm-implementation-plan.md`）。
+
+**一句话结论**：产品对齐 Spring AI `ChatMemory` 能力——提供 **`conversationId` 保留键、节点 `MemoryMode`、`ChatClientAdvisorProvider` SPI**；Template 在 call/stream 挂载业务 Advisor 并透传 `ChatMemory.CONVERSATION_ID`。**不**实现 Store，**不**把 `userId`/`bizKey` 折进 `conversationId`。
+
+**字段分工**：
+
+| 键 | 谁写 | 谁读 | 说明 |
+|---|---|---|---|
+| `ace.graph.dsl.conversationId` | 业务入口（= sessionId） | Context → Advisor params | **仅**会话 ID；≠ runId |
+| userId / bizKey | 业务 `BusinessContext` | 业务 Store / 观测 Filter | 产品不认识 |
+
+**MemoryMode（节点 Spec，默认 NONE）**：`NONE` | `READ_ONLY` | `READ_WRITE`。多节点勿多个 `READ_WRITE` 同回合写 ASSISTANT。
+
+**SPI 形态**：
+
+```java
+public static final String ACE_CONVERSATION_ID_KEY = "ace.graph.dsl.conversationId";
+
+public enum MemoryMode { NONE, READ_ONLY, READ_WRITE }
+
+public interface ChatClientAdvisorProvider {
+    ChatClientAdvisorBundle provide(ChatClientAdvisorRequest request);
+}
+
+public record ChatClientAdvisorRequest(
+        LlmRequestContext ctx, MemoryMode memoryMode,
+        boolean streaming, boolean hasTools) {}
+
+public record ChatClientAdvisorBundle(
+        List<Advisor> advisors, Map<String, Object> advisorParams) {
+    public static ChatClientAdvisorBundle empty() {
+        return new ChatClientAdvisorBundle(List.of(), Map.of());
+    }
+}
+```
+
+**Template 约定**：与 `ToolCallAdvisor` 同挂 ChatClient；`mode==NONE` 或 conversationId 空或无 Provider → 跳过记忆 Advisor；关键日志打印 mode/conversationId/advisor 数。
+
+**明确不做**：图尾统一 persistMemory 作主路径；官方 `MessageChatMemoryAdvisor` 不强制（业务可用自研 Ordered Advisor）；Catalog/Resolver 读写记忆。
+
+**怎么验收**：业务 Provider 挂上后多轮可读历史；无 Bean 时行为与今日一致。
 
 ### 4.3 Resolver 接口（运行期：此时 key 已经有了）
 
@@ -1061,6 +1110,25 @@ public final class StreamingLlmTemplate {
     public Map<String, Object> execute(LlmCallRequest req) { /* 见 §10 */ }
 }
 ```
+
+### 4.6 可观测性 / Langfuse（定案：原生 Observation + 业务定制）
+
+> 业务整合见评估文档 §13。排期：业务 **Biz.2**（Registry）+ **Biz.9**；可选框架 **P3.9**。
+
+**一句话结论**：现网 Langfuse（OTLP）走 **Spring AI ChatModel Observation → Micrometer → OTel**；`thinking_*` / `catalog_id` / `user.id` 等由**业务 ObservationFilter** 写入。产品**不**新增 Langfuse 专用 SPI、**不**在源码写 `langfuse.*` 键。
+
+**产品最小保证**：
+
+1. LLM 走标准 `ChatModel` / `ChatClient` call·stream（不绕开 observation）  
+2. 业务 `ChatModelFactory` 创建模型时注入宿主 `ObservationRegistry`（否则自定义 endpoint 无 Generation）  
+3. 不替换全局 Registry / OTel exporter  
+4. 可选保留 `TraceRecorder` / `GraphExecutionListener` / `ace-graph-dsl-langfuse`（Ingestion）作图级通道——与 lesso OTLP **勿默认双开**
+
+**可选（非 Langfuse API）**：`LlmCallLifecycleListener.beforeCall/afterCall(ctx)`，供业务按 `nodeId` 刷新自有 ThreadLocal（如观测用的 nodeName）。无 Bean 则零行为。
+
+**入口与记忆共用**：`BusinessContext`(userId, sessionId, bizKey) 一次绑定；sessionId → conversationId 与 `langfuse.session.id`。
+
+**怎么验收**：开启业务 Langfuse 后可见 Generation 与既有定制 metadata；产品仓库无 `langfuse.observation.metadata` 常量。
 
 ---
 
@@ -3611,6 +3679,52 @@ public Map<String, Object> apply(OverAllState state) {
 
 现网 Agent 有两条通道：**内联**（图节点 `properties.agentSpec`）与**注册式**（节点定义库 `GenericAgentDefinition.spec`，多图按 `nodeId` 复用）。新增字段落点定案如下。
 
+> **实现约束（给 Agent / 开发者）**：下列三题已定案，**禁止再向产品方确认「选 A 还是 B」**。以本节表格 + §11.1.1 规则为准；若与交互问卷截图冲突，**以本文白纸黑字为准**（问卷仅作历史材料）。
+
+### 11.1.0 决策溯源（问卷原文 → 已选完整含义）
+
+产品问卷曾用代号 1A/2B/3B；下表保留**完整选项文案**，避免只见代号、做到一半又人工确认。
+
+#### 问题 1：资源勾选（Prompt / Skill / MCP 等）的配置存哪里？
+
+| 代号 | 选项全文 | 本定案 |
+|------|----------|--------|
+| **1A** | 只存定义库，各图不能单独改（推荐：单一源头、改一次全图生效；代价是小差异要新建定义） | **✅ 已选** |
+| 1B | 定义库存默认，某个图可覆写（灵活；代价是两层配置易漂移、UI 要标继承/覆写） | ❌ 否决 |
+| 1C | 只存图节点上（最灵活；代价是丢掉复用价值、多图要改多处） | ❌ 否决 |
+
+**已选 1A 落地含义**：`resourceBindings`（enable* + *Keys + mcpToolWhitelist 等）只写在 `GenericAgentDefinition.spec`；引用该定义的所有图**行为一致**；图节点上**不存、不生效**资源勾选覆写。
+
+#### 问题 2：流式响应类型 KEY（BIZ / OUTPUT / 自定义）存哪里？
+
+| 代号 | 选项全文 | 本定案 |
+|------|----------|--------|
+| 2A | 定义库存默认，某个图可覆写（推荐：同一 Agent 在不同图角色不同时无需拆定义；代价是多一层优先级） | ❌ 否决（虽标「推荐」） |
+| **2B** | 只存定义库，所有图共用一个（最简单、行为一致；代价是要拆两个定义并同步维护） | **✅ 已选** |
+| 2C | 只存图节点上（按图配置直观；代价是配置割裂两处、旧图迁移易漏配） | ❌ 否决 |
+
+**已选 2B 落地含义**：`streamResponseKind` 只写在节点定义库；**各图共用同一 KEY**；若同一逻辑 Agent 在 A 图要 BIZ、在 B 图要 OUTPUT → **拆成两个定义**维护，不做图内覆写。  
+**注意**：题面 2A 曾标「推荐」，定案**刻意选了 2B**（与资源勾选同一套「无覆写层」模型，避免两层优先级）。实现时**不得**按「推荐=2A」自行改回覆写方案。
+
+#### 问题 3：注册式 Agent 在哪个界面编辑？
+
+| 代号 | 选项全文 | 本定案 |
+|------|----------|--------|
+| 3A | 节点面板配默认，属性面板只开放可覆写项（推荐：就地微调；需问题 2 选 A 才有意义） | ❌ 否决（依赖 2A，已否） |
+| **3B** | 全部只在节点面板编辑（语义最清楚、开发量最小；代价是微调要新建定义） | **✅ 已选** |
+| 3C | 两处都能全量编辑（操作最省事；代价是生效来源不明、易埋线上问题，不建议） | ❌ 否决 |
+
+**已选 3B 落地含义**：注册式 Agent 的资源勾选 + 流式类型 **唯一编辑入口** = 节点面板「通用 Agent」编辑器；图属性面板对注册式节点 **只读摘要 + 跳转**，不提供编辑（更不做双处全量编辑）。
+
+#### 三题组合一览
+
+```text
+1A + 2B + 3B
+  → 资源勾选、流式 KEY：只在定义库，图不可覆写
+  → 编辑：只在节点面板
+  → 图间差异：新建定义，不引入继承/覆写 UI
+```
+
 | 字段 | 落库位置 | 图内可否覆写 | 编辑入口 |
 |---|---|---|---|
 | `resourceBindings`（enable + keys） | **节点定义库 `GenericAgentSpec`** | **不可** | 节点面板「通用 Agent」编辑器 |
@@ -3634,6 +3748,13 @@ public Map<String, Object> apply(OverAllState state) {
 
 - 小差异（例如 B 图想少挂一个 MCP、或想改成 `OUTPUT`）必须新建定义，定义数量会增长
 - 拆出的多个定义需人工保持同步，存在「改了一个忘了另一个」的风险；可由节点面板提供「复制定义」降低成本
+
+### 11.1.4 怎么验收（避免再问）
+
+1. 注册式节点：属性面板无资源勾选/流式类型编辑控件，仅摘要 + 跳转节点面板  
+2. 节点面板改 `promptKeys` / `streamResponseKind` 并保存后，**所有引用该定义的图**编译/运行读到同一份  
+3. 故意在图 JSON 上写同名覆写字段 → 编译 **忽略 + warn**，生效值仍来自定义库  
+4. 需要「同 Agent 不同流式角色」→ 建两个定义，而不是图内覆写（对照 2B，不是 2A）
 
 ---
 
@@ -3780,7 +3901,7 @@ starter **compile 依赖** `ace-graph-dsl-ai`，保证全家桶开箱可用（st
 | 流式类型运行期 | **已闭环** | §9.7：编译期 normalize + 运行期兜底双保险，与 UI 默认同源；节点内切 kind 已定案不做，改由「一节点一 kind」编排承载（§13.2.1） |
 | Formatter 共存 | **已闭环（矛盾消除）** | §9.6：单一入口、控制器零改动；废弃 Codec 体系后「不动控制器 vs Codec 优先」的互斥自动消失 |
 | Catalog↔Runtime | **已定案** | §7.4：软约定 + 运行期真相 + 可选 Validator；不做强制联合试探 |
-| 注册式 Agent | **已定案** | §11.1：1A+2B+3B，定义库单一源、无图内覆写、节点面板唯一入口 |
+| 注册式 Agent | **已定案** | §11.1 / §11.1.0：1A+2B+3B（问卷全文已归档）；定义库单一源、无图内覆写、节点面板唯一入口；**勿再问 A/B/C** |
 | 执行端 UI | **已定案** | §9.6.7：新增 `/debug/stream` 端点用框架标准格式（带 `streamKind`），ui 不适配业务协议；`/stream` 生产行为不变 |
 
 主要风险（原）：
@@ -3808,7 +3929,7 @@ starter **compile 依赖** `ace-graph-dsl-ai`，保证全家桶开箱可用（st
 | A5 | **模型三路来源** | **已定案（§4.4.1，已修订）**：优先级仍是 Override > modelConfigKey > 内联，但**静态层改为整路二选一**——勾了 key 就只用注册中心那一套，缺字段**报错**，禁止用内联字段拼盘补齐（避免「配的是 key，日志里却是内联 modelId」）。**仅请求级 Override** 允许在底座上逐字段补丁（只改 modelId 做 A/B）。enableModel=false = 跳过 key 路而非禁用节点 | 实现：requireComplete + 整路底座 + Override 补丁；编译期 key/内联并存 warn |
 | A6 | **`LlmCallRequest` / `ChatModelFactory`** | **已闭环（§4.5）**：纠正「Resolver 当请求级字段」的概念错位，拆为单例 `LlmResolvers`（10 项，含非空校验）+ 请求级 `LlmCallRequest`（8 字段 + Builder + 参数归一）；`binding` 唯一来源为 `context`；`ChatModelFactory` 返回原生 `ChatModel`，默认实现按端点 **LRU 有界缓存**（上限 64，超限 warn 提示动态 key 误用）、api-key 严禁入日志；`ChatClientFactory`/`AgentChatClient` 标 deprecated 且**不提供桥接**（语义不可逆） | 实现项：两 record + Builder + 缓存工厂 + 自动配置默认回落 |
 | A8 | **Template 的模块归属与 spring-ai 依赖** | **已定案（§12.1）**：新建 `ace-graph-dsl-ai` 承载模型层；`AgentTool` 删除、统一到 `ToolCallback`；core 保持不依赖 spring-ai；core 新增 `GraphBoundAgentNode` + `GenericAgentNodeFactory` 两个抽象，`DynamicGraphBuilder` 改注入工厂；starter compile 依赖 ai | 实现项：建模块 + 6 类迁移（含单测）+ 工厂抽象 + 缺失时可操作报错 |
-| A7 | **注册式 Agent** | 已定案（§11.1）：两字段只存 `GenericAgentDefinition.spec`，图内不可覆写，节点面板为唯一编辑入口 | 实现项：属性面板对注册式保持只读+跳转；编译期忽略图上残留字段并 warn |
+| A7 | **注册式 Agent** | 已定案（§11.1 / **§11.1.0 溯源**）：1A+2B+3B；两字段只存定义库、图内不可覆写、节点面板唯一入口；**禁止再就问卷 A/B/C 向产品确认** | 实现项：属性面板对注册式保持只读+跳转；编译期忽略图上残留字段并 warn |
 
 ### B. 流式类型闭环缺口
 
@@ -4027,4 +4148,7 @@ starter **compile 依赖** `ace-graph-dsl-ai`，保证全家桶开箱可用（st
 | 2026-09-10 | **补定 §4.2.1：Controller 如何选对图**。必须有明确 `graphId`；现网口 `POST /execution/{graphId}/stream`；业务可写死/映射 graphId，框架不按 agentCode 猜图。补全入口样例（常量 GRAPH_ID + agentCode + runId）。**补定 §7.1：`ResourceBindings.fromSpec` 归框架**——纯 Spec→Binding 字段映射，业务不实现；业务只实现按 key 取数的 Resolver。此前样例裸写 graphId/fromSpec 未交代归属，视为文档缺口已闭环 |
 | 2026-09-10 | **补定 §8.3：节点间大结果与产物 URL 投递**。默认完整结构化结果进 `OverAllState` 透传（`outputKey`→`inputKeys`）；精简发生在消费方拼 prompt（§4.4.2 护栏），框架不在节点边界自动摘要。文件本体不进 state，只传 URL/mediaId（与 MediaRef 同原则）。推荐拆 `summary` / `detail` / `artifacts` 多 key；Agent 的 outputKey 放下游默认读的那份 |
 | 2026-09-10 | **补定 §8.3 原生写回样例**：节点通过 `NodeAction.apply` **return Map** 由引擎按 `KeyStrategy` 合并进 state（非手写 `state.put`）；附原生双节点样例 + 现网 `GenericAgentNode` return `outputKey` 片段；`keyStrategies` 须覆盖输出 key |
+| 2026-09-14 | **补强 §11.1.0 决策溯源**：写入问题 1/2/3 问卷全文、已选 1A+2B+3B 完整含义、否决项及「刻意不选推荐项 2A/3A」说明；明确实现以本文为准、禁止再就 A/B/C 向产品确认；增 §11.1.4 验收 |
+| 2026-09-14 | **定案对话记忆（§4.2.2）= 方案 B**：`conversationId` 保留键 + `MemoryMode` + `ChatClientAdvisorProvider`；Template 挂业务 Advisor 并透传 `ChatMemory.CONVERSATION_ID`。conversationId ≡ sessionId，**不是** userId+sessionId+bizKey 拼接；Store/Ordered·ReadOnly Advisor 在业务。否决图尾 persistMemory 主路径。排期 P3.8 / Biz.8；整合见评估文档 §12 |
+| 2026-09-14 | **定案可观测性（§4.6）**：Langfuse 主路径 = 原生 ChatModel Observation + 业务 Filter 定制；产品不造 Langfuse SPI。Biz.2 须挂 ObservationRegistry；Biz.9 入口绑上下文；可选 P3.9 Lifecycle。评估文档 §13。非目标增补：不写 langfuse.*、不实现 ChatMemory Store |
 | 2026-09-10 | **补定 §8.3：ace-graph-dsl 指定 key 赋值**。Agent 写回 key 唯一来源是配置字段 `outputKey`（默认 `agent_result`），整段模型回复进这一个 key。提示词只能约束正文形态（含 JSON），框架不解析、不拆多 key；Structured Output 首期不做。多 key 靠下游解析节点或业务 NodeAction `return` 多 entry |

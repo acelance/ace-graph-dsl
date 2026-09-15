@@ -56,7 +56,8 @@ class GenericAgentNodeOverrideTest {
                 "https://base", "sk-demo", false, "qwen-plus", "你好 {{x}}",
                 null, "out", null, null,
                 true, List.of(), false, null, false, List.of(),
-                false, List.of(), Map.of(), false, List.of());
+                false, List.of(), Map.of(), false, List.of(),
+                io.acelance.graph.dsl.llm.MemoryMode.NONE);
         return new GenericAgentNode("nodeA", "g-test", spec, ctx);
     }
 

@@ -90,7 +90,8 @@ public final class ModelEndpointResolver {
                 null, maskedKey, true, null,
                 null, null, "tmp", null, null,
                 false, List.of(), false, null, false, List.of(),
-                false, List.of(), Map.of(), false, List.of());
+                false, List.of(), Map.of(), false, List.of(),
+                io.acelance.graph.dsl.llm.MemoryMode.NONE);
         String real = secretResolver.resolveApiKey(ctx.graphId(), ctx.nodeId(), tmp);
         log.info("节点 {} 内联掩码 apiKey 已还原", ctx.nodeId());
         return real;
