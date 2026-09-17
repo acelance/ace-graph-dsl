@@ -46,6 +46,7 @@ const defaultForm = () => ({
   skillKeysText: '',
   enableLocalTools: false,
   localToolKeysText: '',
+  applyDeepThinking: false,
   permissionTagsText: 'public',
   mockStateJson: '{"user_query":"hello"}'
 })
@@ -102,6 +103,7 @@ function applyDefinition(def) {
   form.value.skillKeysText = csvOf(s.skillKeys)
   form.value.enableLocalTools = !!s.enableLocalTools
   form.value.localToolKeysText = csvOf(s.localToolKeys)
+  form.value.applyDeepThinking = !!s.applyDeepThinking
   form.value.permissionTagsText = (def.permissionTags || []).join(',')
 }
 
@@ -175,7 +177,8 @@ function buildBody() {
     enableSkill: form.value.enableSkill,
     skillKeys,
     enableLocalTools: form.value.enableLocalTools,
-    localToolKeys
+    localToolKeys,
+    applyDeepThinking: form.value.applyDeepThinking
   }
   return {
     nodeId: form.value.nodeId,
@@ -292,6 +295,12 @@ async function onSubmit() {
           />
         </el-select>
         <span class="hint" style="display:block; margin-top:4px;">{{ t('propertyPanel.agentSpec.streamResponseKindHint') }}</span>
+      </el-form-item>
+
+      <el-divider content-position="left">{{ t('propertyPanel.agentSpec.deepThinking') }}</el-divider>
+      <el-form-item :label="t('propertyPanel.agentSpec.applyDeepThinking')">
+        <el-switch v-model="form.applyDeepThinking" />
+        <span class="hint" style="display:block; margin-top:4px;">{{ t('propertyPanel.agentSpec.applyDeepThinkingHint') }}</span>
       </el-form-item>
 
       <el-divider content-position="left">{{ t('propertyPanel.agentSpec.resources') }}</el-divider>

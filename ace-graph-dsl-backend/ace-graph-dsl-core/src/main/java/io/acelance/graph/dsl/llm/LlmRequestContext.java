@@ -33,6 +33,12 @@ public record LlmRequestContext(
      */
     public static final String ACE_CONVERSATION_ID_KEY = "ace.graph.dsl.conversationId";
 
+    /**
+     * state 保留键：本轮是否开启深度思考（框架中性名）。
+     * 业务侧前端字段名（如 {@code deep_thinking}）由接入适配器映射到此键，勿直接写业务协议名。
+     */
+    public static final String ACE_DEEP_THINKING_KEY = "ace.graph.dsl.deepThinking";
+
     public LlmRequestContext {
         Objects.requireNonNull(binding, "ResourceBinding 不能为空");
         agentCode = agentCode == null ? "" : agentCode;

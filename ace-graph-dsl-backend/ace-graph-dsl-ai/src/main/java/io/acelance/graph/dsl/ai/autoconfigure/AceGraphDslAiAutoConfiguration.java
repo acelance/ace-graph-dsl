@@ -15,6 +15,7 @@ import io.acelance.graph.dsl.ai.model.ChatModelFactory;
 import io.acelance.graph.dsl.ai.model.ModelEndpointResolver;
 import io.acelance.graph.dsl.ai.model.ModelMountResolver;
 import io.acelance.graph.dsl.ai.model.StubChatModelFactory;
+import io.acelance.graph.dsl.ai.options.LlmChatOptionsCustomizer;
 import io.acelance.graph.dsl.ai.template.LlmResolvers;
 import io.acelance.graph.dsl.ai.template.StreamingLlmTemplate;
 import io.acelance.graph.dsl.ai.tool.EmptyLocalToolResolver;
@@ -34,6 +35,7 @@ import io.acelance.graph.dsl.streamkind.StreamResponseKindResolver;
 import io.acelance.graph.dsl.streaming.GraphStreamBridge;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.ai.chat.prompt.ChatOptions;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
@@ -183,7 +185,8 @@ public class AceGraphDslAiAutoConfiguration {
                                      SkillResourceLoader skillResources,
                                      MediaRefResolver media,
                                      ObjectProvider<StreamResponseKindResolver> kinds,
-                                     ObjectProvider<ChatClientAdvisorProvider> advisorProviders) {
+                                     ObjectProvider<ChatClientAdvisorProvider> advisorProviders,
+                                     ObjectProvider<LlmChatOptionsCustomizer> optionsCustomizers) {
         // 延迟解析：业务 Provider 可能在用户 @Configuration 中晚于本 Bean 定义注册，
         // 但实际 provide() 时再 getIfAvailable，避免启动瞬间固化 null。
         ChatClientAdvisorProvider deferred = request -> {
@@ -194,11 +197,19 @@ public class AceGraphDslAiAutoConfiguration {
             ChatClientAdvisorBundle bundle = live.provide(request);
             return bundle == null ? ChatClientAdvisorBundle.empty() : bundle;
         };
-        log.info("注册 LlmResolvers（P3.5/P3.8）：advisorProvider=deferred(ObjectProvider)");
+        LlmChatOptionsCustomizer deferredOptions = (base, req) -> {
+            LlmChatOptionsCustomizer live = optionsCustomizers.getIfAvailable();
+            if (live == null) {
+                return base;
+            }
+            ChatOptions out = live.customize(base, req);
+            return out != null ? out : base;
+        };
+        log.info("注册 LlmResolvers（P3.5/P3.8）：advisorProvider=deferred, optionsCustomizer=deferred");
         return new LlmResolvers(
                 prompts, promptRenderer, modelEndpoints, chatModels,
                 localTools, mcpTools, skillCatalog, skillContent, skillResources,
-                media, kinds.getIfAvailable(), deferred);
+                media, kinds.getIfAvailable(), deferred, deferredOptions);
     }
 
     @Bean

@@ -206,6 +206,7 @@ public class GenericAgentNode implements GraphBoundAgentNode {
 
             ResourceBinding binding = ResourceBindings.fromSpec(spec);
             String conversationId = readConversationId(state);
+            boolean deepThinking = resolveDeepThinking(state);
             LlmRequestContext ctx = new LlmRequestContext(
                     agentCode, graphId, nodeId, runId, conversationId, state, binding);
             List<NamedToolCallback> namedTools = resolveNamedTools(ctx, binding, diag);
@@ -216,9 +217,9 @@ public class GenericAgentNode implements GraphBoundAgentNode {
 
             StreamingLlmTemplate template = resolveTemplate(bridge);
             String userMessage = resolveUserMessage(variables);
-            log.info("节点 {} Template 挂载工具数={}, memoryMode={}, conversationId={}, userChars={}",
+            log.info("节点 {} Template 挂载工具数={}, memoryMode={}, conversationId={}, userChars={}, deepThinking={}",
                     nodeId, namedTools.size(), spec.effectiveMemoryMode(), conversationId,
-                    userMessage.length());
+                    userMessage.length(), deepThinking);
             Map<String, Object> result = template.execute(LlmCallRequest.builder()
                     .context(ctx)
                     .systemTemplate(inlinePrompt)
@@ -232,6 +233,7 @@ public class GenericAgentNode implements GraphBoundAgentNode {
                     .tools(namedTools)
                     .mediaInputKey(spec.mediaInputKey())
                     .memoryMode(spec.effectiveMemoryMode())
+                    .deepThinking(deepThinking)
                     .build());
             response = result.get(spec.effectiveOutputKey()) instanceof String s ? s : String.valueOf(
                     result.get(spec.effectiveOutputKey()));
@@ -331,6 +333,32 @@ public class GenericAgentNode implements GraphBoundAgentNode {
             return v instanceof String s && !s.isBlank() ? s.trim() : null;
         } catch (RuntimeException ignored) {
             return null;
+        }
+    }
+
+    /**
+     * 有效深度思考 = 节点 {@link GenericAgentSpec#applyDeepThinking()}
+     * ∧ 请求 state {@link GenericAgentSpec#DEEP_THINKING_STATE_KEY}（{@code ace.graph.dsl.deepThinking}）。
+     */
+    private boolean resolveDeepThinking(OverAllState state) {
+        if (!spec.applyDeepThinking()) {
+            return false;
+        }
+        if (state == null) {
+            return false;
+        }
+        try {
+            Object v = state.value(GenericAgentSpec.DEEP_THINKING_STATE_KEY).orElse(null);
+            if (v instanceof Boolean b) {
+                return b;
+            }
+            if (v instanceof String s) {
+                return Boolean.parseBoolean(s.trim());
+            }
+            return false;
+        }
+        catch (RuntimeException ignored) {
+            return false;
         }
     }
 

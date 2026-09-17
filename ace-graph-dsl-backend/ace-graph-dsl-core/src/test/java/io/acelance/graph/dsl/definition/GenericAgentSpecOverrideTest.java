@@ -19,7 +19,7 @@ class GenericAgentSpecOverrideTest {
                 null, "out", null, null,
                 true, List.of(), false, null, false, List.of(),
                 false, List.of(), Map.of(), false, List.of(),
-                io.acelance.graph.dsl.llm.MemoryMode.NONE);
+                io.acelance.graph.dsl.llm.MemoryMode.NONE, false);
 
         ModelOverride ov = new ModelOverride("gpt-4o", "https://other", "sk-xyz");
         GenericAgentSpec r = base.withOverride(ov);
@@ -39,7 +39,7 @@ class GenericAgentSpecOverrideTest {
                 null, "out", null, null,
                 true, List.of(), false, null, false, List.of(),
                 false, List.of(), Map.of(), false, List.of(),
-                io.acelance.graph.dsl.llm.MemoryMode.NONE);
+                io.acelance.graph.dsl.llm.MemoryMode.NONE, false);
         assertSame(base, base.withOverride(null));
     }
 }

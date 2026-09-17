@@ -10,6 +10,7 @@ import io.acelance.graph.dsl.ai.model.ChatModelFactory;
 import io.acelance.graph.dsl.ai.model.InlineModel;
 import io.acelance.graph.dsl.ai.model.ModelEndpoint;
 import io.acelance.graph.dsl.ai.model.ModelEndpointResolver;
+import io.acelance.graph.dsl.ai.options.LlmChatOptionsCustomizer;
 import io.acelance.graph.dsl.ai.skill.ForceSkillActivator;
 import io.acelance.graph.dsl.ai.skill.SkillTools;
 import io.acelance.graph.dsl.ai.tool.NamedToolCallback;
@@ -39,6 +40,7 @@ import org.springframework.ai.chat.messages.Message;
 import org.springframework.ai.chat.messages.SystemMessage;
 import org.springframework.ai.chat.messages.UserMessage;
 import org.springframework.ai.chat.model.ChatModel;
+import org.springframework.ai.chat.prompt.ChatOptions;
 import org.springframework.ai.content.Media;
 import org.springframework.ai.model.tool.DefaultToolCallingManager;
 import org.springframework.ai.model.tool.ToolCallingChatOptions;
@@ -77,6 +79,7 @@ public class StreamingLlmTemplate {
     private final MediaRefResolver mediaResolver;
     private final PromptContentResolver promptContent;
     private final ChatClientAdvisorProvider advisorProvider;
+    private final LlmChatOptionsCustomizer optionsCustomizer;
 
     /** P3.5 / P3.8：由 {@link LlmResolvers} 单点注入 */
     public StreamingLlmTemplate(LlmResolvers resolvers, GraphStreamBridge streamBridge) {
@@ -89,7 +92,8 @@ public class StreamingLlmTemplate {
                 resolvers.skillResources(),
                 resolvers.media(),
                 resolvers.prompts(),
-                resolvers.advisorProvider());
+                resolvers.advisorProvider(),
+                resolvers.optionsCustomizer());
     }
 
     public StreamingLlmTemplate(PromptRenderer promptRenderer,
@@ -97,7 +101,7 @@ public class StreamingLlmTemplate {
                                 ChatModelFactory chatModelFactory,
                                 GraphStreamBridge streamBridge) {
         this(promptRenderer, endpointResolver, chatModelFactory, streamBridge,
-                null, null, null, null, null, null);
+                null, null, null, null, null, null, null);
     }
 
     public StreamingLlmTemplate(PromptRenderer promptRenderer,
@@ -108,7 +112,7 @@ public class StreamingLlmTemplate {
                                 SkillContentLoader skillContent,
                                 SkillResourceLoader skillResources) {
         this(promptRenderer, endpointResolver, chatModelFactory, streamBridge,
-                skillCatalog, skillContent, skillResources, null, null, null);
+                skillCatalog, skillContent, skillResources, null, null, null, null);
     }
 
     public StreamingLlmTemplate(PromptRenderer promptRenderer,
@@ -120,7 +124,7 @@ public class StreamingLlmTemplate {
                                 SkillResourceLoader skillResources,
                                 MediaRefResolver mediaResolver) {
         this(promptRenderer, endpointResolver, chatModelFactory, streamBridge,
-                skillCatalog, skillContent, skillResources, mediaResolver, null, null);
+                skillCatalog, skillContent, skillResources, mediaResolver, null, null, null);
     }
 
     public StreamingLlmTemplate(PromptRenderer promptRenderer,
@@ -133,7 +137,7 @@ public class StreamingLlmTemplate {
                                 MediaRefResolver mediaResolver,
                                 PromptContentResolver promptContent) {
         this(promptRenderer, endpointResolver, chatModelFactory, streamBridge,
-                skillCatalog, skillContent, skillResources, mediaResolver, promptContent, null);
+                skillCatalog, skillContent, skillResources, mediaResolver, promptContent, null, null);
     }
 
     public StreamingLlmTemplate(PromptRenderer promptRenderer,
@@ -146,6 +150,21 @@ public class StreamingLlmTemplate {
                                 MediaRefResolver mediaResolver,
                                 PromptContentResolver promptContent,
                                 ChatClientAdvisorProvider advisorProvider) {
+        this(promptRenderer, endpointResolver, chatModelFactory, streamBridge,
+                skillCatalog, skillContent, skillResources, mediaResolver, promptContent, advisorProvider, null);
+    }
+
+    public StreamingLlmTemplate(PromptRenderer promptRenderer,
+                                ModelEndpointResolver endpointResolver,
+                                ChatModelFactory chatModelFactory,
+                                GraphStreamBridge streamBridge,
+                                SkillCatalogResolver skillCatalog,
+                                SkillContentLoader skillContent,
+                                SkillResourceLoader skillResources,
+                                MediaRefResolver mediaResolver,
+                                PromptContentResolver promptContent,
+                                ChatClientAdvisorProvider advisorProvider,
+                                LlmChatOptionsCustomizer optionsCustomizer) {
         this.promptRenderer = Objects.requireNonNull(promptRenderer, "promptRenderer");
         this.endpointResolver = Objects.requireNonNull(endpointResolver, "endpointResolver");
         this.chatModelFactory = Objects.requireNonNull(chatModelFactory, "chatModelFactory");
@@ -156,6 +175,7 @@ public class StreamingLlmTemplate {
         this.mediaResolver = mediaResolver != null ? mediaResolver : new DefaultMediaRefResolver();
         this.promptContent = promptContent;
         this.advisorProvider = advisorProvider;
+        this.optionsCustomizer = optionsCustomizer;
     }
 
     public Map<String, Object> execute(LlmCallRequest req) {
@@ -362,9 +382,35 @@ public class StreamingLlmTemplate {
                     .toolCallbacks(tools)
                     .internalToolExecutionEnabled(false)
                     .build();
-            spec = spec.toolCallbacks(tools).options(options);
+            ChatOptions finalOptions = applyOptionsCustomizer(options, req);
+            spec = spec.toolCallbacks(tools).options(finalOptions);
+        }
+        else {
+            ChatOptions customized = applyOptionsCustomizer(null, req);
+            if (customized != null) {
+                spec = spec.options(customized);
+            }
         }
         return spec;
+    }
+
+    private ChatOptions applyOptionsCustomizer(ChatOptions base, LlmCallRequest req) {
+        if (optionsCustomizer == null) {
+            return base;
+        }
+        try {
+            ChatOptions out = optionsCustomizer.customize(base, req);
+            if (out != null) {
+                log.info("节点 {} ChatOptions 已由 LlmChatOptionsCustomizer 定制: deepThinking={}, type={}",
+                        req.context().nodeId(), req.deepThinking(), out.getClass().getSimpleName());
+                return out;
+            }
+        }
+        catch (RuntimeException ex) {
+            log.warn("节点 {} LlmChatOptionsCustomizer 失败，沿用原 Options: {}",
+                    req.context().nodeId(), ex.toString());
+        }
+        return base;
     }
 
     private String syncCall(ChatModel model, List<Message> messages,

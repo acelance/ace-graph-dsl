@@ -1,6 +1,7 @@
 package io.acelance.graph.dsl.ai.template;
 
 import io.acelance.graph.dsl.ai.model.InlineModel;
+import io.acelance.graph.dsl.ai.options.LlmChatOptionsCustomizer;
 import io.acelance.graph.dsl.ai.tool.NamedToolCallback;
 import io.acelance.graph.dsl.ai.tool.ToolConflictPolicy;
 import io.acelance.graph.dsl.ai.tool.ToolDeduper;
@@ -13,7 +14,7 @@ import java.util.Map;
 import java.util.Objects;
 
 /**
- * 请求级 LLM 调用参数（含工具、冲突策略、mediaInputKey、memoryMode）。
+ * 请求级 LLM 调用参数（含工具、冲突策略、mediaInputKey、memoryMode、deepThinking）。
  */
 public record LlmCallRequest(
         LlmRequestContext context,
@@ -28,7 +29,8 @@ public record LlmCallRequest(
         List<NamedToolCallback> tools,
         String mediaInputKey,
         ToolConflictPolicy conflictPolicy,
-        MemoryMode memoryMode
+        MemoryMode memoryMode,
+        boolean deepThinking
 ) {
     public LlmCallRequest {
         Objects.requireNonNull(context, "context");
@@ -63,6 +65,7 @@ public record LlmCallRequest(
         private String mediaInputKey;
         private ToolConflictPolicy conflictPolicy;
         private MemoryMode memoryMode = MemoryMode.NONE;
+        private boolean deepThinking;
 
         public Builder context(LlmRequestContext context) {
             this.context = context;
@@ -132,10 +135,19 @@ public record LlmCallRequest(
             return this;
         }
 
+        /**
+         * 本轮是否开启深度思考（state {@code ace.graph.dsl.deepThinking} ∧ 节点 {@code applyDeepThinking}）。
+         * 由 {@link LlmChatOptionsCustomizer} 写入 ChatOptions.extraBody。
+         */
+        public Builder deepThinking(boolean deepThinking) {
+            this.deepThinking = deepThinking;
+            return this;
+        }
+
         public LlmCallRequest build() {
             return new LlmCallRequest(context, systemTemplate, userMessage, variables,
                     outputKey, streaming, streamResponseKind, inlineModel, modelOverride, tools,
-                    mediaInputKey, conflictPolicy, memoryMode);
+                    mediaInputKey, conflictPolicy, memoryMode, deepThinking);
         }
     }
 }

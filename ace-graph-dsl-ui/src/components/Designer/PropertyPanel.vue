@@ -775,6 +775,15 @@ function onStreamingChange(val) {
                 <span class="hint" style="display:block; margin-top:4px;">{{ t('propertyPanel.agentSpec.streamResponseKindHint') }}</span>
               </el-form-item>
 
+              <el-divider content-position="left">{{ t('propertyPanel.agentSpec.deepThinking') }}</el-divider>
+              <el-form-item :label="t('propertyPanel.agentSpec.applyDeepThinking')">
+                <el-switch
+                  :model-value="!!currentAgentSpec.applyDeepThinking"
+                  @update:model-value="onAgentSpecToggle('applyDeepThinking', $event)"
+                />
+                <span class="hint" style="display:block; margin-top:4px;">{{ t('propertyPanel.agentSpec.applyDeepThinkingHint') }}</span>
+              </el-form-item>
+
               <el-divider content-position="left">{{ t('propertyPanel.agentSpec.resources') }}</el-divider>
               <el-form-item :label="t('propertyPanel.agentSpec.enablePrompt')">
                 <el-switch

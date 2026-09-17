@@ -281,6 +281,9 @@ export default {
       streamResponseKind: '流式类型',
       streamResponseKindHint: '从已实现类型目录选择；空值编译期回落目录首位（默认 BIZ）。',
       streamResponseKindLoadFail: '流式类型目录加载失败，已使用默认项',
+      deepThinking: '深度思考',
+      applyDeepThinking: '应用请求深度思考',
+      applyDeepThinkingHint: '开启后，本节点才会应用前端传入的 deep_thinking；意图/输出等节点建议关闭。',
       // P0.5 资源两级勾选
       resources: '资源勾选',
       enablePrompt: '启用 Prompt 资源',
