@@ -1,5 +1,6 @@
 package io.acelance.graph.dsl.ai.tool;
 
+import org.springframework.ai.chat.model.ToolContext;
 import org.springframework.ai.tool.ToolCallback;
 import org.springframework.ai.tool.definition.ToolDefinition;
 import org.springframework.ai.tool.metadata.ToolMetadata;
@@ -66,6 +67,11 @@ public record NamedToolCallback(
             @Override
             public String call(String toolInput) {
                 return inner.call(toolInput);
+            }
+
+            @Override
+            public String call(String toolInput, ToolContext toolContext) {
+                return inner.call(toolInput, toolContext);
             }
         };
     }
