@@ -250,7 +250,7 @@ public class StreamingLlmTemplate {
         } else if (wantStream) {
             log.info("节点 {} 流式+工具：先 ChatClient.call 多轮，再切片推送终稿", ctx.nodeId());
             full = syncCall(model, messages, modelTools, req);
-            emitTextChunks(full, ctx, req.streamResponseKind());
+            emitTextChunks(full, ctx, req.streamResponseKind(), req.streamAttrs());
         } else {
             full = syncCall(model, messages, modelTools, req);
             log.info("节点 {} 同步调用完成: chars={}, kind={}, elapsedMs={}",
@@ -434,31 +434,32 @@ public class StreamingLlmTemplate {
                         if (tok != null && !tok.isEmpty()) {
                             sb.append(tok);
                             streamBridge.emit(ctx.runId(), new TokenChunk(
-                                    ctx.nodeId(), tok, OutputType.AGENT_MODEL_STREAMING, kind, false));
+                                    ctx.nodeId(), tok, OutputType.AGENT_MODEL_STREAMING, kind, false,
+                                    req.streamAttrs()));
                         }
                     })
                     .blockLast();
         } finally {
             streamBridge.emit(ctx.runId(), new TokenChunk(
-                    ctx.nodeId(), "", OutputType.AGENT_MODEL_FINISHED, kind, true));
+                    ctx.nodeId(), "", OutputType.AGENT_MODEL_FINISHED, kind, true, req.streamAttrs()));
             log.info("节点 {} 流式调用完成: chars={}, kind={}", ctx.nodeId(), sb.length(), kind);
         }
         return sb.toString();
     }
 
     /** 将终稿按固定块推送（流式+工具路径） */
-    private void emitTextChunks(String full, LlmRequestContext ctx, String kind) {
+    private void emitTextChunks(String full, LlmRequestContext ctx, String kind, Map<String, Object> attrs) {
         String text = full == null ? "" : full;
         try {
             for (int i = 0; i < text.length(); i += STREAM_EMIT_CHUNK) {
                 int end = Math.min(i + STREAM_EMIT_CHUNK, text.length());
                 String tok = text.substring(i, end);
                 streamBridge.emit(ctx.runId(), new TokenChunk(
-                        ctx.nodeId(), tok, OutputType.AGENT_MODEL_STREAMING, kind, false));
+                        ctx.nodeId(), tok, OutputType.AGENT_MODEL_STREAMING, kind, false, attrs));
             }
         } finally {
             streamBridge.emit(ctx.runId(), new TokenChunk(
-                    ctx.nodeId(), "", OutputType.AGENT_MODEL_FINISHED, kind, true));
+                    ctx.nodeId(), "", OutputType.AGENT_MODEL_FINISHED, kind, true, attrs));
             log.info("节点 {} 工具多轮终稿已切片推送: chars={}, kind={}", ctx.nodeId(), text.length(), kind);
         }
     }

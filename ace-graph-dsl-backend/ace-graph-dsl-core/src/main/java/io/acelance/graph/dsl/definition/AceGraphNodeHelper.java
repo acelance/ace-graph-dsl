@@ -91,7 +91,7 @@ public final class AceGraphNodeHelper {
         if (type.isInstance(value)) {
             return Optional.of(type.cast(value));
         }
-        log.debug("bizParam 类型不匹配: graphId={}, nodeId={}, expect={}, actual={}",
+        log.warn("bizParam 类型不匹配: graphId={}, nodeId={}, expect={}, actual={}（检查解释器是否已注册）",
                 graphId, nodeId, type.getName(), value.getClass().getName());
         return Optional.empty();
     }

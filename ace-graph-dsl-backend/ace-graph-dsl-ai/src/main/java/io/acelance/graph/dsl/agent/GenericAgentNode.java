@@ -140,8 +140,15 @@ public class GenericAgentNode implements GraphBoundAgentNode {
     public NodeAction toAction(NodeRuntimeContext ctx) {
         return (OverAllState state) -> {
             Map<String, Object> variables = new LinkedHashMap<>();
-            for (String key : spec.inputKeySet()) {
-                variables.put(key, state.value(key).orElse(null));
+            List<String> keys = spec.inputKeyList();
+            if (keys.isEmpty()) {
+                for (String key : spec.inputKeySet()) {
+                    variables.put(key, state.value(key).orElse(null));
+                }
+            } else {
+                for (String key : keys) {
+                    variables.put(key, state.value(key).orElse(null));
+                }
             }
             String runId = readRunId(state);
             ModelOverrideSpec overrides = readOverrides(state);
@@ -221,9 +228,10 @@ public class GenericAgentNode implements GraphBoundAgentNode {
 
             StreamingLlmTemplate template = resolveTemplate(bridge);
             String userMessage = resolveUserMessage(variables);
-            log.info("节点 {} Template 挂载工具数={}, memoryMode={}, conversationId={}, userChars={}, deepThinking={}",
+            Map<String, Object> streamAttrs = streamAttrsFromSpec(spec);
+            log.info("节点 {} Template 挂载工具数={}, memoryMode={}, conversationId={}, userChars={}, deepThinking={}, streamAttrs={}",
                     nodeId, namedTools.size(), spec.effectiveMemoryMode(), conversationId,
-                    userMessage.length(), deepThinking);
+                    userMessage.length(), deepThinking, streamAttrs.keySet());
             Map<String, Object> result = template.execute(LlmCallRequest.builder()
                     .context(ctx)
                     .systemTemplate(inlinePrompt)
@@ -238,6 +246,7 @@ public class GenericAgentNode implements GraphBoundAgentNode {
                     .mediaInputKey(spec.mediaInputKey())
                     .memoryMode(spec.effectiveMemoryMode())
                     .deepThinking(deepThinking)
+                    .streamAttrs(streamAttrs)
                     .build());
             response = result.get(spec.effectiveOutputKey()) instanceof String s ? s : String.valueOf(
                     result.get(spec.effectiveOutputKey()));
@@ -367,20 +376,48 @@ public class GenericAgentNode implements GraphBoundAgentNode {
     }
 
     /**
-     * 从 input 变量推导 USER 正文（供记忆 Advisor 读写）。
-     * 优先常见键 {@code user_query}/{@code query}/…，否则取 inputKeys 中首个非空值。
+     * 从 input 变量推导发给 LLM 的 USER 正文。
+     *
+     * <p>单 key：直接用该值；多 key：按声明顺序拼成带标签的材料块
+     * （对齐 Vertical 输出节点「用户问题 + 参考材料」），确保 {@code agent_result} 等
+     * 上游产出进入下游模型，而不是只传 {@code user_query}。</p>
      */
     private String resolveUserMessage(Map<String, Object> variables) {
         if (variables == null || variables.isEmpty()) {
             return "";
         }
-        for (String key : List.of("user_query", "query", "userQuery", "message", "input", "question")) {
+        List<String> keys = spec.inputKeyList();
+        if (keys.isEmpty()) {
+            return resolvePrimaryQuery(variables);
+        }
+        List<String> parts = new java.util.ArrayList<>();
+        List<String> usedKeys = new java.util.ArrayList<>();
+        for (String key : keys) {
             String text = asNonBlankText(variables.get(key));
             if (text != null) {
-                return text;
+                usedKeys.add(key);
+                parts.add(text);
             }
         }
-        for (String key : spec.inputKeySet()) {
+        if (parts.isEmpty()) {
+            return resolvePrimaryQuery(variables);
+        }
+        if (parts.size() == 1) {
+            return parts.get(0);
+        }
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < parts.size(); i++) {
+            if (i > 0) {
+                sb.append("\n\n");
+            }
+            sb.append('【').append(usedKeys.get(i)).append("】\n").append(parts.get(i));
+        }
+        return sb.toString();
+    }
+
+    /** 无 inputKeys 或全空时：回落常见「用户问题」键。 */
+    private static String resolvePrimaryQuery(Map<String, Object> variables) {
+        for (String key : List.of("user_query", "query", "userQuery", "message", "input", "question")) {
             String text = asNonBlankText(variables.get(key));
             if (text != null) {
                 return text;
@@ -395,6 +432,22 @@ public class GenericAgentNode implements GraphBoundAgentNode {
         }
         String s = String.valueOf(v).trim();
         return s.isEmpty() ? null : s;
+    }
+
+    /** 运行时 Spec → TokenChunk.attrs，供平台 SSE 直接消费业务附加参数。 */
+    static Map<String, Object> streamAttrsFromSpec(GenericAgentSpec spec) {
+        if (spec == null || !spec.enableBizParams()) {
+            return Map.of();
+        }
+        Map<String, Object> attrs = new LinkedHashMap<>();
+        attrs.put(TokenChunk.ATTR_ENABLE_BIZ_PARAMS, Boolean.TRUE);
+        if (spec.bizParamInterpreterId() != null && !spec.bizParamInterpreterId().isBlank()) {
+            attrs.put(TokenChunk.ATTR_BIZ_PARAM_INTERPRETER_ID, spec.bizParamInterpreterId().trim());
+        }
+        if (spec.bizParamRaw() != null) {
+            attrs.put(TokenChunk.ATTR_BIZ_PARAM_RAW, spec.bizParamRaw());
+        }
+        return attrs;
     }
 
     /**

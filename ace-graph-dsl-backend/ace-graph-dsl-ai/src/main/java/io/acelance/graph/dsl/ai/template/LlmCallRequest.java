@@ -30,7 +30,8 @@ public record LlmCallRequest(
         String mediaInputKey,
         ToolConflictPolicy conflictPolicy,
         MemoryMode memoryMode,
-        boolean deepThinking
+        boolean deepThinking,
+        Map<String, Object> streamAttrs
 ) {
     public LlmCallRequest {
         Objects.requireNonNull(context, "context");
@@ -45,6 +46,7 @@ public record LlmCallRequest(
         mediaInputKey = mediaInputKey == null || mediaInputKey.isBlank() ? null : mediaInputKey.trim();
         conflictPolicy = conflictPolicy == null ? ToolDeduper.DEFAULT_POLICY : conflictPolicy;
         memoryMode = memoryMode == null ? MemoryMode.NONE : memoryMode;
+        streamAttrs = (streamAttrs == null || streamAttrs.isEmpty()) ? Map.of() : Map.copyOf(streamAttrs);
     }
 
     public static Builder builder() {
@@ -66,6 +68,7 @@ public record LlmCallRequest(
         private ToolConflictPolicy conflictPolicy;
         private MemoryMode memoryMode = MemoryMode.NONE;
         private boolean deepThinking;
+        private Map<String, Object> streamAttrs = Map.of();
 
         public Builder context(LlmRequestContext context) {
             this.context = context;
@@ -144,10 +147,18 @@ public record LlmCallRequest(
             return this;
         }
 
+        /**
+         * 流式 token 透传属性（如业务附加参数），写入 {@link io.acelance.graph.dsl.streaming.TokenChunk#attrs()}。
+         */
+        public Builder streamAttrs(Map<String, Object> streamAttrs) {
+            this.streamAttrs = streamAttrs;
+            return this;
+        }
+
         public LlmCallRequest build() {
             return new LlmCallRequest(context, systemTemplate, userMessage, variables,
                     outputKey, streaming, streamResponseKind, inlineModel, modelOverride, tools,
-                    mediaInputKey, conflictPolicy, memoryMode, deepThinking);
+                    mediaInputKey, conflictPolicy, memoryMode, deepThinking, streamAttrs);
         }
     }
 }

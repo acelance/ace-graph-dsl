@@ -8,7 +8,6 @@ import io.acelance.graph.dsl.llm.MemoryMode;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.stream.Collectors;
 
 /**
  * 通用 agent 节点元数据（P0.5 D3：旧单 key / tools / 内联 skill·mcp 已删除）。
@@ -102,13 +101,21 @@ public record GenericAgentSpec(
     }
 
     public Set<String> inputKeySet() {
+        return java.util.Set.copyOf(inputKeyList());
+    }
+
+    /**
+     * 按配置声明顺序返回 inputKeys（去重）。用于组装 LLM USER，避免 Set 丢序。
+     */
+    public java.util.List<String> inputKeyList() {
         if (inputKeys == null || inputKeys.isBlank()) {
-            return Set.of();
+            return java.util.List.of();
         }
         return java.util.Arrays.stream(inputKeys.split("[,\\s]+"))
                 .map(String::trim)
                 .filter(s -> !s.isEmpty())
-                .collect(Collectors.toSet());
+                .distinct()
+                .toList();
     }
 
     public GenericAgentSpec masked() {
