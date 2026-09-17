@@ -394,8 +394,9 @@ public class AceGraphDslAutoConfiguration {
             io.acelance.graph.dsl.store.GraphRuntime runtime,
             @Qualifier(AceGraphDslBeans.OBJECT_MAPPER) ObjectMapper objectMapper,
             AceGraphDslProperties properties,
-            ResourceLoader resourceLoader) {
-        return new GraphDslBootstrapLoader(repository, runtime, objectMapper, properties, resourceLoader);
+            ResourceLoader resourceLoader,
+            BuiltinGraphRegistry builtinRegistry) {
+        return new GraphDslBootstrapLoader(repository, runtime, objectMapper, properties, resourceLoader, builtinRegistry);
     }
 
     @Bean
