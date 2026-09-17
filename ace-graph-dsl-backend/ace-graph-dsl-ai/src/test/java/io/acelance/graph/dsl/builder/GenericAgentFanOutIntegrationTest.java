@@ -133,7 +133,8 @@ class GenericAgentFanOutIntegrationTest {
                 prompt, inputKeys, outputKey, null, null,
                 true, List.of(), false, null, false, List.of(),
                 false, List.of(), Map.of(), false, List.of(),
-                io.acelance.graph.dsl.llm.MemoryMode.NONE, false);
+                io.acelance.graph.dsl.llm.MemoryMode.NONE, false,
+                    false, null, null);
     }
 
     private static DynamicGraphBuilder newBuilder(GenericApplicationContext ctx) {

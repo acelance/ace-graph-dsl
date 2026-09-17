@@ -254,7 +254,8 @@ public class GenericAgentNodeService {
                 incoming.enableLocalTools(), incoming.localToolKeys(),
                 incoming.enableMcp(), incoming.mcpKeys(), incoming.mcpToolWhitelist(),
                 incoming.enableSkill(), incoming.skillKeys(), incoming.effectiveMemoryMode(),
-                incoming.applyDeepThinking());
+                incoming.applyDeepThinking(),
+                incoming.enableBizParams(), incoming.bizParamInterpreterId(), incoming.bizParamRaw());
     }
 
     /** 按 inputKeys 白名单从 mock state 提取变量（与图内运行时的取值口径一致） */

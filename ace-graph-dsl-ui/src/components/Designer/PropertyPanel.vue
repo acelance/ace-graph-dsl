@@ -8,6 +8,7 @@ import { useI18n } from '../../i18n'
 import { requestOpenAgentEditor } from '../../stores/agentEditorBus'
 import { listScriptEngines, listAgentResources } from '../../api/graph'
 import { loadStreamKindOptions } from '../../utils/streamKinds'
+import { loadBizParamInterpreterOptions } from '../../utils/bizParamInterpreters'
 import MermaidPreview from './MermaidPreview.vue'
 
 const props = defineProps({
@@ -209,9 +210,34 @@ async function ensureStreamKindsLoaded() {
   }
 }
 
+/* ───────── 业务附加参数解释器下拉 ───────── */
+const bizParamInterpreterOptions = ref([])
+const bizParamInterpretersLoading = ref(false)
+
+async function ensureBizParamInterpretersLoaded() {
+  if (bizParamInterpreterOptions.value.length) return
+  bizParamInterpretersLoading.value = true
+  try {
+    bizParamInterpreterOptions.value = await loadBizParamInterpreterOptions(editor.graphId)
+  } finally {
+    bizParamInterpretersLoading.value = false
+  }
+}
+
+function onEnableBizParamsToggle(on) {
+  const s = currentAgentSpec.value
+  if (!s) return
+  const next = { ...s, enableBizParams: !!on }
+  if (on && !next.bizParamInterpreterId) {
+    next.bizParamInterpreterId = 'string'
+  }
+  editor.updateSelectedAgentSpec(next)
+}
+
 watch(() => currentAgentSpec.value, (s) => {
   if (s) {
     ensureStreamKindsLoaded()
+    ensureBizParamInterpretersLoaded()
     ensureResourceCatalogsLoaded()
   }
 }, { immediate: true })
@@ -783,6 +809,45 @@ function onStreamingChange(val) {
                 />
                 <span class="hint" style="display:block; margin-top:4px;">{{ t('propertyPanel.agentSpec.applyDeepThinkingHint') }}</span>
               </el-form-item>
+
+              <el-divider content-position="left">{{ t('propertyPanel.agentSpec.bizParams') }}</el-divider>
+              <el-form-item :label="t('propertyPanel.agentSpec.enableBizParams')">
+                <el-switch
+                  :model-value="!!currentAgentSpec.enableBizParams"
+                  @update:model-value="onEnableBizParamsToggle"
+                />
+                <span class="hint" style="display:block; margin-top:4px;">{{ t('propertyPanel.agentSpec.enableBizParamsHint') }}</span>
+              </el-form-item>
+              <template v-if="currentAgentSpec.enableBizParams">
+                <el-form-item :label="t('propertyPanel.agentSpec.bizParamInterpreterId')" required>
+                  <el-select
+                    :model-value="currentAgentSpec.bizParamInterpreterId || 'string'"
+                    @update:model-value="onAgentSpecField('bizParamInterpreterId', $event || 'string')"
+                    filterable
+                    :loading="bizParamInterpretersLoading"
+                    style="width: 100%;"
+                    :placeholder="t('propertyPanel.agentSpec.bizParamInterpreterId')"
+                  >
+                    <el-option
+                      v-for="opt in bizParamInterpreterOptions"
+                      :key="opt.id"
+                      :label="`${opt.displayName} (${opt.id})`"
+                      :value="opt.id"
+                    />
+                  </el-select>
+                  <span class="hint" style="display:block; margin-top:4px;">{{ t('propertyPanel.agentSpec.bizParamInterpreterIdHint') }}</span>
+                </el-form-item>
+                <el-form-item :label="t('propertyPanel.agentSpec.bizParamRaw')">
+                  <el-input
+                    type="textarea"
+                    :rows="4"
+                    :model-value="currentAgentSpec.bizParamRaw || ''"
+                    @update:model-value="onAgentSpecField('bizParamRaw', $event || null)"
+                    :placeholder="t('propertyPanel.agentSpec.bizParamRawPlaceholder')"
+                  />
+                  <span class="hint" style="display:block; margin-top:4px;">{{ t('propertyPanel.agentSpec.bizParamRawHint') }}</span>
+                </el-form-item>
+              </template>
 
               <el-divider content-position="left">{{ t('propertyPanel.agentSpec.resources') }}</el-divider>
               <el-form-item :label="t('propertyPanel.agentSpec.enablePrompt')">

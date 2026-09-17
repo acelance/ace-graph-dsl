@@ -116,6 +116,10 @@ public class GenericAgentNode implements GraphBoundAgentNode {
         props.put("outputKey", new GraphNodeDescriptor.PropertySchema("string", "输出 key", spec.effectiveOutputKey(), Map.of()));
         props.put("streamResponseKind", new GraphNodeDescriptor.PropertySchema(
                 "string", "流式类型", spec.streamResponseKind(), Map.of()));
+        props.put("enableBizParams", new GraphNodeDescriptor.PropertySchema(
+                "boolean", "业务附加参数", String.valueOf(spec.enableBizParams()), Map.of()));
+        props.put("bizParamInterpreterId", new GraphNodeDescriptor.PropertySchema(
+                "string", "附加参数解释器", spec.bizParamInterpreterId(), Map.of()));
         return new GraphNodeDescriptor(
                 nodeId,
                 effectiveDisplayName(),

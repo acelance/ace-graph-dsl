@@ -5,6 +5,7 @@ import {
   createAgentNode, updateAgentNode, validateAgentNode, testRunAgentDraft, getAgentDefinition
 } from '../../api/graph'
 import { loadStreamKindOptions } from '../../utils/streamKinds'
+import { loadBizParamInterpreterOptions } from '../../utils/bizParamInterpreters'
 import { usePermissionStore, MENU } from '../../stores/permissions'
 import { useI18n } from '../../i18n'
 
@@ -21,6 +22,8 @@ const loading = ref(false)
 const testOutput = ref(null)
 const streamKindOptions = ref([])
 const streamKindsLoading = ref(false)
+const bizParamInterpreterOptions = ref([])
+const bizParamInterpretersLoading = ref(false)
 
 const defaultForm = () => ({
   nodeId: '',
@@ -47,6 +50,9 @@ const defaultForm = () => ({
   enableLocalTools: false,
   localToolKeysText: '',
   applyDeepThinking: false,
+  enableBizParams: false,
+  bizParamInterpreterId: 'string',
+  bizParamRaw: '',
   permissionTagsText: 'public',
   mockStateJson: '{"user_query":"hello"}'
 })
@@ -104,6 +110,9 @@ function applyDefinition(def) {
   form.value.enableLocalTools = !!s.enableLocalTools
   form.value.localToolKeysText = csvOf(s.localToolKeys)
   form.value.applyDeepThinking = !!s.applyDeepThinking
+  form.value.enableBizParams = !!s.enableBizParams
+  form.value.bizParamInterpreterId = s.bizParamInterpreterId || 'string'
+  form.value.bizParamRaw = s.bizParamRaw || ''
   form.value.permissionTagsText = (def.permissionTags || []).join(',')
 }
 
@@ -131,10 +140,19 @@ async function ensureStreamKinds() {
   }
 }
 
+async function ensureBizParamInterpreters() {
+  bizParamInterpretersLoading.value = true
+  try {
+    bizParamInterpreterOptions.value = await loadBizParamInterpreterOptions()
+  } finally {
+    bizParamInterpretersLoading.value = false
+  }
+}
+
 watch(visible, async (v) => {
   if (!v) return
   testOutput.value = null
-  await ensureStreamKinds()
+  await Promise.all([ensureStreamKinds(), ensureBizParamInterpreters()])
   if (props.editNode) {
     await loadEditNode()
   } else {
@@ -178,7 +196,12 @@ function buildBody() {
     skillKeys,
     enableLocalTools: form.value.enableLocalTools,
     localToolKeys,
-    applyDeepThinking: form.value.applyDeepThinking
+    applyDeepThinking: form.value.applyDeepThinking,
+    enableBizParams: form.value.enableBizParams,
+    bizParamInterpreterId: form.value.enableBizParams
+      ? (form.value.bizParamInterpreterId || 'string')
+      : null,
+    bizParamRaw: form.value.enableBizParams ? (form.value.bizParamRaw || null) : null
   }
   return {
     nodeId: form.value.nodeId,
@@ -302,6 +325,29 @@ async function onSubmit() {
         <el-switch v-model="form.applyDeepThinking" />
         <span class="hint" style="display:block; margin-top:4px;">{{ t('propertyPanel.agentSpec.applyDeepThinkingHint') }}</span>
       </el-form-item>
+
+      <el-divider content-position="left">{{ t('propertyPanel.agentSpec.bizParams') }}</el-divider>
+      <el-form-item :label="t('propertyPanel.agentSpec.enableBizParams')">
+        <el-switch v-model="form.enableBizParams" @change="(on) => { if (on && !form.bizParamInterpreterId) form.bizParamInterpreterId = 'string' }" />
+        <span class="hint" style="display:block; margin-top:4px;">{{ t('propertyPanel.agentSpec.enableBizParamsHint') }}</span>
+      </el-form-item>
+      <template v-if="form.enableBizParams">
+        <el-form-item :label="t('propertyPanel.agentSpec.bizParamInterpreterId')" required>
+          <el-select v-model="form.bizParamInterpreterId" filterable :loading="bizParamInterpretersLoading" style="width:100%;">
+            <el-option
+              v-for="opt in bizParamInterpreterOptions"
+              :key="opt.id"
+              :label="`${opt.displayName} (${opt.id})`"
+              :value="opt.id"
+            />
+          </el-select>
+          <span class="hint" style="display:block; margin-top:4px;">{{ t('propertyPanel.agentSpec.bizParamInterpreterIdHint') }}</span>
+        </el-form-item>
+        <el-form-item :label="t('propertyPanel.agentSpec.bizParamRaw')">
+          <el-input v-model="form.bizParamRaw" type="textarea" :rows="4" :placeholder="t('propertyPanel.agentSpec.bizParamRawPlaceholder')" />
+          <span class="hint" style="display:block; margin-top:4px;">{{ t('propertyPanel.agentSpec.bizParamRawHint') }}</span>
+        </el-form-item>
+      </template>
 
       <el-divider content-position="left">{{ t('propertyPanel.agentSpec.resources') }}</el-divider>
       <el-form-item :label="t('propertyPanel.agentSpec.enablePrompt')">

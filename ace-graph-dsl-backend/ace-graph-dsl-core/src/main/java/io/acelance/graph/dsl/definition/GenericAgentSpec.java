@@ -1,6 +1,7 @@
 package io.acelance.graph.dsl.definition;
 
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
+import io.acelance.graph.dsl.bizparam.DefaultStringBizParamInterpreter;
 import io.acelance.graph.dsl.llm.LlmRequestContext;
 import io.acelance.graph.dsl.llm.MemoryMode;
 
@@ -15,7 +16,9 @@ import java.util.stream.Collectors;
  * <p>{@code prompt} 仅为节点特化追加；资源走 enable* + *Keys + mcpToolWhitelist。
  * {@code memoryMode} 见 P3.8 / 设计 §4.2.2。
  * {@code applyDeepThinking}：是否允许应用请求级深度思考（与 state
- * {@link LlmRequestContext#ACE_DEEP_THINKING_KEY} AND）。</p>
+ * {@link LlmRequestContext#ACE_DEEP_THINKING_KEY} AND）。
+ * {@code enableBizParams}/{@code bizParamInterpreterId}/{@code bizParamRaw}：业务附加参数（框架只存
+ * 原文与解释器 id，由 {@link io.acelance.graph.dsl.bizparam.NodeBizParamInterpreter} 解析）。</p>
  */
 @JsonIgnoreProperties(ignoreUnknown = true)
 public record GenericAgentSpec(
@@ -40,7 +43,10 @@ public record GenericAgentSpec(
         boolean enableSkill,
         List<String> skillKeys,
         MemoryMode memoryMode,
-        boolean applyDeepThinking
+        boolean applyDeepThinking,
+        boolean enableBizParams,
+        String bizParamInterpreterId,
+        String bizParamRaw
 ) {
 
     public static final String DEFAULT_OUTPUT_KEY = "agent_result";
@@ -58,6 +64,13 @@ public record GenericAgentSpec(
         skillKeys = skillKeys == null ? List.of() : List.copyOf(skillKeys);
         mcpToolWhitelist = mcpToolWhitelist == null ? Map.of() : Map.copyOf(mcpToolWhitelist);
         memoryMode = memoryMode == null ? MemoryMode.NONE : memoryMode;
+        if (enableBizParams) {
+            if (bizParamInterpreterId == null || bizParamInterpreterId.isBlank()) {
+                bizParamInterpreterId = DefaultStringBizParamInterpreter.ID;
+            } else {
+                bizParamInterpreterId = bizParamInterpreterId.trim();
+            }
+        }
     }
 
     /** 测试 / Stub 便捷构造：内联模型 + 内联 prompt */
@@ -65,7 +78,8 @@ public record GenericAgentSpec(
         this(modelBaseUrl, modelApiKey, false, modelId, prompt,
                 null, DEFAULT_OUTPUT_KEY, null, null,
                 true, List.of(), false, null, false, List.of(),
-                false, List.of(), Map.of(), false, List.of(), MemoryMode.NONE, false);
+                false, List.of(), Map.of(), false, List.of(), MemoryMode.NONE, false,
+                false, null, null);
     }
 
     /**
@@ -136,6 +150,7 @@ public record GenericAgentSpec(
                 kind, mediaInputKey,
                 enablePrompt, promptKeys, enableModel, modelConfigKey,
                 enableLocalTools, localToolKeys, enableMcp, mcpKeys, mcpToolWhitelist,
-                enableSkill, skillKeys, memoryMode, applyDeepThinking);
+                enableSkill, skillKeys, memoryMode, applyDeepThinking,
+                enableBizParams, bizParamInterpreterId, bizParamRaw);
     }
 }

@@ -221,6 +221,47 @@ public class AceGraphDslAutoConfiguration {
     }
 
     @Bean
+    @ConditionalOnMissingBean(io.acelance.graph.dsl.bizparam.NodeBizParamInterpreterRegistry.class)
+    public io.acelance.graph.dsl.bizparam.NodeBizParamInterpreterRegistry nodeBizParamInterpreterRegistry(
+            ObjectProvider<io.acelance.graph.dsl.bizparam.NodeBizParamInterpreter> interpreters) {
+        return new io.acelance.graph.dsl.bizparam.NodeBizParamInterpreterRegistry(
+                interpreters.orderedStream().toList());
+    }
+
+    @Bean
+    @ConditionalOnMissingBean(io.acelance.graph.dsl.bizparam.NodeBizParamCatalog.class)
+    public io.acelance.graph.dsl.bizparam.NodeBizParamCatalog nodeBizParamCatalog(
+            io.acelance.graph.dsl.bizparam.NodeBizParamInterpreterRegistry registry) {
+        return registry;
+    }
+
+    @Bean
+    @ConditionalOnMissingBean(io.acelance.graph.dsl.definition.AceGraphNodeHelper.class)
+    public io.acelance.graph.dsl.definition.AceGraphNodeHelper aceGraphNodeHelper(
+            io.acelance.graph.dsl.persistence.GraphDefinitionRepository repository,
+            ObjectProvider<BuiltinGraphRegistry> builtinRegistries,
+            io.acelance.graph.dsl.bizparam.NodeBizParamInterpreterRegistry registry) {
+        return new io.acelance.graph.dsl.definition.AceGraphNodeHelper(graphId -> {
+            BuiltinGraphRegistry builtins = builtinRegistries.getIfAvailable();
+            if (builtins != null) {
+                io.acelance.graph.dsl.definition.GraphDefinition builtin = builtins.get(graphId);
+                if (builtin != null) {
+                    return builtin;
+                }
+            }
+            io.acelance.graph.dsl.definition.GraphDefinition enabled = repository.getEnabled(graphId);
+            if (enabled != null) {
+                return enabled;
+            }
+            try {
+                return repository.loadLatest(graphId);
+            } catch (RuntimeException ignored) {
+                return null;
+            }
+        }, registry);
+    }
+
+    @Bean
     @ConditionalOnMissingBean(io.acelance.graph.dsl.prompt.PromptRenderer.class)
     public io.acelance.graph.dsl.prompt.PromptRenderer promptRenderer(
             @Qualifier(AceGraphDslBeans.OBJECT_MAPPER) ObjectMapper objectMapper) {

@@ -134,6 +134,13 @@ export function createGraphApi(options = '/') {
       http.get('/api/stream-response-kinds', { params: graphId ? { graphId } : {} }).then(r => r.data),
 
     /**
+     * 节点业务附加参数解释器目录（设计器下拉）。
+     * @param graphId 可选
+     */
+    listNodeBizParamInterpreters: (graphId) =>
+      http.get('/api/node-biz-param-interpreters', { params: graphId ? { graphId } : {} }).then(r => r.data),
+
+    /**
      * 设计期资源 Catalog（P1.1）。
      * @param {'prompts'|'models'|'tools'|'mcp'|'skills'} kind
      * @param {{ agentCode?: string, graphId?: string, agentDefId?: string }} params
@@ -221,6 +228,7 @@ export const getSubgraphState = (...args) => defaultApi.getSubgraphState(...args
 export const streamGraph = (...args) => defaultApi.streamGraph(...args)
 export const debugStreamGraph = (...args) => defaultApi.debugStreamGraph(...args)
 export const listStreamResponseKinds = (...args) => defaultApi.listStreamResponseKinds(...args)
+export const listNodeBizParamInterpreters = (...args) => defaultApi.listNodeBizParamInterpreters(...args)
 export const listAgentResources = (...args) => defaultApi.listAgentResources(...args)
 export const resumeGraph = (...args) => defaultApi.resumeGraph(...args)
 
