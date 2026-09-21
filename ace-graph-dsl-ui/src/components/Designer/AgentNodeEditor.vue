@@ -9,8 +9,11 @@ import { loadBizParamInterpreterOptions } from '../../utils/bizParamInterpreters
 import {
   loadAgentResource,
   buildMcpTreeData,
+  buildSkillTreeData,
   mcpCheckedIdsFromSpec,
-  mcpBindingFromChecked
+  mcpBindingFromChecked,
+  skillCheckedIdsFromSpec,
+  skillKeysFromChecked
 } from '../../utils/agentResourceCatalog'
 import { usePermissionStore, MENU } from '../../stores/permissions'
 import { useI18n } from '../../i18n'
@@ -105,7 +108,9 @@ function copyWhitelist(wl) {
 const mcpCatalog = ref({ items: [], error: null, empty: false })
 const skillCatalog = ref({ items: [], error: null, empty: false })
 const mcpTreeRef = ref(null)
+const skillTreeRef = ref(null)
 const mcpTreeData = computed(() => buildMcpTreeData(mcpCatalog.value.items))
+const skillTreeData = computed(() => buildSkillTreeData(skillCatalog.value.items))
 const mcpHasCatalog = computed(() => mcpCatalog.value.items.length > 0 && !mcpCatalog.value.error)
 const skillHasCatalog = computed(() => skillCatalog.value.items.length > 0 && !skillCatalog.value.error)
 
@@ -128,10 +133,21 @@ async function syncMcpTreeChecks() {
   mcpTreeRef.value?.setCheckedKeys?.(ids)
 }
 
+async function syncSkillTreeChecks() {
+  if (!skillHasCatalog.value || !form.value.enableSkill) return
+  await nextTick()
+  const ids = skillCheckedIdsFromSpec(form.value.skillKeys, skillTreeData.value)
+  skillTreeRef.value?.setCheckedKeys?.(ids)
+}
+
 function onEditorMcpCheck() {
   const binding = mcpBindingFromChecked(mcpTreeRef.value, mcpTreeData.value)
   form.value.mcpKeys = binding.mcpKeys
   form.value.mcpToolWhitelist = binding.mcpToolWhitelist
+}
+
+function onEditorSkillCheck() {
+  form.value.skillKeys = skillKeysFromChecked(skillTreeRef.value)
 }
 
 function applyDefinition(def) {
@@ -214,6 +230,7 @@ watch(visible, async (v) => {
     form.value.nodeId = `agent:custom_${Date.now()}`
   }
   await syncMcpTreeChecks()
+  await syncSkillTreeChecks()
 })
 
 watch(
@@ -221,6 +238,14 @@ watch(
   async ([open, enabled, hasCatalog]) => {
     if (!open || !enabled || !hasCatalog) return
     await syncMcpTreeChecks()
+  }
+)
+
+watch(
+  () => [visible.value, form.value.enableSkill, skillHasCatalog.value, form.value.nodeId],
+  async ([open, enabled, hasCatalog]) => {
+    if (!open || !enabled || !hasCatalog) return
+    await syncSkillTreeChecks()
   }
 )
 
@@ -461,25 +486,25 @@ async function onSubmit() {
       <el-form-item :label="t('propertyPanel.agentSpec.enableSkill')">
         <el-switch v-model="form.enableSkill" />
       </el-form-item>
-      <el-form-item v-if="form.enableSkill" :label="t('propertyPanel.agentSpec.skillKeys')">
-        <el-select
-          v-if="skillHasCatalog"
-          v-model="form.skillKeys"
-          multiple
-          filterable
-          style="width:100%;"
-        >
-          <el-option
-            v-for="it in skillCatalog.items"
-            :key="it.key"
-            :label="it.label || it.key"
-            :value="it.key"
+      <el-form-item v-if="form.enableSkill" :label="skillHasCatalog ? t('propertyPanel.agentSpec.skillTree') : t('propertyPanel.agentSpec.skillKeys')">
+        <div v-if="skillHasCatalog" class="mcp-tree-wrap">
+          <el-tree
+            ref="skillTreeRef"
+            :data="skillTreeData"
+            node-key="id"
+            show-checkbox
+            default-expand-all
+            :props="{ label: 'label', children: 'children' }"
+            @check="onEditorSkillCheck"
           />
-        </el-select>
-        <el-input v-else v-model="form.skillKeysText" placeholder="skills:tax" />
-        <span v-if="!skillHasCatalog && skillCatalog.error" class="hint" style="display:block; margin-top:4px;">{{ t('propertyPanel.agentSpec.catalogLoadFailed') }}</span>
-        <span v-else-if="!skillHasCatalog && skillCatalog.empty" class="hint" style="display:block; margin-top:4px;">{{ t('propertyPanel.agentSpec.catalogEmpty') }}</span>
-        <span class="hint" style="display:block; margin-top:4px;">{{ t('propertyPanel.agentSpec.skillKeysHint') }}</span>
+          <span class="hint" style="display:block; margin-top:4px;">{{ t('propertyPanel.agentSpec.skillTreeHint') }}</span>
+        </div>
+        <div v-else>
+          <span v-if="skillCatalog.error" class="hint" style="display:block; margin-bottom:4px;">{{ t('propertyPanel.agentSpec.catalogLoadFailed') }}</span>
+          <span v-else-if="skillCatalog.empty" class="hint" style="display:block; margin-bottom:4px;">{{ t('propertyPanel.agentSpec.catalogEmpty') }}</span>
+          <el-input v-model="form.skillKeysText" placeholder="skills:tax" />
+          <span class="hint" style="display:block; margin-top:4px;">{{ t('propertyPanel.agentSpec.skillKeysHint') }}</span>
+        </div>
       </el-form-item>
       <el-form-item :label="t('propertyPanel.agentSpec.enableLocalTools')">
         <el-switch v-model="form.enableLocalTools" />

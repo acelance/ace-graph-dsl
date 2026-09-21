@@ -313,7 +313,9 @@ export default {
       mcpToolWhitelistHint: '格式 serverKey:tool1|tool2；多 server 用分号。留空表示该 server 全选。',
       enableSkill: '启用 Skill',
       skillKeys: 'Skill Keys',
-      skillKeysHint: '逗号分隔的 skill key 白名单（L1 可见范围）。勾选≠预加载正文；全文经 load_skill / forceSkills 激活。',
+      skillTree: 'Skill 资源（勾选）',
+      skillTreeHint: '勾选要启用的 skill；显示为资源编码(显示名称)。写入 skillKeys 的是资源编码。勾选≠预加载正文。',
+      skillKeysHint: '目录为空时的退路：逗号分隔的 skill key。有目录时请用上方勾选列表。',
       enableLocalTools: '启用本地工具',
       localToolKeys: 'Local Tool Keys',
       localToolKeysHint: '逗号分隔的本地工具 key。'

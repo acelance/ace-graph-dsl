@@ -12,8 +12,12 @@ import { loadBizParamInterpreterOptions } from '../../utils/bizParamInterpreters
 import {
   loadAgentResource,
   buildMcpTreeData,
+  buildSkillTreeData,
+  resourceCodeLabel,
   mcpCheckedIdsFromSpec,
-  mcpBindingFromChecked
+  mcpBindingFromChecked,
+  skillCheckedIdsFromSpec,
+  skillKeysFromChecked
 } from '../../utils/agentResourceCatalog'
 import MermaidPreview from './MermaidPreview.vue'
 
@@ -336,10 +340,16 @@ function onAgentSpecWhitelistInput(text) {
 }
 
 const mcpTreeRef = ref(null)
+const skillTreeRef = ref(null)
 const mcpTreeData = computed(() => buildMcpTreeData(catalog.value.mcp))
+const skillTreeData = computed(() => buildSkillTreeData(catalog.value.skills))
 const mcpHasCatalog = computed(() => (catalog.value.mcp || []).length > 0)
+const skillHasCatalog = computed(() => (catalog.value.skills || []).length > 0)
 const mcpCheckedKeys = computed(() =>
   mcpCheckedIdsFromSpec(currentAgentSpec.value, mcpTreeData.value)
+)
+const skillCheckedKeys = computed(() =>
+  skillCheckedIdsFromSpec(currentAgentSpec.value?.skillKeys, skillTreeData.value)
 )
 const mcpAdvancedText = ref(false)
 
@@ -350,12 +360,30 @@ function onMcpTreeCheck() {
   editor.updateSelectedAgentSpec({ ...s, mcpKeys, mcpToolWhitelist })
 }
 
+function onSkillTreeCheck() {
+  const s = currentAgentSpec.value
+  if (!s) return
+  editor.updateSelectedAgentSpec({
+    ...s,
+    skillKeys: skillKeysFromChecked(skillTreeRef.value)
+  })
+}
+
 watch(
   [mcpCheckedKeys, () => editor.selectedNode?.nodeId, mcpHasCatalog],
   async () => {
     if (!mcpHasCatalog.value) return
     await nextTick()
     mcpTreeRef.value?.setCheckedKeys?.(mcpCheckedKeys.value || [])
+  }
+)
+
+watch(
+  [skillCheckedKeys, () => editor.selectedNode?.nodeId, skillHasCatalog, () => currentAgentSpec.value?.enableSkill],
+  async () => {
+    if (!skillHasCatalog.value || !currentAgentSpec.value?.enableSkill) return
+    await nextTick()
+    skillTreeRef.value?.setCheckedKeys?.(skillCheckedKeys.value || [])
   }
 )
 
@@ -879,32 +907,30 @@ function onStreamingChange(val) {
                   @update:model-value="onAgentSpecToggle('enableSkill', $event)"
                 />
               </el-form-item>
-              <el-form-item v-if="currentAgentSpec.enableSkill" :label="t('propertyPanel.agentSpec.skillKeys')">
-                <el-select
-                  v-if="catalog.skills.length"
-                  :model-value="currentAgentSpec.skillKeys || []"
-                  multiple
-                  filterable
-                  :loading="catalogLoading"
-                  style="width:100%;"
-                  @update:model-value="onAgentSpecKeysSelect('skillKeys', $event)"
-                >
-                  <el-option
-                    v-for="it in catalog.skills"
-                    :key="it.key"
-                    :label="it.label || it.key"
-                    :value="it.key"
+              <el-form-item v-if="currentAgentSpec.enableSkill" :label="skillHasCatalog ? t('propertyPanel.agentSpec.skillTree') : t('propertyPanel.agentSpec.skillKeys')">
+                <div v-if="skillHasCatalog" class="mcp-tree-wrap">
+                  <el-tree
+                    ref="skillTreeRef"
+                    :data="skillTreeData"
+                    node-key="id"
+                    show-checkbox
+                    default-expand-all
+                    :props="{ label: 'label', children: 'children' }"
+                    :default-checked-keys="skillCheckedKeys"
+                    @check="onSkillTreeCheck"
                   />
-                </el-select>
-                <el-input
-                  v-else
-                  :model-value="csvOf(currentAgentSpec.skillKeys)"
-                  @update:model-value="onAgentSpecCsvField('skillKeys', $event)"
-                  placeholder="skills:tax, skills:monitor"
-                />
-                <span v-if="!catalog.skills.length && resourceStatus.skills.error" class="hint" style="display:block; margin-top:4px;">{{ t('propertyPanel.agentSpec.catalogLoadFailed') }}</span>
-                <span v-else-if="!catalog.skills.length && resourceStatus.skills.empty" class="hint" style="display:block; margin-top:4px;">{{ t('propertyPanel.agentSpec.catalogEmpty') }}</span>
-                <span class="hint" style="display:block; margin-top:4px;">{{ t('propertyPanel.agentSpec.skillKeysHint') }}</span>
+                  <span class="hint" style="display:block; margin-top:4px;">{{ t('propertyPanel.agentSpec.skillTreeHint') }}</span>
+                </div>
+                <div v-else>
+                  <span v-if="resourceStatus.skills.error" class="hint" style="display:block; margin-bottom:4px;">{{ t('propertyPanel.agentSpec.catalogLoadFailed') }}</span>
+                  <span v-else-if="resourceStatus.skills.empty" class="hint" style="display:block; margin-bottom:4px;">{{ t('propertyPanel.agentSpec.catalogEmpty') }}</span>
+                  <el-input
+                    :model-value="csvOf(currentAgentSpec.skillKeys)"
+                    @update:model-value="onAgentSpecCsvField('skillKeys', $event)"
+                    placeholder="skills:tax, skills:monitor"
+                  />
+                  <span class="hint" style="display:block; margin-top:4px;">{{ t('propertyPanel.agentSpec.skillKeysHint') }}</span>
+                </div>
               </el-form-item>
               <el-form-item :label="t('propertyPanel.agentSpec.enableLocalTools')">
                 <el-switch

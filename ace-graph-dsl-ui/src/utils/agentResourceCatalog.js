@@ -9,23 +9,44 @@ import { listAgentResources } from '../api/graph'
 export async function loadAgentResource(kind, params = {}) {
   try {
     const data = await listAgentResources(kind, params)
-    const items = Array.isArray(data?.items) ? data.items : []
+    const raw = Array.isArray(data?.items) ? data.items : []
+    const items = raw.map(normalizeResourceItem).filter(Boolean)
     return { items, error: null, empty: items.length === 0 }
   } catch (error) {
     return { items: [], error, empty: false }
   }
 }
 
+function normalizeResourceItem(it) {
+  if (!it || typeof it !== 'object') return null
+  const key = String(it.key || it.name || '').trim()
+  if (!key) return null
+  const children = Array.isArray(it.children)
+    ? it.children.map(normalizeResourceItem).filter(Boolean)
+    : []
+  return {
+    key,
+    label: it.label || it.displayName || key,
+    description: it.description || null,
+    children
+  }
+}
+
 /**
- * Server 节点展示：资源编码(显示名称)。没有单独的显示名称时只显示编码，不写 code(code)。
- * 勾选写回仍用 key（资源编码），不把显示名称写入 mcpKeys。
+ * 资源编码(显示名称)。没有单独的显示名称时只显示编码，不写 code(code)。
+ * 勾选写回仍用 key，不把显示名称写入 mcpKeys / skillKeys。
  */
-export function mcpServerLabel(key, label) {
+export function resourceCodeLabel(key, label) {
   const code = String(key || '').trim()
   const name = String(label || '').trim()
   if (!code) return name
   if (!name || name === code) return code
   return `${code}(${name})`
+}
+
+/** MCP 树 server 节点用的展示名，规则同 {@link resourceCodeLabel}。 */
+export function mcpServerLabel(key, label) {
+  return resourceCodeLabel(key, label)
 }
 
 /**
@@ -50,6 +71,49 @@ export function buildMcpTreeData(mcpItems) {
       children
     }
   })
+}
+
+/**
+ * Catalog Skill → 扁平勾选树（与 MCP 相同展示形态，无子节点）。
+ */
+export function buildSkillTreeData(skillItems) {
+  return (skillItems || [])
+    .map(s => {
+      const key = String(s?.key || s?.name || '').trim()
+      if (!key) return null
+      return {
+        id: `sk:${key}`,
+        key,
+        label: resourceCodeLabel(key, s?.label || s?.displayName),
+        nodeType: 'skill'
+      }
+    })
+    .filter(Boolean)
+}
+
+/** 已保存 skillKeys → 树勾选 id */
+export function skillCheckedIdsFromSpec(skillKeys, treeData) {
+  const keys = Array.isArray(skillKeys) ? skillKeys : []
+  const ids = []
+  for (const raw of keys) {
+    const key = String(raw || '').trim()
+    if (!key) continue
+    const node = (treeData || []).find(n => n.key === key)
+    ids.push(node ? node.id : `sk:${key}`)
+  }
+  return ids
+}
+
+/** 树勾选 → skillKeys（资源编码） */
+export function skillKeysFromChecked(treeRef) {
+  const checked = treeRef?.getCheckedNodes?.(false) || []
+  const keys = []
+  for (const n of checked) {
+    if (n?.nodeType === 'skill' && n.key && !keys.includes(n.key)) {
+      keys.push(n.key)
+    }
+  }
+  return keys
 }
 
 /** 根据已保存的 mcpKeys + whitelist 还原树勾选 id */

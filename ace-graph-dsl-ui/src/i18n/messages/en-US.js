@@ -311,7 +311,9 @@ export default {
       mcpToolWhitelistHint: 'Format serverKey:tool1|tool2; separate servers with ";". Empty = all tools for that server.',
       enableSkill: 'Enable Skill',
       skillKeys: 'Skill Keys',
-      skillKeysHint: 'Comma-separated skill key whitelist (L1 visibility). Selecting does not preload body; activate via load_skill / forceSkills.',
+      skillTree: 'Skills (checkboxes)',
+      skillTreeHint: 'Check skills to enable. Shown as code(display name). The saved value is the resource code. Selecting does not preload the body.',
+      skillKeysHint: 'Fallback when the catalog is empty: comma-separated skill keys. Prefer the checkbox list when the catalog is loaded.',
       enableLocalTools: 'Enable local tools',
       localToolKeys: 'Local Tool Keys',
       localToolKeysHint: 'Comma-separated local tool keys.'
