@@ -14,6 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **设计器 MCP 树**：server 节点显示为资源编码(显示名称)，例如 `tianyancha(天眼查)`；工具节点只显示资源编码。写入 `mcpKeys` 的仍是资源编码。
 - **设计器 Skill**：多选来自注册中心的全部 skill，不再被进程 `lesso.ai.skills` 热刷新白名单裁成一两条。选项显示为资源编码(显示名称)，写入 `skillKeys` 的仍是资源编码。
 - **设计器 Skill UI**：与 MCP 相同的勾选树（扁平），不再用下拉。
+- **设计器发布**：内容相对基线无变更时，不再用预占的下一版号（如 1.0.3）去发布；回落到已存在的基线版本（如 1.0.2），避免「版本不存在」。
 
 ## [1.2.0] — 2026-08-08
 

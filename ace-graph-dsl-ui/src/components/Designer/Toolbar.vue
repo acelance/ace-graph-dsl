@@ -124,7 +124,14 @@ const isDraftUnpublished = computed(() => {
 })
 
 async function ensureVersionBeforePersist() {
-  if (!editor.hasContentChanged()) return true
+  // 预占了下一版号但画布相对基线无变更：回落到基线，避免保存跳过却去发布不存在的版本
+  if (!editor.hasContentChanged()) {
+    const baseline = editor.baselineVersion
+    if (baseline && editor.version !== baseline && !editor.versionExists(editor.version)) {
+      editor.version = baseline
+    }
+    return true
+  }
   if (!editor.needsVersionBump()) return true
   const suggested = editor.suggestNextVersion()
   const max = editor.maxKnownVersion() || editor.baselineVersion

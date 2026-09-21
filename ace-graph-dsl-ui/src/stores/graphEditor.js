@@ -347,13 +347,23 @@ export const useGraphEditorStore = defineStore('aceGraphEditor', () => {
     try {
       const saveResult = await save()
       if (!saveResult.ok) return { success: false, message: '保存失败' }
-      if (saveResult.unchanged && !hasContentChanged()) {
-        // 无内容变更也可发布（重新启用当前版本）
+      // 草稿相对基线无变更时后端不会插入新版本。此时 version 可能已预占下一版号（如 1.0.3），
+      // 必须回落到已存在的基线版本再发布，否则会报「版本不存在」。
+      if (saveResult.unchanged) {
+        const existing = saveResult.result?.definition?.version
+          || baselineVersion.value
+          || maxKnownVersion()
+        if (existing && version.value !== existing && !versionExists(version.value)) {
+          version.value = existing
+        }
       }
       const def = buildDefinition()
       const result = await publish(graphId.value, def.version, operator)
       if (result.success) {
         enabledVersion.value = def.version
+        baselineVersion.value = def.version
+        snapshotBaseline(def)
+        await fetchVersions()
       }
       return result
     } finally {
