@@ -1,11 +1,17 @@
 <script setup>
-import { ref, computed, watch } from 'vue'
+import { ref, computed, watch, nextTick } from 'vue'
 import { ElMessage } from 'element-plus'
 import {
   createAgentNode, updateAgentNode, validateAgentNode, testRunAgentDraft, getAgentDefinition
 } from '../../api/graph'
 import { loadStreamKindOptions } from '../../utils/streamKinds'
 import { loadBizParamInterpreterOptions } from '../../utils/bizParamInterpreters'
+import {
+  loadAgentResource,
+  buildMcpTreeData,
+  mcpCheckedIdsFromSpec,
+  mcpBindingFromChecked
+} from '../../utils/agentResourceCatalog'
 import { usePermissionStore, MENU } from '../../stores/permissions'
 import { useI18n } from '../../i18n'
 
@@ -44,9 +50,12 @@ const defaultForm = () => ({
   modelConfigKey: '',
   enableMcp: false,
   mcpKeysText: '',
+  mcpKeys: [],
   mcpToolWhitelistText: '',
+  mcpToolWhitelist: {},
   enableSkill: false,
   skillKeysText: '',
+  skillKeys: [],
   enableLocalTools: false,
   localToolKeysText: '',
   applyDeepThinking: false,
@@ -84,6 +93,47 @@ function formatMcpWhitelist(wl) {
   return Object.entries(wl).map(([k, v]) => `${k}:${(v || []).join('|')}`).join('; ')
 }
 
+function copyWhitelist(wl) {
+  if (!wl || typeof wl !== 'object') return {}
+  const next = {}
+  for (const [server, tools] of Object.entries(wl)) {
+    next[server] = Array.isArray(tools) ? [...tools] : []
+  }
+  return next
+}
+
+const mcpCatalog = ref({ items: [], error: null, empty: false })
+const skillCatalog = ref({ items: [], error: null, empty: false })
+const mcpTreeRef = ref(null)
+const mcpTreeData = computed(() => buildMcpTreeData(mcpCatalog.value.items))
+const mcpHasCatalog = computed(() => mcpCatalog.value.items.length > 0 && !mcpCatalog.value.error)
+const skillHasCatalog = computed(() => skillCatalog.value.items.length > 0 && !skillCatalog.value.error)
+
+async function loadEditorCatalogs() {
+  const [mcp, skills] = await Promise.all([
+    loadAgentResource('mcp'),
+    loadAgentResource('skills')
+  ])
+  mcpCatalog.value = mcp
+  skillCatalog.value = skills
+}
+
+async function syncMcpTreeChecks() {
+  if (!mcpHasCatalog.value || !form.value.enableMcp) return
+  await nextTick()
+  const ids = mcpCheckedIdsFromSpec({
+    mcpKeys: form.value.mcpKeys,
+    mcpToolWhitelist: form.value.mcpToolWhitelist
+  }, mcpTreeData.value)
+  mcpTreeRef.value?.setCheckedKeys?.(ids)
+}
+
+function onEditorMcpCheck() {
+  const binding = mcpBindingFromChecked(mcpTreeRef.value, mcpTreeData.value)
+  form.value.mcpKeys = binding.mcpKeys
+  form.value.mcpToolWhitelist = binding.mcpToolWhitelist
+}
+
 function applyDefinition(def) {
   const s = def.spec || {}
   form.value.nodeId = def.nodeId || ''
@@ -104,9 +154,12 @@ function applyDefinition(def) {
   form.value.modelConfigKey = s.modelConfigKey || ''
   form.value.enableMcp = !!s.enableMcp
   form.value.mcpKeysText = csvOf(s.mcpKeys)
+  form.value.mcpKeys = Array.isArray(s.mcpKeys) ? [...s.mcpKeys] : []
   form.value.mcpToolWhitelistText = formatMcpWhitelist(s.mcpToolWhitelist)
+  form.value.mcpToolWhitelist = copyWhitelist(s.mcpToolWhitelist)
   form.value.enableSkill = !!s.enableSkill
   form.value.skillKeysText = csvOf(s.skillKeys)
+  form.value.skillKeys = Array.isArray(s.skillKeys) ? [...s.skillKeys] : []
   form.value.enableLocalTools = !!s.enableLocalTools
   form.value.localToolKeysText = csvOf(s.localToolKeys)
   form.value.applyDeepThinking = !!s.applyDeepThinking
@@ -152,14 +205,24 @@ async function ensureBizParamInterpreters() {
 watch(visible, async (v) => {
   if (!v) return
   testOutput.value = null
-  await Promise.all([ensureStreamKinds(), ensureBizParamInterpreters()])
+  const catalogPromise = loadEditorCatalogs()
+  await Promise.all([ensureStreamKinds(), ensureBizParamInterpreters(), catalogPromise])
   if (props.editNode) {
     await loadEditNode()
   } else {
     form.value = defaultForm()
     form.value.nodeId = `agent:custom_${Date.now()}`
   }
+  await syncMcpTreeChecks()
 })
+
+watch(
+  () => [visible.value, form.value.enableMcp, mcpHasCatalog.value, form.value.nodeId],
+  async ([open, enabled, hasCatalog]) => {
+    if (!open || !enabled || !hasCatalog) return
+    await syncMcpTreeChecks()
+  }
+)
 
 const apiKeyDisplay = computed(() => (form.value.apiKeyMasked ? '' : form.value.modelApiKey))
 
@@ -171,10 +234,12 @@ function onApiKeyInput(val) {
 
 function buildBody() {
   const promptKeys = parseKeys(form.value.promptKeysText)
-  const mcpKeys = parseKeys(form.value.mcpKeysText)
-  const skillKeys = parseKeys(form.value.skillKeysText)
+  const mcpKeys = mcpHasCatalog.value ? [...(form.value.mcpKeys || [])] : parseKeys(form.value.mcpKeysText)
+  const skillKeys = skillHasCatalog.value ? [...(form.value.skillKeys || [])] : parseKeys(form.value.skillKeysText)
   const localToolKeys = parseKeys(form.value.localToolKeysText)
-  const mcpToolWhitelist = parseMcpWhitelist(form.value.mcpToolWhitelistText)
+  const mcpToolWhitelist = mcpHasCatalog.value
+    ? copyWhitelist(form.value.mcpToolWhitelist)
+    : parseMcpWhitelist(form.value.mcpToolWhitelistText)
   const spec = {
     modelBaseUrl: form.value.modelBaseUrl || null,
     modelApiKey: form.value.modelApiKey || null,
@@ -368,10 +433,27 @@ async function onSubmit() {
         <el-switch v-model="form.enableMcp" />
       </el-form-item>
       <template v-if="form.enableMcp">
-        <el-form-item :label="t('propertyPanel.agentSpec.mcpKeys')">
-          <el-input v-model="form.mcpKeysText" placeholder="mcp:crm, mcp:erp" />
+        <el-form-item :label="mcpHasCatalog ? t('propertyPanel.agentSpec.mcpTree') : t('propertyPanel.agentSpec.mcpKeys')">
+          <div v-if="mcpHasCatalog" class="mcp-tree-wrap">
+            <el-tree
+              ref="mcpTreeRef"
+              :data="mcpTreeData"
+              node-key="id"
+              show-checkbox
+              default-expand-all
+              :props="{ label: 'label', children: 'children' }"
+              @check="onEditorMcpCheck"
+            />
+            <span class="hint" style="display:block; margin-top:4px;">{{ t('propertyPanel.agentSpec.mcpTreeHint') }}</span>
+          </div>
+          <div v-else>
+            <span v-if="mcpCatalog.error" class="hint" style="display:block; margin-bottom:4px;">{{ t('propertyPanel.agentSpec.catalogLoadFailed') }}</span>
+            <span v-else-if="mcpCatalog.empty" class="hint" style="display:block; margin-bottom:4px;">{{ t('propertyPanel.agentSpec.catalogEmpty') }}</span>
+            <el-input v-model="form.mcpKeysText" placeholder="mcp:crm, mcp:erp" />
+            <span class="hint" style="display:block; margin-top:4px;">{{ t('propertyPanel.agentSpec.mcpKeysHint') }}</span>
+          </div>
         </el-form-item>
-        <el-form-item :label="t('propertyPanel.agentSpec.mcpToolWhitelist')">
+        <el-form-item v-if="!mcpHasCatalog" :label="t('propertyPanel.agentSpec.mcpToolWhitelist')">
           <el-input v-model="form.mcpToolWhitelistText" placeholder="crm:query|list" />
           <span class="hint" style="display:block; margin-top:4px;">{{ t('propertyPanel.agentSpec.mcpToolWhitelistHint') }}</span>
         </el-form-item>
@@ -380,7 +462,24 @@ async function onSubmit() {
         <el-switch v-model="form.enableSkill" />
       </el-form-item>
       <el-form-item v-if="form.enableSkill" :label="t('propertyPanel.agentSpec.skillKeys')">
-        <el-input v-model="form.skillKeysText" placeholder="skills:tax" />
+        <el-select
+          v-if="skillHasCatalog"
+          v-model="form.skillKeys"
+          multiple
+          filterable
+          style="width:100%;"
+        >
+          <el-option
+            v-for="it in skillCatalog.items"
+            :key="it.key"
+            :label="it.label || it.key"
+            :value="it.key"
+          />
+        </el-select>
+        <el-input v-else v-model="form.skillKeysText" placeholder="skills:tax" />
+        <span v-if="!skillHasCatalog && skillCatalog.error" class="hint" style="display:block; margin-top:4px;">{{ t('propertyPanel.agentSpec.catalogLoadFailed') }}</span>
+        <span v-else-if="!skillHasCatalog && skillCatalog.empty" class="hint" style="display:block; margin-top:4px;">{{ t('propertyPanel.agentSpec.catalogEmpty') }}</span>
+        <span class="hint" style="display:block; margin-top:4px;">{{ t('propertyPanel.agentSpec.skillKeysHint') }}</span>
       </el-form-item>
       <el-form-item :label="t('propertyPanel.agentSpec.enableLocalTools')">
         <el-switch v-model="form.enableLocalTools" />
@@ -425,4 +524,12 @@ async function onSubmit() {
 
 <style scoped>
 .hint { font-size: 12px; color: var(--agd-color-text-secondary, #909399); margin-top: 4px; }
+.mcp-tree-wrap {
+  width: 100%;
+  max-height: 280px;
+  overflow: auto;
+  border: 1px solid var(--agd-color-border, #dcdfe6);
+  border-radius: 4px;
+  padding: 6px 8px;
+}
 </style>

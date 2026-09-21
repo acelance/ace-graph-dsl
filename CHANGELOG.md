@@ -5,6 +5,13 @@ All notable changes to the Ace Graph DSL project are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+
+- **文档（设计期资源目录，浏览参数未改代码）**：定案注册式 Agent 与图内联 spec 的分工，以及 Catalog 浏览参数 `agentCode`（框架只传递）和 `bizKey`（不透明字符串，业务自解析）。见 [designer-resource-catalog-browse.md](docs/designer-resource-catalog-browse.md)。
+- **设计器**：节点面板「编辑通用 Agent」打开时请求 `GET /api/agent-resources/mcp` 与 `/skills`，不带 `graphId`。MCP 有数据时用三级树写回 `mcpKeys` / `mcpToolWhitelist`；Skill 有数据时多选且关闭 `allow-create`。目录为空与加载失败分开提示。属性面板的 Skill 多选同样关闭手填入选。
+
 ## [1.2.0] — 2026-08-08
 
 ### Added

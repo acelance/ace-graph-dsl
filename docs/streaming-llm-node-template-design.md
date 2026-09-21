@@ -2027,7 +2027,26 @@ public enum ResourceType {
 public record ResourceItem(String key, String label, String description) {}
 ```
 
-开发者实现则返回可选 key；未实现默认空列表。UI 始终支持手动添加 key（手填的 key 仍在运行期走 Resolver）。
+开发者实现则返回可选 key；未实现默认空列表。
+
+### 7.2.1 两个入口与浏览参数（2026-09-21 定案，未改代码）
+
+细节与验收见 [designer-resource-catalog-browse.md](designer-resource-catalog-browse.md)。本节只固定和 §7.2 的差异：
+
+- **注册式节点**在节点面板编辑，是独立资源，可被多张图按 `nodeId` 引用。该入口 **不传 `graphId`**。即使用户从某张图跳进编辑，也不继承那张图。
+- **图内联 spec** 在属性面板编辑，可以传当前 `graphId`，只表示「正在看哪张图」，不是资源归属。
+- 浏览参数增加可空的 **`bizKey`**：框架原样传入 `AgentResourceCatalog`，不规定分隔符、不拆段。`agentCode` 仍是框架认识的初筛名字，怎么裁剪由业务实现决定。
+- 两个浏览值都不写入 `GenericAgentDefinition` / `agentSpec`，也不自动变成运行期 `BusinessContext.bizKey`。
+- 目录外手填 key 进入已选 **暂缓**。上文「UI 始终支持手动添加 key」在该边界写清之前，不作为本期实现要求。
+
+待实现的列表调用在现有参数后增加 `bizKey`：
+
+```text
+GET /api/agent-resources/mcp?agentCode=&bizKey=
+GET /api/agent-resources/mcp?graphId=&agentCode=&bizKey=
+```
+
+第一行是节点面板（无 `graphId`）。第二行是图内属性面板。`agentDefId` 仍可选，这两处默认不传。
 
 **约束（软）**：Catalog 返回的 key **宜**与运行时 Resolver 使用同一 key 空间。框架**不在保存期强制对齐**（见 §7.4）；不一致时以运行期加载结果为准，并通过错误日志与调试 UI 暴露。
 
@@ -4145,6 +4164,7 @@ starter **compile 依赖** `ace-graph-dsl-ai`，保证全家桶开箱可用（st
 | 2026-09-08 | **定案 B3 = ①首期不做**：一个节点固定一个 kind；「节点A(BIZ 思考/处理) → 节点B(OUTPUT 总结)」编排已完整支持——带外通道保证前端实时收字（`blockLast()` 只阻塞图引擎不影响前端）、`outputKey`→`inputKeys` 传递完整文本、片段携带 `nodeId`+kind 供前端路由渲染。将来如需单节点内分段可平滑追加 `emitKind` 可选 API，不影响已落库图。流式类型仅剩 B7 待拍 |
 | 2026-09-08 | 定案 B1/B2（§9.7）：空 KEY / 无效 KEY 归一化采用**编译期 normalize + 运行期兜底**双保险，统一走 `resolveOrDefault` 并与 UI 默认同源（同一 Catalog、同一 `ORDER` 比较器）；落点 `DynamicGraphBuilder#resolveGenericAgent`，同处收集 `nodeId → kind` 映射顺带闭环 B6；明确不做保存时 normalize，且不在 `GenericAgentSpec` 构造器兜底（默认值依赖运行时配置） |
 | 2026-09-09 | **澄清设计期 vs 运行期（§4.3 / §7.2）**：UI 勾选的 promptKeys/mcpKeys 等**设计期尚不存在**，不能作为「按 agentCode 初筛」的入参。初筛走 Catalog.list（入参 agentCode，无节点 keys）；运行期 Resolver.resolve(ctx, keys) 时 keys 已从节点 Binding 落库，可同时读 agentCode 做范围校验。Catalog 查询参数改为 `agentCode` + 可选 `agentDefId`（原 agentId 易混淆） |
+| 2026-09-21 | **定案 §7.2.1**：注册式节点与图内联 spec 分两个 Catalog 入口。节点面板不传 `graphId`；属性面板可传当前图，仅作上下文。浏览参数为可空 `agentCode` 与不透明 `bizKey`（业务拆段，框架不解释），且不落库、不等于运行期 bizKey。手填目录外 key 暂缓。代码未改。详见 [designer-resource-catalog-browse.md](designer-resource-catalog-browse.md) |
 | 2026-09-10 | **补定 §4.2.1：Controller 如何选对图**。必须有明确 `graphId`；现网口 `POST /execution/{graphId}/stream`；业务可写死/映射 graphId，框架不按 agentCode 猜图。补全入口样例（常量 GRAPH_ID + agentCode + runId）。**补定 §7.1：`ResourceBindings.fromSpec` 归框架**——纯 Spec→Binding 字段映射，业务不实现；业务只实现按 key 取数的 Resolver。此前样例裸写 graphId/fromSpec 未交代归属，视为文档缺口已闭环 |
 | 2026-09-10 | **补定 §8.3：节点间大结果与产物 URL 投递**。默认完整结构化结果进 `OverAllState` 透传（`outputKey`→`inputKeys`）；精简发生在消费方拼 prompt（§4.4.2 护栏），框架不在节点边界自动摘要。文件本体不进 state，只传 URL/mediaId（与 MediaRef 同原则）。推荐拆 `summary` / `detail` / `artifacts` 多 key；Agent 的 outputKey 放下游默认读的那份 |
 | 2026-09-10 | **补定 §8.3 原生写回样例**：节点通过 `NodeAction.apply` **return Map** 由引擎按 `KeyStrategy` 合并进 state（非手写 `state.put`）；附原生双节点样例 + 现网 `GenericAgentNode` return `outputKey` 片段；`keyStrategies` 须覆盖输出 key |

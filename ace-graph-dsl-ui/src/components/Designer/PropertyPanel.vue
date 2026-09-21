@@ -9,6 +9,12 @@ import { requestOpenAgentEditor } from '../../stores/agentEditorBus'
 import { listScriptEngines, listAgentResources } from '../../api/graph'
 import { loadStreamKindOptions } from '../../utils/streamKinds'
 import { loadBizParamInterpreterOptions } from '../../utils/bizParamInterpreters'
+import {
+  loadAgentResource,
+  buildMcpTreeData,
+  mcpCheckedIdsFromSpec,
+  mcpBindingFromChecked
+} from '../../utils/agentResourceCatalog'
 import MermaidPreview from './MermaidPreview.vue'
 
 const props = defineProps({
@@ -251,6 +257,10 @@ const catalog = ref({
   skills: []
 })
 const catalogLoading = ref(false)
+const resourceStatus = ref({
+  mcp: { error: false, empty: false },
+  skills: { error: false, empty: false }
+})
 
 async function ensureResourceCatalogsLoaded() {
   if (catalogLoading.value) return
@@ -261,15 +271,19 @@ async function ensureResourceCatalogsLoaded() {
       listAgentResources('prompts', params).catch(() => ({ items: [] })),
       listAgentResources('models', params).catch(() => ({ items: [] })),
       listAgentResources('tools', params).catch(() => ({ items: [] })),
-      listAgentResources('mcp', params).catch(() => ({ items: [] })),
-      listAgentResources('skills', params).catch(() => ({ items: [] }))
+      loadAgentResource('mcp', params),
+      loadAgentResource('skills', params)
     ])
     catalog.value = {
       prompts: prompts?.items || [],
       models: models?.items || [],
       tools: tools?.items || [],
-      mcp: mcp?.items || [],
-      skills: skills?.items || []
+      mcp: mcp.items,
+      skills: skills.items
+    }
+    resourceStatus.value = {
+      mcp: { error: !!mcp.error, empty: mcp.empty },
+      skills: { error: !!skills.error, empty: skills.empty }
     }
   } finally {
     catalogLoading.value = false
@@ -307,91 +321,6 @@ function parseMcpWhitelist(text) {
 function formatMcpWhitelist(wl) {
   if (!wl || typeof wl !== 'object') return ''
   return Object.entries(wl).map(([k, v]) => `${k}:${(v || []).join('|')}`).join('; ')
-}
-
-/**
- * Catalog MCP → el-tree 数据（P3.3 三级树：server → 工具）。
- * 无 children 时仅 server 节点，勾选即全选该 server。
- */
-function buildMcpTreeData(mcpItems) {
-  return (mcpItems || []).map(s => {
-    const children = (s.children || []).map(t => ({
-      id: `t:${s.key}:${t.key}`,
-      key: t.key,
-      serverKey: s.key,
-      label: t.label || t.key,
-      nodeType: 'tool'
-    }))
-    return {
-      id: `s:${s.key}`,
-      key: s.key,
-      label: s.label || s.key,
-      nodeType: 'server',
-      children
-    }
-  })
-}
-
-/** 根据已保存的 mcpKeys + whitelist 还原树勾选 id */
-function mcpCheckedIdsFromSpec(spec, treeData) {
-  if (!spec) return []
-  const keys = Array.isArray(spec.mcpKeys) ? spec.mcpKeys : []
-  const wl = spec.mcpToolWhitelist && typeof spec.mcpToolWhitelist === 'object'
-    ? spec.mcpToolWhitelist
-    : {}
-  const ids = []
-  for (const server of keys) {
-    const node = (treeData || []).find(n => n.key === server)
-    if (!node) {
-      ids.push(`s:${server}`)
-      continue
-    }
-    const allow = wl[server]
-    if (!allow || !allow.length) {
-      // 不勾工具 = 全选：勾 server；若有子节点则一并勾上便于展示
-      ids.push(node.id)
-      ;(node.children || []).forEach(c => ids.push(c.id))
-    } else {
-      ids.push(node.id)
-      ;(node.children || []).forEach(c => {
-        if (allow.includes(c.key)) ids.push(c.id)
-      })
-    }
-  }
-  return ids
-}
-
-/** 树勾选 → mcpKeys + mcpToolWhitelist（未勾任何工具 ⇒ 该 server 全选，白名单不写或空） */
-function mcpBindingFromChecked(treeRef, treeData) {
-  const checked = treeRef?.getCheckedNodes?.(false) || []
-  const half = treeRef?.getHalfCheckedNodes?.() || []
-  const servers = new Set()
-  const toolByServer = {}
-
-  ;[...checked, ...half].forEach(n => {
-    if (n.nodeType === 'server') servers.add(n.key)
-    if (n.nodeType === 'tool' && n.serverKey) {
-      servers.add(n.serverKey)
-      if (!toolByServer[n.serverKey]) toolByServer[n.serverKey] = []
-      if (!toolByServer[n.serverKey].includes(n.key)) {
-        toolByServer[n.serverKey].push(n.key)
-      }
-    }
-  })
-
-  const mcpKeys = [...servers]
-  const mcpToolWhitelist = {}
-  for (const sk of mcpKeys) {
-    const serverNode = (treeData || []).find(n => n.key === sk)
-    const catalogTools = serverNode?.children || []
-    const selected = toolByServer[sk] || []
-    // 无工具子节点、或勾了全部工具、或一个工具都没勾 → 全选（不写白名单）
-    if (!catalogTools.length || selected.length === 0 || selected.length === catalogTools.length) {
-      continue
-    }
-    mcpToolWhitelist[sk] = selected
-  }
-  return { mcpKeys, mcpToolWhitelist }
 }
 
 function onAgentSpecCsvField(field, text) {
@@ -922,6 +851,8 @@ function onStreamingChange(val) {
                     </el-button>
                   </div>
                   <div v-else>
+                    <span v-if="resourceStatus.mcp.error" class="hint" style="display:block; margin-bottom:4px;">{{ t('propertyPanel.agentSpec.catalogLoadFailed') }}</span>
+                    <span v-else-if="resourceStatus.mcp.empty" class="hint" style="display:block; margin-bottom:4px;">{{ t('propertyPanel.agentSpec.catalogEmpty') }}</span>
                     <el-input
                       :model-value="csvOf(currentAgentSpec.mcpKeys)"
                       @update:model-value="onAgentSpecCsvField('mcpKeys', $event)"
@@ -954,8 +885,6 @@ function onStreamingChange(val) {
                   :model-value="currentAgentSpec.skillKeys || []"
                   multiple
                   filterable
-                  allow-create
-                  default-first-option
                   :loading="catalogLoading"
                   style="width:100%;"
                   @update:model-value="onAgentSpecKeysSelect('skillKeys', $event)"
@@ -973,6 +902,8 @@ function onStreamingChange(val) {
                   @update:model-value="onAgentSpecCsvField('skillKeys', $event)"
                   placeholder="skills:tax, skills:monitor"
                 />
+                <span v-if="!catalog.skills.length && resourceStatus.skills.error" class="hint" style="display:block; margin-top:4px;">{{ t('propertyPanel.agentSpec.catalogLoadFailed') }}</span>
+                <span v-else-if="!catalog.skills.length && resourceStatus.skills.empty" class="hint" style="display:block; margin-top:4px;">{{ t('propertyPanel.agentSpec.catalogEmpty') }}</span>
                 <span class="hint" style="display:block; margin-top:4px;">{{ t('propertyPanel.agentSpec.skillKeysHint') }}</span>
               </el-form-item>
               <el-form-item :label="t('propertyPanel.agentSpec.enableLocalTools')">

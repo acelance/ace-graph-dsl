@@ -355,6 +355,8 @@ ace-graph-dsl-ui/
 3. 在 AGENT 标签列表中点对应 Agent 拖入画布 → 走注册式通道（只读引用 + 「前往节点面板编辑」）。
 4. 注册式 Agent 的 keys / 配置变更在 `GenericAgentDefinition` 一处完成，引用它的所有图共享更新。
 
+资源候选在**这个弹窗**里请求 `GET /api/agent-resources/mcp` 与 `/skills`，不带 `graphId`。有数据时 MCP 为三级勾选树，Skill 为多选且不能手造 key。目录为空或失败时退回逗号文本，并提示原因。图内属性面板只在节点自带内联 `agentSpec` 时拉目录，并可带上正在编辑的图。浏览用 `agentCode`、`bizKey` 见 [designer-resource-catalog-browse.md](../docs/designer-resource-catalog-browse.md)，这两期不传。
+
 > 权限：新建 / 删除 / 试跑受 `agent-node:create / delete / test` 菜单权限控制；只读用户仅可拖入引用。
 
 ## 子图（graph-in-graph）

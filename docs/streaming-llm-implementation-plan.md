@@ -49,9 +49,11 @@
   ✅ 已出口：  … · ①～④ 验收批 · 真 UI WebFlux 镜像 + 业务薄宿主（已通 28）
   进行中：    lesso-ai-platform-agent-designer-web 浏览器 E2E（建图→勾选→发布→stream）
   下一步：    收口真 UI E2E；部署后验 JDBC 落库（ace_graph_dsl_*）；可选脚本写 API
-  搁置/可缓： Catalog 候选过滤优化 · Biz.5～7 · Validator · P3.9
+  搁置/可缓： Biz.5～7 · Validator · P3.9
+  设计期目录： 形态已定、未实现。见 designer-resource-catalog-browse.md（2026-09-21）
   对齐文档：  lesso-ai-platform-agent-server/docs/ace-graph-dsl-nacos-integration-assessment.md §14.1.1 / §14.3
-  过滤评估：  lesso-ai-platform-agent-server/docs/designer-catalog-filter-evaluation.md（§6 搁置定案）
+  过滤评估：  designer-catalog-filter-evaluation.md（2026-09-15 搁置「当时就做裁剪」；参数形态以 browse 文档为准）
+  UI 缺口：    designer-resource-option-dev-plan.md（弹窗接 MCP 树）· designer-resource-option-tag-proposal.md（手填入选暂缓）
   UI 联调：    lesso-ai-project/lesso-ai-platform-agent-designer-web
 ```
 
@@ -69,9 +71,9 @@
 | 业务 | **验收批** | 设计器 Catalog · 记忆两轮 · Biz.R 冒烟 · Langfuse 控制台核对 | 1～2 | 对照评估 §14.1 | ✅ ①～④已过 |
 | 业务 | **真 UI** | WebFlux 设计器镜像 + `agent-designer-web` 宿主 + 浏览器 E2E | 2～4 | 建图勾选发布 stream | 🟡 镜像+宿主已通；E2E 收口中 |
 | 业务 | **增强批** | Biz.5 + Biz.6 + Biz.7 | 2～5 | 多模态补全、协议渲染、大结果 | 未开始（可缓） |
-| 业务 | **体验优化** | Catalog name/agentCode 过滤 + 后端裁剪 | 1～3 | 候选可筛 | **搁置**（评估 §6） |
+| 业务 | **体验优化** | 节点面板接 Catalog 树；浏览参数 `agentCode` + 不透明 `bizKey` | 1～3 | 弹窗有三级树；过滤框等业务 Catalog 读取参数后再做 | **弹窗 MCP 树 + Skill 多选已做**；浏览框未做（[browse 文档](designer-resource-catalog-browse.md)） |
 
-**框架 P0～P3.8 已完成；业务主路径 + 验收批（①～④）已出口；真 UI 镜像与宿主已通 28、浏览器 E2E 收口中；Catalog 过滤与增强批搁置/可缓（详业务评估 §14 / §14.3）。**
+**框架 P0～P3.8 已完成；业务主路径 + 验收批（①～④）已出口。** 节点弹窗已接 MCP 三级树与 Skill 多选（不带 `graphId`，无手填入选）。浏览参数 `bizKey` 尚未进 SPI。增强批仍可缓。见 [designer-resource-catalog-browse.md](designer-resource-catalog-browse.md)。
 
 ---
 
