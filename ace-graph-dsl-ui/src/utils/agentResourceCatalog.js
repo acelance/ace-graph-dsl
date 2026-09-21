@@ -17,8 +17,21 @@ export async function loadAgentResource(kind, params = {}) {
 }
 
 /**
+ * Server 节点展示：资源编码(显示名称)。没有单独的显示名称时只显示编码，不写 code(code)。
+ * 勾选写回仍用 key（资源编码），不把显示名称写入 mcpKeys。
+ */
+export function mcpServerLabel(key, label) {
+  const code = String(key || '').trim()
+  const name = String(label || '').trim()
+  if (!code) return name
+  if (!name || name === code) return code
+  return `${code}(${name})`
+}
+
+/**
  * Catalog MCP → el-tree 数据（server → 工具）。
  * 无 children 时仅 server 节点，勾选即全选该 server。
+ * 工具节点只显示资源编码。
  */
 export function buildMcpTreeData(mcpItems) {
   return (mcpItems || []).map(s => {
@@ -26,13 +39,13 @@ export function buildMcpTreeData(mcpItems) {
       id: `t:${s.key}:${t.key}`,
       key: t.key,
       serverKey: s.key,
-      label: t.label || t.key,
+      label: t.key,
       nodeType: 'tool'
     }))
     return {
       id: `s:${s.key}`,
       key: s.key,
-      label: s.label || s.key,
+      label: mcpServerLabel(s.key, s.label),
       nodeType: 'server',
       children
     }

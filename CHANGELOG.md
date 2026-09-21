@@ -11,6 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **文档（设计期资源目录，浏览参数未改代码）**：定案注册式 Agent 与图内联 spec 的分工，以及 Catalog 浏览参数 `agentCode`（框架只传递）和 `bizKey`（不透明字符串，业务自解析）。见 [designer-resource-catalog-browse.md](docs/designer-resource-catalog-browse.md)。
 - **设计器**：节点面板「编辑通用 Agent」打开时请求 `GET /api/agent-resources/mcp` 与 `/skills`，不带 `graphId`。MCP 有数据时用三级树写回 `mcpKeys` / `mcpToolWhitelist`；Skill 有数据时多选且关闭 `allow-create`。目录为空与加载失败分开提示。属性面板的 Skill 多选同样关闭手填入选。
+- **设计器 MCP 树**：server 节点显示为资源编码(显示名称)，例如 `tianyancha(天眼查)`；工具节点只显示资源编码。写入 `mcpKeys` 的仍是资源编码。
 
 ## [1.2.0] — 2026-08-08
 

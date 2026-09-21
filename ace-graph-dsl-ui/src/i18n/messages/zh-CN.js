@@ -304,7 +304,7 @@ export default {
       mcpKeys: 'MCP Keys',
       mcpKeysHint: '目录未加载时的退路：逗号分隔的 MCP server key。不要把目录外的字回车当成已选。',
       mcpTree: 'MCP 资源（三级树）',
-      mcpTreeHint: '勾选 server；展开可勾具体工具。不勾工具 = 该 server 全选。',
+      mcpTreeHint: '勾选 server；展开可勾具体工具。不勾工具 = 该 server 全选。server 显示为资源编码(显示名称)，工具只显示编码。',
       catalogEmpty: '目录为空，本次不能当作选项。',
       catalogLoadFailed: '目录加载失败，本次不能当作选项。',
       mcpAdvancedShow: '高级：文本白名单',

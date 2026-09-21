@@ -302,7 +302,7 @@ export default {
       mcpKeys: 'MCP Keys',
       mcpKeysHint: 'Fallback when the catalog is not loaded: comma-separated MCP server keys. Do not treat a typed string as a selected option.',
       mcpTree: 'MCP resources (tree)',
-      mcpTreeHint: 'Check a server; expand to pick tools. No tool checked = all tools for that server.',
+      mcpTreeHint: 'Check a server; expand to pick tools. No tool checked = all tools for that server. A server is shown as code(display name); tools show the code only.',
       catalogEmpty: 'Catalog is empty, so it cannot be used as options this time.',
       catalogLoadFailed: 'Catalog failed to load, so it cannot be used as options this time.',
       mcpAdvancedShow: 'Advanced: text whitelist',
