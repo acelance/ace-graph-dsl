@@ -6,7 +6,6 @@ import io.acelance.graph.dsl.resource.ResourceBinding;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
-import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -14,18 +13,24 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 class DefaultMediaRefResolverTest {
 
     @Test
-    void resolvesExplicitMimeAndExtension() {
+    void imagesGoToMediasOfficeDocsGoToMaterialNotes() {
         DefaultMediaRefResolver resolver = new DefaultMediaRefResolver();
         LlmRequestContext ctx = new LlmRequestContext("a", "g", "n", "r", null,
                 ResourceBinding.disabledAll());
         MediaRefResolver.ResolveResult r = resolver.resolve(ctx, List.of(
                 new MediaRef("https://cdn.example.com/a.png", "image/png", null, null),
                 new MediaRef("https://cdn.example.com/b.JPEG", null, null, null),
+                new MediaRef("https://cdn.example.com/report.xlsx", null, null, "file"),
+                new MediaRef("https://cdn.example.com/doc.pdf", null, null, null),
                 new MediaRef("https://cdn.example.com/noext", null, null, null),
                 new MediaRef(null, "image/png", null, null)
         ));
         assertEquals(2, r.medias().size());
-        assertTrue(r.skippedNotes().stream().anyMatch(s -> s.contains("类型未识别")));
+        assertEquals(3, r.materialNotes().size());
+        assertTrue(r.materialNotes().stream().anyMatch(s -> s.contains("report.xlsx")));
+        assertTrue(r.materialNotes().stream().anyMatch(s -> s.contains("doc.pdf")));
+        assertTrue(r.materialNotes().stream().anyMatch(s -> s.contains("[material]") && s.contains("noext")));
+        assertTrue(r.skippedNotes().isEmpty());
     }
 
     @Test

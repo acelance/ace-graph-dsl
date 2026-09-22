@@ -2428,17 +2428,22 @@ state.put("multimodal_refs", List.of(
 #### 8.2.3 Resolver 接口
 
 ```java
-/** 把 MediaRef 解析为可直接交给 Spring AI 的 Media（含 mime 补全） */
+/** 把 MediaRef 按消费能力分流：模型原生 Media vs 工具/Skill 材料注记 */
 @FunctionalInterface
 public interface MediaRefResolver {
-    /**
-     * @return 解析成功的 Media 列表；无法识别的条目按策略跳过（不抛异常中断节点）
-     */
-    List<Media> resolve(LlmRequestContext ctx, List<MediaRef> refs);
+    ResolveResult resolve(LlmRequestContext ctx, List<MediaRef> refs);
+
+    record ResolveResult(
+            List<Media> medias,           // image/audio/video → UserMessage.media
+            List<String> materialNotes,   // xlsx/pdf/docx… → 追加到 user 文本（含 url=）
+            List<String> skippedNotes     // 不安全 / 超限等失败告警
+    ) {}
 }
 ```
 
 缺省实现：仅做第 1、3 级（显式 mime、URL 扩展名），HEAD / 魔数由业务实现按需接入（涉及网络与超时策略）。
+
+**分流定案**：Chat 多模态载荷只挂模型原生类型；办公文档 / PDF 等**不进** `UserMessage.media`，以 `[material] name=… mime=… url=…` 注记进本轮 user 文本，供工具与 Skill 消费。入口注入的 `media_refs` **不要**写进下游 `inputKeys`（否则连线校验会误要求上游节点产出该 key）；只填节点 `mediaInputKey`。
 
 #### 8.2.3.1 安全约束（必须实现，url 为外部输入）
 

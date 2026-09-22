@@ -219,8 +219,11 @@ public class StreamingLlmTemplate {
         }
 
         MediaRefResolver.ResolveResult mediaResult = resolveMedia(ctx, req.mediaInputKey());
-        if (!mediaResult.skippedNotes().isEmpty()) {
+        if (!mediaResult.materialNotes().isEmpty() || !mediaResult.skippedNotes().isEmpty()) {
             StringBuilder footnote = new StringBuilder(user);
+            for (String note : mediaResult.materialNotes()) {
+                footnote.append('\n').append(note);
+            }
             for (String note : mediaResult.skippedNotes()) {
                 footnote.append('\n').append(note);
             }
@@ -237,9 +240,10 @@ public class StreamingLlmTemplate {
         if (model == null) {
             throw new IllegalStateException("ChatModelFactory 返回 null, nodeId=" + ctx.nodeId());
         }
-        log.info("节点 {} 开始 LLM 调用(ChatClient): streaming={}, kind={}, modelId={}, tools={}, forcedSkills={}, medias={}, memoryMode={}, conversationId={}",
+        log.info("节点 {} 开始 LLM 调用(ChatClient): streaming={}, kind={}, modelId={}, tools={}, forcedSkills={}, medias={}, materials={}, memoryMode={}, conversationId={}",
                 ctx.nodeId(), req.streaming(), req.streamResponseKind(), endpoint.modelId(),
                 modelTools.size(), forced.size(), mediaResult.medias().size(),
+                mediaResult.materialNotes().size(),
                 req.memoryMode(), ctx.conversationId());
 
         List<Message> messages = buildMessages(system, user, forced, mediaResult.medias());
