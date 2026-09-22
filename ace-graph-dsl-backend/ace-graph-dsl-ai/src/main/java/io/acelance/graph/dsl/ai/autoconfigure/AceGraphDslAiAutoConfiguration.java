@@ -10,6 +10,7 @@ import io.acelance.graph.dsl.ai.advisor.ChatClientAdvisorBundle;
 import io.acelance.graph.dsl.ai.advisor.ChatClientAdvisorProvider;
 import io.acelance.graph.dsl.ai.media.DefaultMediaRefResolver;
 import io.acelance.graph.dsl.ai.media.MediaRefResolver;
+import io.acelance.graph.dsl.ai.memory.MemoryDisplayUserTextResolver;
 import io.acelance.graph.dsl.ai.model.CachingChatModelFactory;
 import io.acelance.graph.dsl.ai.model.ChatModelFactory;
 import io.acelance.graph.dsl.ai.model.ModelEndpointResolver;
@@ -215,8 +216,11 @@ public class AceGraphDslAiAutoConfiguration {
     @Bean
     @ConditionalOnMissingBean(StreamingLlmTemplate.class)
     public StreamingLlmTemplate streamingLlmTemplate(LlmResolvers llmResolvers,
-                                                     ObjectProvider<GraphStreamBridge> streamBridge) {
-        log.info("注册 StreamingLlmTemplate ← LlmResolvers");
-        return new StreamingLlmTemplate(llmResolvers, streamBridge.getIfAvailable());
+                                                     ObjectProvider<GraphStreamBridge> streamBridge,
+                                                     ObjectProvider<MemoryDisplayUserTextResolver> memoryDisplayUserTexts) {
+        MemoryDisplayUserTextResolver display = memoryDisplayUserTexts.getIfAvailable();
+        log.info("注册 StreamingLlmTemplate ← LlmResolvers, memoryDisplayUserTextResolver={}",
+                display != null ? display.getClass().getSimpleName() : "null");
+        return new StreamingLlmTemplate(llmResolvers, streamBridge.getIfAvailable(), display);
     }
 }

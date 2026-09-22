@@ -6,6 +6,7 @@ import io.acelance.graph.dsl.ai.advisor.ChatClientAdvisorProvider;
 import io.acelance.graph.dsl.ai.advisor.ChatClientAdvisorRequest;
 import io.acelance.graph.dsl.ai.media.DefaultMediaRefResolver;
 import io.acelance.graph.dsl.ai.media.MediaRefResolver;
+import io.acelance.graph.dsl.ai.memory.MemoryDisplayUserTextResolver;
 import io.acelance.graph.dsl.ai.model.ChatModelFactory;
 import io.acelance.graph.dsl.ai.model.InlineModel;
 import io.acelance.graph.dsl.ai.model.ModelEndpoint;
@@ -80,9 +81,17 @@ public class StreamingLlmTemplate {
     private final PromptContentResolver promptContent;
     private final ChatClientAdvisorProvider advisorProvider;
     private final LlmChatOptionsCustomizer optionsCustomizer;
+    /** 可选：业务侧决定记忆 USER 展示正文从哪些 state key 取 */
+    private final MemoryDisplayUserTextResolver memoryDisplayUserTextResolver;
 
     /** P3.5 / P3.8：由 {@link LlmResolvers} 单点注入 */
     public StreamingLlmTemplate(LlmResolvers resolvers, GraphStreamBridge streamBridge) {
+        this(resolvers, streamBridge, null);
+    }
+
+    public StreamingLlmTemplate(LlmResolvers resolvers,
+                                GraphStreamBridge streamBridge,
+                                MemoryDisplayUserTextResolver memoryDisplayUserTextResolver) {
         this(Objects.requireNonNull(resolvers, "resolvers").promptRenderer(),
                 resolvers.modelEndpoints(),
                 resolvers.chatModels(),
@@ -93,7 +102,8 @@ public class StreamingLlmTemplate {
                 resolvers.media(),
                 resolvers.prompts(),
                 resolvers.advisorProvider(),
-                resolvers.optionsCustomizer());
+                resolvers.optionsCustomizer(),
+                memoryDisplayUserTextResolver);
     }
 
     public StreamingLlmTemplate(PromptRenderer promptRenderer,
@@ -101,7 +111,7 @@ public class StreamingLlmTemplate {
                                 ChatModelFactory chatModelFactory,
                                 GraphStreamBridge streamBridge) {
         this(promptRenderer, endpointResolver, chatModelFactory, streamBridge,
-                null, null, null, null, null, null, null);
+                null, null, null, null, null, null, null, null);
     }
 
     public StreamingLlmTemplate(PromptRenderer promptRenderer,
@@ -112,7 +122,7 @@ public class StreamingLlmTemplate {
                                 SkillContentLoader skillContent,
                                 SkillResourceLoader skillResources) {
         this(promptRenderer, endpointResolver, chatModelFactory, streamBridge,
-                skillCatalog, skillContent, skillResources, null, null, null, null);
+                skillCatalog, skillContent, skillResources, null, null, null, null, null);
     }
 
     public StreamingLlmTemplate(PromptRenderer promptRenderer,
@@ -124,7 +134,7 @@ public class StreamingLlmTemplate {
                                 SkillResourceLoader skillResources,
                                 MediaRefResolver mediaResolver) {
         this(promptRenderer, endpointResolver, chatModelFactory, streamBridge,
-                skillCatalog, skillContent, skillResources, mediaResolver, null, null, null);
+                skillCatalog, skillContent, skillResources, mediaResolver, null, null, null, null);
     }
 
     public StreamingLlmTemplate(PromptRenderer promptRenderer,
@@ -137,7 +147,7 @@ public class StreamingLlmTemplate {
                                 MediaRefResolver mediaResolver,
                                 PromptContentResolver promptContent) {
         this(promptRenderer, endpointResolver, chatModelFactory, streamBridge,
-                skillCatalog, skillContent, skillResources, mediaResolver, promptContent, null, null);
+                skillCatalog, skillContent, skillResources, mediaResolver, promptContent, null, null, null);
     }
 
     public StreamingLlmTemplate(PromptRenderer promptRenderer,
@@ -151,7 +161,7 @@ public class StreamingLlmTemplate {
                                 PromptContentResolver promptContent,
                                 ChatClientAdvisorProvider advisorProvider) {
         this(promptRenderer, endpointResolver, chatModelFactory, streamBridge,
-                skillCatalog, skillContent, skillResources, mediaResolver, promptContent, advisorProvider, null);
+                skillCatalog, skillContent, skillResources, mediaResolver, promptContent, advisorProvider, null, null);
     }
 
     public StreamingLlmTemplate(PromptRenderer promptRenderer,
@@ -165,6 +175,23 @@ public class StreamingLlmTemplate {
                                 PromptContentResolver promptContent,
                                 ChatClientAdvisorProvider advisorProvider,
                                 LlmChatOptionsCustomizer optionsCustomizer) {
+        this(promptRenderer, endpointResolver, chatModelFactory, streamBridge,
+                skillCatalog, skillContent, skillResources, mediaResolver, promptContent,
+                advisorProvider, optionsCustomizer, null);
+    }
+
+    public StreamingLlmTemplate(PromptRenderer promptRenderer,
+                                ModelEndpointResolver endpointResolver,
+                                ChatModelFactory chatModelFactory,
+                                GraphStreamBridge streamBridge,
+                                SkillCatalogResolver skillCatalog,
+                                SkillContentLoader skillContent,
+                                SkillResourceLoader skillResources,
+                                MediaRefResolver mediaResolver,
+                                PromptContentResolver promptContent,
+                                ChatClientAdvisorProvider advisorProvider,
+                                LlmChatOptionsCustomizer optionsCustomizer,
+                                MemoryDisplayUserTextResolver memoryDisplayUserTextResolver) {
         this.promptRenderer = Objects.requireNonNull(promptRenderer, "promptRenderer");
         this.endpointResolver = Objects.requireNonNull(endpointResolver, "endpointResolver");
         this.chatModelFactory = Objects.requireNonNull(chatModelFactory, "chatModelFactory");
@@ -176,6 +203,7 @@ public class StreamingLlmTemplate {
         this.promptContent = promptContent;
         this.advisorProvider = advisorProvider;
         this.optionsCustomizer = optionsCustomizer;
+        this.memoryDisplayUserTextResolver = memoryDisplayUserTextResolver;
     }
 
     public Map<String, Object> execute(LlmCallRequest req) {
@@ -246,7 +274,8 @@ public class StreamingLlmTemplate {
                 mediaResult.materialNotes().size(),
                 req.memoryMode(), ctx.conversationId());
 
-        List<Message> messages = buildMessages(system, user, forced, mediaResult.medias());
+        List<Message> messages = buildMessages(system, user, forced, mediaResult.medias(),
+                resolveMemoryDisplayUserText(ctx, req.variables(), user));
         String full;
         boolean wantStream = req.streaming() && ctx.runId() != null && !ctx.runId().isBlank();
         if (wantStream && modelTools.isEmpty()) {
@@ -468,9 +497,33 @@ public class StreamingLlmTemplate {
         }
     }
 
+    /**
+     * 记忆 USER 展示正文：委托业务 {@link MemoryDisplayUserTextResolver}；
+     * 未注册 SPI 时返回 null（不写 display_content，落库用 LLM user 全文）。
+     */
+    private String resolveMemoryDisplayUserText(LlmRequestContext ctx,
+                                                Map<String, Object> variables,
+                                                String llmUserText) {
+        if (memoryDisplayUserTextResolver == null) {
+            return null;
+        }
+        try {
+            String resolved = memoryDisplayUserTextResolver.resolve(
+                    new MemoryDisplayUserTextResolver.MemoryDisplayUserTextRequest(ctx, variables, llmUserText));
+            if (resolved != null && !resolved.isBlank()) {
+                return resolved.trim();
+            }
+        } catch (RuntimeException ex) {
+            log.warn("节点 {} MemoryDisplayUserTextResolver 失败，跳过 display_content: {}",
+                    ctx != null ? ctx.nodeId() : "?", ex.toString());
+        }
+        return null;
+    }
+
     private static List<Message> buildMessages(String system, String user,
                                                List<ForceSkillActivator.ActivatedSkill> forced,
-                                               List<Media> medias) {
+                                               List<Media> medias,
+                                               String displayUserText) {
         List<Message> messages = new ArrayList<>();
         if (system != null && !system.isBlank()) {
             messages.add(new SystemMessage(system));
@@ -482,11 +535,20 @@ public class StreamingLlmTemplate {
             }
         }
         String userText = user == null || user.isBlank() ? " " : user;
-        if (medias != null && !medias.isEmpty()) {
-            messages.add(UserMessage.builder().text(userText).media(medias).build());
-        } else {
-            messages.add(new UserMessage(userText));
+        Map<String, Object> meta = new LinkedHashMap<>();
+        if (displayUserText != null && !displayUserText.isBlank()
+                && !displayUserText.equals(userText)) {
+            // 与 lesso LessoChatMemoryExtras.DISPLAY_CONTENT 同名，避免框架依赖 memory 模块
+            meta.put("display_content", displayUserText);
         }
+        var builder = UserMessage.builder().text(userText);
+        if (!meta.isEmpty()) {
+            builder.metadata(meta);
+        }
+        if (medias != null && !medias.isEmpty()) {
+            builder.media(medias);
+        }
+        messages.add(builder.build());
         return messages;
     }
 

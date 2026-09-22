@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.0.8] — 2026-09-22
+
+### Changed
+
+- **记忆 USER 展示正文 SPI**：框架 `StreamingLlmTemplate` 不再穷举 state key；新增 `MemoryDisplayUserTextResolver` / `KeyListMemoryDisplayUserTextResolver`，由业务侧 Bean 决定兜底 key。未注册 SPI 时不写 `display_content`。
+- **多节点即时落盘**：出口节点 Ordered Advisor `writeUser=false`；非出口 `READ_WRITE` 写 USER（经 SPI）+ ASSISTANT（可挂 `extras.thinking`）。
+
 ## [1.0.7] — 2026-09-22
 
 ### Fixed
