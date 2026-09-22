@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.0.7] — 2026-09-22
+
+### Fixed
+
+- **构图保留键**：`DynamicGraphBuilder` 自动为 `conversationId` / `agentCode` / `runId` / `forceSkills` / `deepThinking` / `modelOverrides` 补 `REPLACE` KeyStrategy，避免多节点合并丢会话键导致记忆 Advisor 跳过。
+- **本地 Template 兜底**：`GenericAgentNode` 本地装配 `StreamingLlmTemplate` 时注入 `ChatClientAdvisorProvider` 与 `PromptContentResolver`，避免无 Bean 路径下对话记忆整段失效。
+
+### Added
+
+- **设计器 `memoryMode`**：属性面板 / Agent 编辑器可配置 `NONE` | `READ_ONLY` | `READ_WRITE`（节点 LLM 完成即按 Advisor 落盘，非图尾统一 persist）。
+
+## [1.0.6]
+
 ### Changed
 
 - **多模态分流（§8.2 / §8.3）**：`MediaRefResolver.ResolveResult` 增加 `materialNotes`。图片/音视频进 `medias`（`UserMessage.media`）；xlsx/pdf/docx 等进材料注记并追加到 user 文本，供工具/Skill 读 `url=`；不安全 URL 仍进 `skippedNotes`。`DefaultMediaRefResolver` / `StreamingLlmTemplate` 已接线。图配置无需改拓扑（`mediaInputKey` 仍指向 state 引用列表）。
