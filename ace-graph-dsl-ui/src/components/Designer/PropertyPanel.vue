@@ -758,6 +758,20 @@ function onStreamingChange(val) {
                 <span class="hint" style="display:block; margin-top:4px;">{{ t('propertyPanel.agentSpec.streamResponseKindHint') }}</span>
               </el-form-item>
 
+              <el-divider content-position="left">{{ t('propertyPanel.agentSpec.memoryMode') }}</el-divider>
+              <el-form-item :label="t('propertyPanel.agentSpec.memoryMode')">
+                <el-select
+                  :model-value="currentAgentSpec.memoryMode || 'NONE'"
+                  @update:model-value="onAgentSpecField('memoryMode', $event || 'NONE')"
+                  style="width: 100%;"
+                >
+                  <el-option :label="t('propertyPanel.agentSpec.memoryModeNone')" value="NONE" />
+                  <el-option :label="t('propertyPanel.agentSpec.memoryModeReadOnly')" value="READ_ONLY" />
+                  <el-option :label="t('propertyPanel.agentSpec.memoryModeReadWrite')" value="READ_WRITE" />
+                </el-select>
+                <span class="hint" style="display:block; margin-top:4px;">{{ t('propertyPanel.agentSpec.memoryModeHint') }}</span>
+              </el-form-item>
+
               <el-divider content-position="left">{{ t('propertyPanel.agentSpec.deepThinking') }}</el-divider>
               <el-form-item :label="t('propertyPanel.agentSpec.applyDeepThinking')">
                 <el-switch

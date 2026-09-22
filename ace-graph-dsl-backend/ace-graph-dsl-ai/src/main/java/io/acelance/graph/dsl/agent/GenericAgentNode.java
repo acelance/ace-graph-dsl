@@ -304,9 +304,14 @@ public class GenericAgentNode implements GraphBoundAgentNode {
         }
         io.acelance.graph.dsl.ai.media.MediaRefResolver media =
                 optionalBean(io.acelance.graph.dsl.ai.media.MediaRefResolver.class, null);
-        log.info("节点 {} 本地装配 StreamingLlmTemplate（含 Skill/Media SPI 兜底）", nodeId);
+        io.acelance.graph.dsl.prompt.PromptContentResolver prompts =
+                optionalBean(io.acelance.graph.dsl.prompt.PromptContentResolver.class, null);
+        io.acelance.graph.dsl.ai.advisor.ChatClientAdvisorProvider advisors =
+                optionalBean(io.acelance.graph.dsl.ai.advisor.ChatClientAdvisorProvider.class, null);
+        log.info("节点 {} 本地装配 StreamingLlmTemplate（含 Skill/Media/记忆 Advisor SPI 兜底）: advisorProvider={}",
+                nodeId, advisors != null);
         return new StreamingLlmTemplate(
-                renderer, endpointResolver, cmf, bridge, catalog, content, resources, media);
+                renderer, endpointResolver, cmf, bridge, catalog, content, resources, media, prompts, advisors);
     }
 
     private String readRunId(OverAllState state) {

@@ -47,6 +47,7 @@ const defaultForm = () => ({
   outputKey: 'agent_result',
   mediaInputKey: '',
   streamResponseKind: '',
+  memoryMode: 'NONE',
   enablePrompt: false,
   promptKeysText: '',
   enableModel: false,
@@ -164,6 +165,7 @@ function applyDefinition(def) {
   form.value.outputKey = s.outputKey || 'agent_result'
   form.value.mediaInputKey = s.mediaInputKey || ''
   form.value.streamResponseKind = s.streamResponseKind || ''
+  form.value.memoryMode = s.memoryMode || 'NONE'
   form.value.enablePrompt = !!s.enablePrompt
   form.value.promptKeysText = csvOf(s.promptKeys)
   form.value.enableModel = !!s.enableModel
@@ -275,6 +277,7 @@ function buildBody() {
     outputKey: form.value.outputKey,
     mediaInputKey: form.value.mediaInputKey || null,
     streamResponseKind: form.value.streamResponseKind || null,
+    memoryMode: form.value.memoryMode || 'NONE',
     enablePrompt: form.value.enablePrompt,
     promptKeys,
     enableModel: form.value.enableModel,
@@ -408,6 +411,16 @@ async function onSubmit() {
           />
         </el-select>
         <span class="hint" style="display:block; margin-top:4px;">{{ t('propertyPanel.agentSpec.streamResponseKindHint') }}</span>
+      </el-form-item>
+
+      <el-divider content-position="left">{{ t('propertyPanel.agentSpec.memoryMode') }}</el-divider>
+      <el-form-item :label="t('propertyPanel.agentSpec.memoryMode')">
+        <el-select v-model="form.memoryMode" style="width:100%;">
+          <el-option :label="t('propertyPanel.agentSpec.memoryModeNone')" value="NONE" />
+          <el-option :label="t('propertyPanel.agentSpec.memoryModeReadOnly')" value="READ_ONLY" />
+          <el-option :label="t('propertyPanel.agentSpec.memoryModeReadWrite')" value="READ_WRITE" />
+        </el-select>
+        <span class="hint" style="display:block; margin-top:4px;">{{ t('propertyPanel.agentSpec.memoryModeHint') }}</span>
       </el-form-item>
 
       <el-divider content-position="left">{{ t('propertyPanel.agentSpec.deepThinking') }}</el-divider>

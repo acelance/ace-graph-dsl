@@ -21,6 +21,8 @@ import io.acelance.graph.dsl.script.ScriptNodeFactory;
 import io.acelance.graph.dsl.agent.GenericAgentNodeFactory;
 import io.acelance.graph.dsl.agent.GraphBoundAgentNode;
 import io.acelance.graph.dsl.definition.GenericAgentSpec;
+import io.acelance.graph.dsl.llm.LlmRequestContext;
+import io.acelance.graph.dsl.runtime.ModelOverrideSpec;
 import io.acelance.graph.dsl.streamkind.StreamResponseKind;
 import io.acelance.graph.dsl.streamkind.StreamResponseKindResolver;
 import com.alibaba.cloud.ai.graph.CompileConfig;
@@ -68,6 +70,18 @@ public class DynamicGraphBuilder {
 
     /** 子图最大嵌套深度（与 GraphValidator.MAX_SUBGRAPH_DEPTH 保持一致） */
     static final int MAX_SUBGRAPH_DEPTH = 3;
+
+    /**
+     * 入口写入的保留键：构图时若图 JSON 未声明 KeyStrategy，自动补 REPLACE，避免多节点合并丢键。
+     */
+    private static final List<String> RESERVED_STATE_KEYS = List.of(
+            LlmRequestContext.ACE_AGENT_CODE_KEY,
+            LlmRequestContext.ACE_FORCE_SKILLS_KEY,
+            LlmRequestContext.ACE_CONVERSATION_ID_KEY,
+            LlmRequestContext.ACE_DEEP_THINKING_KEY,
+            ModelOverrideSpec.ACE_RUN_ID_KEY,
+            ModelOverrideSpec.ACE_MODEL_OVERRIDES_KEY
+    );
 
     private final GraphNodeRegistry nodeRegistry;
     private final EdgeDispatcherRegistry dispatcherRegistry;
@@ -506,6 +520,10 @@ public class DynamicGraphBuilder {
             Map<String, KeyStrategy> strategies = new HashMap<>();
             if (def.keyStrategies() != null) {
                 def.keyStrategies().forEach((k, v) -> strategies.put(k, toStrategy(v)));
+            }
+            // 入口保留键：图 JSON 未声明时仍贯穿多节点（避免 conversationId 等在第二跳丢失）
+            for (String key : RESERVED_STATE_KEYS) {
+                strategies.putIfAbsent(key, new ReplaceStrategy());
             }
             return strategies;
         };
