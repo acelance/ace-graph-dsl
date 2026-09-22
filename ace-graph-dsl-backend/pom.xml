@@ -13,7 +13,7 @@
 
     <groupId>io.acelance</groupId>
     <artifactId>ace-graph-dsl-backend</artifactId>
-    <version>1.0.4</version>
+    <version>1.0.5</version>
     <packaging>pom</packaging>
     <name>ace-graph-dsl-backend</name>
     <description>Ace Graph DSL - backend modules for dynamic graph configuration</description>
