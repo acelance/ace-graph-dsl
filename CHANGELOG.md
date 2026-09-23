@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.0] — 2026-09-23
+
+### Fixed
+
+- **forceSkills 静默跳过**：有效白名单改为 `skillKeys ∪ forceSkills`；口令/点选的 skill 即使设计器未勾选也会进 L1、预激活 L2，并可 `load_skill`。
+
+### Changed
+
+- **流式+工具 maxRounds**：默认 **30**，配置项 `ace.graph.dsl.llm.stream-tool-max-rounds`。
+
 ## [1.0.9] — 2026-09-23
 
 ### Changed

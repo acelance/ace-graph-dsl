@@ -6,7 +6,9 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Set;
 
 /**
  * 读取 state 保留键 {@link LlmRequestContext#ACE_FORCE_SKILLS_KEY}（§6.3.1）。
@@ -16,6 +18,30 @@ public final class ForceSkills {
     private static final Logger log = LoggerFactory.getLogger(ForceSkills.class);
 
     private ForceSkills() {
+    }
+
+    /**
+     * 本节点有效 skill 白名单：节点 {@code skillKeys} ∪ 请求级 {@code forceSkills}。
+     * <p>用户口令 / 前端点选写入的 forceSkills 视为本轮显式授权，避免「解析到了却因未勾选白名单静默跳过」。
+     * 设计器白名单仍是默认目录；force 仅扩大本 run 可用集合。</p>
+     */
+    public static List<String> effectiveSkillKeys(OverAllState state, String nodeId, List<String> skillKeys) {
+        Set<String> keys = new LinkedHashSet<>();
+        if (skillKeys != null) {
+            for (String k : skillKeys) {
+                if (k == null) {
+                    continue;
+                }
+                String s = k.trim();
+                if (!s.isEmpty()) {
+                    keys.add(s);
+                }
+            }
+        }
+        for (String f : read(state, nodeId)) {
+            keys.add(f);
+        }
+        return List.copyOf(keys);
     }
 
     /**

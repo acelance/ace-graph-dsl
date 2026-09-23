@@ -24,13 +24,21 @@ public final class ForceSkillActivator {
     }
 
     /**
-     * @return 已强制激活的正文块（有序）；不在白名单的跳过并打 info
+     * @param effectiveWhitelist 节点 skillKeys ∪ forceSkills（见 {@link ForceSkills#effectiveSkillKeys}）
+     * @return 已强制激活的正文块（有序）；不在有效白名单的跳过并打 info
      */
     public static List<ActivatedSkill> activate(LlmRequestContext ctx,
                                                 SkillContentLoader contentLoader,
-                                                Set<String> activated) {
+                                                Set<String> activated,
+                                                List<String> effectiveWhitelist) {
         ResourceBinding binding = ctx.binding();
-        if (binding == null || !binding.enableSkill() || binding.skillKeys().isEmpty()) {
+        if (binding == null || !binding.enableSkill()) {
+            return List.of();
+        }
+        List<String> whitelist = effectiveWhitelist == null || effectiveWhitelist.isEmpty()
+                ? ForceSkills.effectiveSkillKeys(ctx.state(), ctx.nodeId(), binding.skillKeys())
+                : effectiveWhitelist;
+        if (whitelist.isEmpty()) {
             return List.of();
         }
         List<String> force = ForceSkills.read(ctx.state(), ctx.nodeId());
@@ -40,8 +48,8 @@ public final class ForceSkillActivator {
         Set<String> activatedSafe = activated != null ? activated : new LinkedHashSet<>();
         List<ActivatedSkill> out = new ArrayList<>();
         for (String code : force) {
-            if (!SkillPathSafety.inWhitelist(code, binding.skillKeys())) {
-                log.info("节点 {} 的 forceSkills 含 {}，但不在本节点白名单，跳过加载（保留键仍留给后续节点）",
+            if (!SkillPathSafety.inWhitelist(code, whitelist)) {
+                log.info("节点 {} 的 forceSkills 含 {}，但不在有效白名单，跳过加载（保留键仍留给后续节点）",
                         ctx.nodeId(), code);
                 continue;
             }
@@ -60,6 +68,13 @@ public final class ForceSkillActivator {
             out.add(new ActivatedSkill(code, body));
         }
         return List.copyOf(out);
+    }
+
+    /** 兼容旧调用：白名单取 skillKeys ∪ forceSkills。 */
+    public static List<ActivatedSkill> activate(LlmRequestContext ctx,
+                                                SkillContentLoader contentLoader,
+                                                Set<String> activated) {
+        return activate(ctx, contentLoader, activated, null);
     }
 
     /** 预激活结果 */

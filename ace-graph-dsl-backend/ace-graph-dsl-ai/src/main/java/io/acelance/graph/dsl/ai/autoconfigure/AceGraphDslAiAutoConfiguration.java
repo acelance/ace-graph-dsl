@@ -40,6 +40,7 @@ import org.springframework.ai.chat.prompt.ChatOptions;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
+import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.ApplicationContext;
 import org.springframework.context.annotation.Bean;
 
@@ -47,6 +48,7 @@ import org.springframework.context.annotation.Bean;
  * ace-graph-dsl-ai 自动配置：Agent 工厂 + LlmResolvers / Template / Skill / 模型解析默认 Bean。
  */
 @AutoConfiguration
+@EnableConfigurationProperties(AceGraphDslLlmProperties.class)
 public class AceGraphDslAiAutoConfiguration {
 
     private static final Logger log = LoggerFactory.getLogger(AceGraphDslAiAutoConfiguration.class);
@@ -217,10 +219,15 @@ public class AceGraphDslAiAutoConfiguration {
     @ConditionalOnMissingBean(StreamingLlmTemplate.class)
     public StreamingLlmTemplate streamingLlmTemplate(LlmResolvers llmResolvers,
                                                      ObjectProvider<GraphStreamBridge> streamBridge,
-                                                     ObjectProvider<MemoryDisplayUserTextResolver> memoryDisplayUserTexts) {
+                                                     ObjectProvider<MemoryDisplayUserTextResolver> memoryDisplayUserTexts,
+                                                     AceGraphDslLlmProperties llmProperties) {
         MemoryDisplayUserTextResolver display = memoryDisplayUserTexts.getIfAvailable();
-        log.info("注册 StreamingLlmTemplate ← LlmResolvers, memoryDisplayUserTextResolver={}",
-                display != null ? display.getClass().getSimpleName() : "null");
-        return new StreamingLlmTemplate(llmResolvers, streamBridge.getIfAvailable(), display);
+        StreamingLlmTemplate template = new StreamingLlmTemplate(
+                llmResolvers, streamBridge.getIfAvailable(), display);
+        int maxRounds = llmProperties.resolvedStreamToolMaxRounds();
+        template.setStreamToolMaxRounds(maxRounds);
+        log.info("注册 StreamingLlmTemplate ← LlmResolvers, memoryDisplayUserTextResolver={}, streamToolMaxRounds={}",
+                display != null ? display.getClass().getSimpleName() : "null", maxRounds);
+        return template;
     }
 }

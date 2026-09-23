@@ -25,6 +25,7 @@ import io.acelance.graph.dsl.media.MediaRefs;
 import io.acelance.graph.dsl.prompt.PromptContentResolver;
 import io.acelance.graph.dsl.prompt.PromptRenderer;
 import io.acelance.graph.dsl.resource.ResourceBinding;
+import io.acelance.graph.dsl.skill.ForceSkills;
 import io.acelance.graph.dsl.skill.SkillCatalogResolver;
 import io.acelance.graph.dsl.skill.SkillContentLoader;
 import io.acelance.graph.dsl.skill.SkillDescriptor;
@@ -87,6 +88,8 @@ public class StreamingLlmTemplate {
     private final LlmChatOptionsCustomizer optionsCustomizer;
     /** 可选：业务侧决定记忆 USER 展示正文从哪些 state key 取 */
     private final MemoryDisplayUserTextResolver memoryDisplayUserTextResolver;
+    /** 流式+工具手动多轮上限，默认 30；可用 {@code ace.graph.dsl.llm.stream-tool-max-rounds} 配置 */
+    private int streamToolMaxRounds = 30;
 
     /** P3.5 / P3.8：由 {@link LlmResolvers} 单点注入 */
     public StreamingLlmTemplate(LlmResolvers resolvers, GraphStreamBridge streamBridge) {
@@ -210,6 +213,17 @@ public class StreamingLlmTemplate {
         this.memoryDisplayUserTextResolver = memoryDisplayUserTextResolver;
     }
 
+    /**
+     * 设置流式+工具多轮上限（默认 30）。&lt;=0 回退 30。
+     */
+    public void setStreamToolMaxRounds(int streamToolMaxRounds) {
+        this.streamToolMaxRounds = streamToolMaxRounds > 0 ? streamToolMaxRounds : 30;
+    }
+
+    public int getStreamToolMaxRounds() {
+        return streamToolMaxRounds;
+    }
+
     public Map<String, Object> execute(LlmCallRequest req) {
         Objects.requireNonNull(req, "LlmCallRequest");
         LlmRequestContext ctx = req.context();
@@ -232,21 +246,27 @@ public class StreamingLlmTemplate {
         }
 
         List<ForceSkillActivator.ActivatedSkill> forced = List.of();
-        if (binding != null && binding.enableSkill() && !binding.skillKeys().isEmpty()) {
-            List<SkillDescriptor> skills = skillCatalog == null
-                    ? List.of()
-                    : skillCatalog.resolve(ctx, binding.skillKeys());
-            String l1 = SkillL1Catalog.format(skills);
-            if (!l1.isEmpty()) {
-                system = system + l1;
-                log.info("节点 {} 已追加 Skill L1 目录: {} 项", ctx.nodeId(), skills.size());
-            }
-            forced = ForceSkillActivator.activate(ctx, skillContent, activated);
-            if (skillContent != null) {
-                allNamed.addAll(SkillTools.builtin(ctx, binding.skillKeys(),
-                        skillContent, skillResources, activated));
-            } else {
-                log.warn("节点 {} enableSkill 但无 SkillContentLoader，跳过内置 skill 工具", ctx.nodeId());
+        if (binding != null && binding.enableSkill()) {
+            // 口令/点选 forceSkills 并入本 run 有效白名单，避免「解析到却因未勾选静默跳过」
+            List<String> effectiveSkillKeys = ForceSkills.effectiveSkillKeys(
+                    ctx.state(), ctx.nodeId(), binding.skillKeys());
+            if (!effectiveSkillKeys.isEmpty()) {
+                List<SkillDescriptor> skills = skillCatalog == null
+                        ? List.of()
+                        : skillCatalog.resolve(ctx, effectiveSkillKeys);
+                String l1 = SkillL1Catalog.format(skills);
+                if (!l1.isEmpty()) {
+                    system = system + l1;
+                    log.info("节点 {} 已追加 Skill L1 目录: {} 项（effectiveKeys={}）",
+                            ctx.nodeId(), skills.size(), effectiveSkillKeys.size());
+                }
+                forced = ForceSkillActivator.activate(ctx, skillContent, activated, effectiveSkillKeys);
+                if (skillContent != null) {
+                    allNamed.addAll(SkillTools.builtin(ctx, effectiveSkillKeys,
+                            skillContent, skillResources, activated));
+                } else {
+                    log.warn("节点 {} enableSkill 但无 SkillContentLoader，跳过内置 skill 工具", ctx.nodeId());
+                }
             }
         }
 
@@ -509,7 +529,7 @@ public class StreamingLlmTemplate {
         List<Message> conversation = new ArrayList<>(messages);
         StringBuilder visible = new StringBuilder();
         Map<String, Object> attrs = req.streamAttrs();
-        final int maxRounds = 8;
+        final int maxRounds = streamToolMaxRounds;
         try {
             for (int round = 0; round < maxRounds; round++) {
                 List<ChatResponse> frames = new ArrayList<>();
