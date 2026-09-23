@@ -5,6 +5,7 @@ import io.acelance.graph.dsl.ai.advisor.ChatClientAdvisorBundle;
 import io.acelance.graph.dsl.ai.advisor.ChatClientAdvisorProvider;
 import io.acelance.graph.dsl.ai.advisor.ChatClientAdvisorRequest;
 import io.acelance.graph.dsl.ai.media.DefaultMediaRefResolver;
+import io.acelance.graph.dsl.ai.media.MediaMaterialSupport;
 import io.acelance.graph.dsl.ai.media.MediaRefResolver;
 import io.acelance.graph.dsl.ai.memory.MemoryDisplayUserTextResolver;
 import io.acelance.graph.dsl.ai.model.ChatModelFactory;
@@ -519,7 +520,11 @@ public class StreamingLlmTemplate {
      *
      * <p>Spring AI 1.1.x {@link ToolCallAdvisor#adviseStream} 未实现，故不挂 Advisor；
      * 在 Template 内手动：stream 一轮 → 若有 toolCalls 则 Merging 执行并回灌 → 再 stream，
-     * 直至无 toolCalls；仅无 toolCalls 的文本进入 visible / bridge。</p>
+     * 直至无 toolCalls。</p>
+     *
+     * <p><b>C2</b>：仅<strong>无 toolCalls 的终答轮</strong>文本进入 {@code visible}（→ 记忆 content / outputKey）；
+     * 有 toolCalls 的中间轮过程字仍可 SSE live emit（{@code thinking:true} 时进思考气泡 + Buffer），
+     * <strong>不</strong>拼进 visible，避免「步骤 1/2/3」污染历史主气泡。</p>
      */
     private String streamCallWithTools(ChatModel model, List<Message> messages,
                                        List<ToolCallback> tools, LlmCallRequest req,
@@ -533,6 +538,7 @@ public class StreamingLlmTemplate {
         try {
             for (int round = 0; round < maxRounds; round++) {
                 List<ChatResponse> frames = new ArrayList<>();
+                StringBuilder roundText = new StringBuilder();
                 ChatClient.ChatClientRequestSpec spec = prepareSpec(model, conversation, tools, req);
                 spec.stream()
                         .chatResponse()
@@ -541,12 +547,13 @@ public class StreamingLlmTemplate {
                                 return;
                             }
                             frames.add(cr);
-                            if (cr.hasToolCalls()) {
+                            String tok = extractAssistantTextDelta(cr);
+                            if (tok == null || tok.isEmpty()) {
                                 return;
                             }
-                            String tok = extractAssistantTextDelta(cr);
-                            if (tok != null && !tok.isEmpty()) {
-                                visible.append(tok);
+                            roundText.append(tok);
+                            // 带 toolCalls 的帧不推（避免工具协议碎片）；同轮先到的纯文本仍 live emit
+                            if (!cr.hasToolCalls()) {
                                 emitStreamingToken(ctx, tok, kind, attrs);
                             }
                         })
@@ -554,7 +561,12 @@ public class StreamingLlmTemplate {
 
                 ChatResponse toolRound = lastWithToolCalls(frames);
                 if (toolRound == null) {
+                    appendRoundToVisibleIfFinal(visible, roundText, false);
                     break;
+                }
+                if (roundText.length() > 0) {
+                    log.info("节点 {} 流式工具中间轮不进 visible: round={}, intermediateChars={}（C2）",
+                            ctx.nodeId(), round + 1, roundText.length());
                 }
                 ToolCallingChatOptions opts = ToolCallingChatOptions.builder()
                         .toolCallbacks(tools)
@@ -573,10 +585,15 @@ public class StreamingLlmTemplate {
                             .build();
                 }
                 Prompt prompt = new Prompt(conversation, toolOpts);
+                List<String> requestedNames = StreamingToolCallMergingManager.requestedToolNames(toolRound);
+                Set<String> knownNames = StreamingToolCallMergingManager.knownToolNames(prompt);
+                Set<String> unknownNames = StreamingToolCallMergingManager.unknownToolNames(toolRound, knownNames);
+                log.info("节点 {} 流式工具轮: round={}, requestedTools={}, unknownTools={}, knownCount={}",
+                        ctx.nodeId(), round + 1, requestedNames, unknownNames, knownNames.size());
                 var result = toolManager.executeToolCalls(prompt, toolRound);
                 conversation = new ArrayList<>(result.conversationHistory());
-                log.info("节点 {} 流式工具轮完成: round={}, historyMsgs={}",
-                        ctx.nodeId(), round + 1, conversation.size());
+                log.info("节点 {} 流式工具轮完成: round={}, historyMsgs={}, requestedTools={}",
+                        ctx.nodeId(), round + 1, conversation.size(), requestedNames);
             }
             // 终答已推完：用 Echo ChatModel + 记忆 Advisor 走一遍 call，落 USER/ASSISTANT（含 thinking drain）
             persistMemoryAfterToolStream(messages, visible.toString(), req);
@@ -585,6 +602,18 @@ public class StreamingLlmTemplate {
             log.info("节点 {} 流式+工具完成: chars={}, kind={}", ctx.nodeId(), visible.length(), kind);
         }
         return visible.toString();
+    }
+
+    /**
+     * C2：仅终答轮（无 toolCalls）文本进入 visible；中间轮返回 {@code false}。
+     */
+    static boolean appendRoundToVisibleIfFinal(StringBuilder visible, CharSequence roundText,
+                                               boolean roundHasToolCalls) {
+        if (visible == null || roundHasToolCalls || roundText == null || roundText.length() == 0) {
+            return false;
+        }
+        visible.append(roundText);
+        return true;
     }
 
     /**
@@ -722,11 +751,20 @@ public class StreamingLlmTemplate {
             }
         }
         String userText = user == null || user.isBlank() ? " " : user;
+        // SPI 优先；若无 SPI 但含材料注记，则剥注记作为展示正文（C3）
+        String display = displayUserText != null && !displayUserText.isBlank()
+                ? displayUserText.trim()
+                : null;
+        if (display == null && userText.contains(MediaMaterialSupport.MATERIAL_NOTE_PREFIX)) {
+            String stripped = MediaMaterialSupport.stripMaterialNotes(userText);
+            if (stripped != null && !stripped.isBlank() && !stripped.equals(userText)) {
+                display = stripped;
+            }
+        }
         Map<String, Object> meta = new LinkedHashMap<>();
-        if (displayUserText != null && !displayUserText.isBlank()
-                && !displayUserText.equals(userText)) {
+        if (display != null && !display.isBlank() && !display.equals(userText)) {
             // 与 lesso LessoChatMemoryExtras.DISPLAY_CONTENT 同名，避免框架依赖 memory 模块
-            meta.put("display_content", displayUserText);
+            meta.put("display_content", display);
         }
         var builder = UserMessage.builder().text(userText);
         if (!meta.isEmpty()) {
@@ -736,6 +774,14 @@ public class StreamingLlmTemplate {
             builder.media(medias);
         }
         messages.add(builder.build());
+        if (meta.containsKey("display_content")) {
+            log.info("记忆 USER display_content 已挂: displayChars={}, llmUserChars={}",
+                    display.length(), userText.length());
+        }
+        else if (userText.contains(MediaMaterialSupport.MATERIAL_NOTE_PREFIX)) {
+            log.warn("LLM user 含材料注记但未挂 display_content，历史 USER 可能被污染: llmUserChars={}",
+                    userText.length());
+        }
         return messages;
     }
 

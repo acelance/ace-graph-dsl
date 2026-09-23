@@ -105,11 +105,40 @@ public final class MediaMaterialSupport {
     /**
      * 写入 user 文本的材料注记（供工具 / Skill 读 url，不依赖模型视觉能力）。
      */
+    public static final String MATERIAL_NOTE_PREFIX = "[material]";
+
     public static String materialNote(String url, String mime) {
         String m = mime == null || mime.isBlank() ? "unknown" : mime.trim();
-        return "[material] name=" + filename(url)
+        return MATERIAL_NOTE_PREFIX + " name=" + filename(url)
                 + " mime=" + m
                 + " url=" + url;
+    }
+
+    /**
+     * 从 LLM user 全文剥掉尾部材料注记，得到记忆/展示用用户原话。
+     * 无注记时原样返回；全文皆注记时返回空串。
+     */
+    public static String stripMaterialNotes(String userText) {
+        if (userText == null || userText.isBlank()) {
+            return userText == null ? "" : userText;
+        }
+        String text = userText;
+        int idx = text.indexOf("\n" + MATERIAL_NOTE_PREFIX);
+        if (idx < 0) {
+            idx = text.startsWith(MATERIAL_NOTE_PREFIX) ? 0 : text.indexOf(MATERIAL_NOTE_PREFIX);
+            if (idx < 0) {
+                return text;
+            }
+            if (idx > 0) {
+                // 行中偶发：从该行首剥
+                int line = text.lastIndexOf('\n', idx);
+                idx = line >= 0 ? line : idx;
+            }
+        }
+        if (idx == 0) {
+            return "";
+        }
+        return text.substring(0, idx).stripTrailing();
     }
 
     public static String abbreviate(String url) {

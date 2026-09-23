@@ -7,6 +7,8 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
+import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
@@ -16,6 +18,7 @@ import java.util.concurrent.ConcurrentHashMap;
  * 按 graphId + nodeId 读取节点定义与业务附加参数。
  *
  * <p>解释结果按 {@code graphId|nodeId|interpreterId|raw} 缓存，避免每个 token 重复解析。</p>
+ * <p>运行时 nodeId 可能带编译前缀（如 {@code agent:ls_biz_node}），查找时会尝试去前缀别名。</p>
  */
 public final class AceGraphNodeHelper {
 
@@ -34,12 +37,60 @@ public final class AceGraphNodeHelper {
 
     public Optional<NodeRef> findNode(String graphId, String nodeId) {
         GraphDefinition def = definitionSource.get(graphId);
-        if (def == null || def.nodes() == null || nodeId == null) {
+        if (def == null || def.nodes() == null || nodeId == null || nodeId.isBlank()) {
             return Optional.empty();
         }
-        return def.nodes().stream()
-                .filter(n -> nodeId.equals(n.nodeId()))
-                .findFirst();
+        for (String key : nodeIdLookupKeys(nodeId)) {
+            Optional<NodeRef> hit = def.nodes().stream()
+                    .filter(n -> key.equals(n.nodeId()))
+                    .findFirst();
+            if (hit.isPresent()) {
+                if (!key.equals(nodeId.trim())) {
+                    log.debug("nodeId 别名命中: runtime={} -> definition={}", nodeId, key);
+                }
+                return hit;
+            }
+        }
+        // 定义 id 为 runtime 后缀（runtime=agent:ls_biz_node，def=ls_biz_node）
+        String runtime = nodeId.trim();
+        for (NodeRef n : def.nodes()) {
+            String defId = n.nodeId();
+            if (defId == null || defId.isBlank()) {
+                continue;
+            }
+            if (runtime.endsWith(":" + defId)) {
+                log.debug("nodeId 后缀命中: runtime={} -> definition={}", nodeId, defId);
+                return Optional.of(n);
+            }
+        }
+        return Optional.empty();
+    }
+
+    /**
+     * 运行时 nodeId → 定义查找候选（保序去重）。
+     * 例：{@code agent:ls_biz_node} → {@code [agent:ls_biz_node, ls_biz_node]}
+     */
+    public static List<String> nodeIdLookupKeys(String nodeId) {
+        if (nodeId == null || nodeId.isBlank()) {
+            return List.of();
+        }
+        LinkedHashSet<String> keys = new LinkedHashSet<>();
+        String n = nodeId.trim();
+        keys.add(n);
+        if (n.length() > 6 && n.regionMatches(true, 0, "agent:", 0, 6)) {
+            String stripped = n.substring(6).trim();
+            if (!stripped.isEmpty()) {
+                keys.add(stripped);
+            }
+        }
+        int colon = n.lastIndexOf(':');
+        if (colon >= 0 && colon < n.length() - 1) {
+            String after = n.substring(colon + 1).trim();
+            if (!after.isEmpty()) {
+                keys.add(after);
+            }
+        }
+        return List.copyOf(keys);
     }
 
     public Optional<GenericAgentSpec> findAgentSpec(String graphId, String nodeId) {

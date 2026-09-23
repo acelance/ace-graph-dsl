@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.2] — 2026-09-23
+
+### Fixed
+
+- **历史 USER 材料污染（B2/C3）**：LLM user 含 `[material]` 时 Template 挂 `display_content` 兜底剥离；与 Lesso codec/Advisor 双保险配合。
+- **工具轮中间文本进主气泡（C2）**：`streamCallWithTools` 仅无 toolCalls 的终答轮进入 `visible`（→ 记忆 content）；中间轮过程字仍可 SSE emit（thinking 通道），不拼进 visible。
+
+### Changed
+
+- **记忆展示观测**：挂/未挂 `display_content` 时打 info/warn 日志，便于核对落盘路径。
+
+## [1.1.1] — 2026-09-23
+
+### Fixed
+
+- **未知工具软降级**：`StreamingToolCallMergingManager` 对模型幻觉的未注册 tool 名（如 `write_file`）挂占位 callback，回 `unknown_tool` 提示并继续多轮，不再抛 `No ToolCallback found`。
+- **bizParam nodeId 别名（问题二 B1）**：`AceGraphNodeHelper.findNode` 支持运行时 `agent:xxx` → 定义 `xxx` 回退查找。
+
+### Changed
+
+- **工具轮日志**：`StreamingLlmTemplate` 每轮打印 `requestedTools` / `unknownTools` / `knownCount`（成功失败均可见）。
+
 ## [1.1.0] — 2026-09-23
 
 ### Fixed
