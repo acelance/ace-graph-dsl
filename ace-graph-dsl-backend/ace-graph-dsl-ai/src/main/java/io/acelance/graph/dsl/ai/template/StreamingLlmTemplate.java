@@ -15,6 +15,7 @@ import io.acelance.graph.dsl.ai.options.LlmChatOptionsCustomizer;
 import io.acelance.graph.dsl.ai.skill.ForceSkillActivator;
 import io.acelance.graph.dsl.ai.skill.SkillTools;
 import io.acelance.graph.dsl.ai.tool.NamedToolCallback;
+import io.acelance.graph.dsl.ai.tool.StreamingToolCallMergingManager;
 import io.acelance.graph.dsl.ai.tool.ToolConflictPolicy;
 import io.acelance.graph.dsl.ai.tool.ToolDeduper;
 import io.acelance.graph.dsl.llm.LlmRequestContext;
@@ -37,14 +38,19 @@ import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.chat.client.advisor.ToolCallAdvisor;
 import org.springframework.ai.chat.client.advisor.api.Advisor;
 import org.springframework.ai.chat.memory.ChatMemory;
+import org.springframework.ai.chat.messages.AssistantMessage;
 import org.springframework.ai.chat.messages.Message;
 import org.springframework.ai.chat.messages.SystemMessage;
 import org.springframework.ai.chat.messages.UserMessage;
 import org.springframework.ai.chat.model.ChatModel;
+import org.springframework.ai.chat.model.ChatResponse;
+import org.springframework.ai.chat.model.Generation;
 import org.springframework.ai.chat.prompt.ChatOptions;
+import org.springframework.ai.chat.prompt.Prompt;
 import org.springframework.ai.content.Media;
 import org.springframework.ai.model.tool.DefaultToolCallingManager;
 import org.springframework.ai.model.tool.ToolCallingChatOptions;
+import org.springframework.ai.model.tool.ToolCallingManager;
 import org.springframework.ai.tool.ToolCallback;
 
 import java.util.ArrayList;
@@ -58,17 +64,15 @@ import java.util.Set;
 /**
  * 流式 LLM 节点模板：prompt / Skill / Media / 工具 / 记忆 Advisor / 流式推送。
  *
- * <p>P3.2：经原生 {@link ChatClient} 装配并执行；带工具时由 Spring AI 内部完成
- * tool_call → 执行 → 回灌的多轮闭环。</p>
- * <p>P3.8：可选 {@link ChatClientAdvisorProvider} + {@link MemoryMode}，透传
+ * <p>经原生 {@link ChatClient} 装配并执行；带工具时由 Spring AI 完成
+ * tool_call → 执行 → 回灌多轮。有工具 + 流式走 {@code stream().chatResponse()}（通道 A 稳健过滤）；
+ * 工具进度等业务帧不经本类代做/拦截（通道 B）。</p>
+ * <p>可选 {@link ChatClientAdvisorProvider} + {@link MemoryMode}，透传
  * {@link ChatMemory#CONVERSATION_ID}。</p>
  */
 public class StreamingLlmTemplate {
 
     private static final Logger log = LoggerFactory.getLogger(StreamingLlmTemplate.class);
-
-    /** 流式推送终稿时的分片大小（字符），避免单包过大 */
-    private static final int STREAM_EMIT_CHUNK = 64;
 
     private final PromptRenderer promptRenderer;
     private final ModelEndpointResolver endpointResolver;
@@ -281,9 +285,8 @@ public class StreamingLlmTemplate {
         if (wantStream && modelTools.isEmpty()) {
             full = streamCall(model, messages, modelTools, req, ctx, req.streamResponseKind());
         } else if (wantStream) {
-            log.info("节点 {} 流式+工具：先 ChatClient.call 多轮，再切片推送终稿", ctx.nodeId());
-            full = syncCall(model, messages, modelTools, req);
-            emitTextChunks(full, ctx, req.streamResponseKind(), req.streamAttrs());
+            log.info("节点 {} 流式+工具：ChatClient.stream().chatResponse() 真流式（通道 A）", ctx.nodeId());
+            full = streamCallWithTools(model, messages, modelTools, req, ctx, req.streamResponseKind());
         } else {
             full = syncCall(model, messages, modelTools, req);
             log.info("节点 {} 同步调用完成: chars={}, kind={}, elapsedMs={}",
@@ -364,14 +367,27 @@ public class StreamingLlmTemplate {
         ChatClient.Builder builder = ChatClient.builder(model);
         List<Advisor> defaults = new ArrayList<>();
         if (hasTools) {
-            defaults.add(ToolCallAdvisor.builder()
-                    .toolCallingManager(DefaultToolCallingManager.builder().build())
-                    .build());
-            log.info("节点 {} ChatClient 已挂载 ToolCallAdvisor，工具数={}", ctx.nodeId(), tools.size());
+            ToolCallingManager merging = new StreamingToolCallMergingManager(
+                    DefaultToolCallingManager.builder().build());
+            // Spring AI 1.1.x ToolCallAdvisor.adviseStream 未实现；仅同步 call 路径挂 Advisor。
+            // 流式+工具走 streamCallWithTools 手动多轮（见该方法）。
+            if (!req.streaming()) {
+                defaults.add(ToolCallAdvisor.builder()
+                        .toolCallingManager(merging)
+                        .build());
+                log.info("节点 {} ChatClient 已挂载 ToolCallAdvisor+Merging，工具数={}", ctx.nodeId(), tools.size());
+            }
+            else {
+                log.info("节点 {} 流式+工具：跳过 ToolCallAdvisor（adviseStream 未实现），改手动多轮+Merging",
+                        ctx.nodeId());
+            }
         }
 
         ChatClientAdvisorBundle mem = ChatClientAdvisorBundle.empty();
-        if (mode != MemoryMode.NONE
+        // 流式+工具手动多轮：中间轮不挂记忆；终答后由 persistMemoryAfterToolStream echo 落盘。
+        boolean allowMemory = !(hasTools && req.streaming());
+        if (allowMemory
+                && mode != MemoryMode.NONE
                 && ctx.conversationId() != null && !ctx.conversationId().isBlank()
                 && advisorProvider != null) {
             mem = advisorProvider.provide(new ChatClientAdvisorRequest(
@@ -385,10 +401,11 @@ public class StreamingLlmTemplate {
             log.info("节点 {} 记忆 Advisor 挂载: mode={}, conversationId={}, advisors={}",
                     ctx.nodeId(), mode, ctx.conversationId(), mem.advisors().size());
         } else {
-            log.info("节点 {} 跳过记忆 Advisor: mode={}, conversationIdBlank={}, providerNull={}",
+            log.info("节点 {} 跳过记忆 Advisor: mode={}, conversationIdBlank={}, providerNull={}, streamWithTools={}",
                     ctx.nodeId(), mode,
                     ctx.conversationId() == null || ctx.conversationId().isBlank(),
-                    advisorProvider == null);
+                    advisorProvider == null,
+                    hasTools && req.streaming());
         }
 
         if (!defaults.isEmpty()) {
@@ -466,35 +483,185 @@ public class StreamingLlmTemplate {
                     .doOnNext(tok -> {
                         if (tok != null && !tok.isEmpty()) {
                             sb.append(tok);
-                            streamBridge.emit(ctx.runId(), new TokenChunk(
-                                    ctx.nodeId(), tok, OutputType.AGENT_MODEL_STREAMING, kind, false,
-                                    req.streamAttrs()));
+                            emitStreamingToken(ctx, tok, kind, req.streamAttrs());
                         }
                     })
                     .blockLast();
         } finally {
-            streamBridge.emit(ctx.runId(), new TokenChunk(
-                    ctx.nodeId(), "", OutputType.AGENT_MODEL_FINISHED, kind, true, req.streamAttrs()));
+            emitFinished(ctx, kind, req.streamAttrs());
             log.info("节点 {} 流式调用完成: chars={}, kind={}", ctx.nodeId(), sb.length(), kind);
         }
         return sb.toString();
     }
 
-    /** 将终稿按固定块推送（流式+工具路径） */
-    private void emitTextChunks(String full, LlmRequestContext ctx, String kind, Map<String, Object> attrs) {
-        String text = full == null ? "" : full;
+    /**
+     * 有工具真流式（通道 A）。
+     *
+     * <p>Spring AI 1.1.x {@link ToolCallAdvisor#adviseStream} 未实现，故不挂 Advisor；
+     * 在 Template 内手动：stream 一轮 → 若有 toolCalls 则 Merging 执行并回灌 → 再 stream，
+     * 直至无 toolCalls；仅无 toolCalls 的文本进入 visible / bridge。</p>
+     */
+    private String streamCallWithTools(ChatModel model, List<Message> messages,
+                                       List<ToolCallback> tools, LlmCallRequest req,
+                                       LlmRequestContext ctx, String kind) {
+        ToolCallingManager toolManager = new StreamingToolCallMergingManager(
+                DefaultToolCallingManager.builder().build());
+        List<Message> conversation = new ArrayList<>(messages);
+        StringBuilder visible = new StringBuilder();
+        Map<String, Object> attrs = req.streamAttrs();
+        final int maxRounds = 8;
         try {
-            for (int i = 0; i < text.length(); i += STREAM_EMIT_CHUNK) {
-                int end = Math.min(i + STREAM_EMIT_CHUNK, text.length());
-                String tok = text.substring(i, end);
-                streamBridge.emit(ctx.runId(), new TokenChunk(
-                        ctx.nodeId(), tok, OutputType.AGENT_MODEL_STREAMING, kind, false, attrs));
+            for (int round = 0; round < maxRounds; round++) {
+                List<ChatResponse> frames = new ArrayList<>();
+                ChatClient.ChatClientRequestSpec spec = prepareSpec(model, conversation, tools, req);
+                spec.stream()
+                        .chatResponse()
+                        .doOnNext(cr -> {
+                            if (cr == null) {
+                                return;
+                            }
+                            frames.add(cr);
+                            if (cr.hasToolCalls()) {
+                                return;
+                            }
+                            String tok = extractAssistantTextDelta(cr);
+                            if (tok != null && !tok.isEmpty()) {
+                                visible.append(tok);
+                                emitStreamingToken(ctx, tok, kind, attrs);
+                            }
+                        })
+                        .blockLast();
+
+                ChatResponse toolRound = lastWithToolCalls(frames);
+                if (toolRound == null) {
+                    break;
+                }
+                ToolCallingChatOptions opts = ToolCallingChatOptions.builder()
+                        .toolCallbacks(tools)
+                        .internalToolExecutionEnabled(false)
+                        .build();
+                ChatOptions finalOpts = applyOptionsCustomizer(opts, req);
+                ToolCallingChatOptions toolOpts = opts;
+                if (finalOpts instanceof ToolCallingChatOptions customized) {
+                    // 流式手动多轮必须关闭内置执行，避免与 Template 循环重复跑工具
+                    toolOpts = ToolCallingChatOptions.builder()
+                            .toolCallbacks(customized.getToolCallbacks() != null
+                                    ? customized.getToolCallbacks() : tools)
+                            .toolNames(customized.getToolNames())
+                            .toolContext(customized.getToolContext())
+                            .internalToolExecutionEnabled(false)
+                            .build();
+                }
+                Prompt prompt = new Prompt(conversation, toolOpts);
+                var result = toolManager.executeToolCalls(prompt, toolRound);
+                conversation = new ArrayList<>(result.conversationHistory());
+                log.info("节点 {} 流式工具轮完成: round={}, historyMsgs={}",
+                        ctx.nodeId(), round + 1, conversation.size());
             }
+            // 终答已推完：用 Echo ChatModel + 记忆 Advisor 走一遍 call，落 USER/ASSISTANT（含 thinking drain）
+            persistMemoryAfterToolStream(messages, visible.toString(), req);
         } finally {
-            streamBridge.emit(ctx.runId(), new TokenChunk(
-                    ctx.nodeId(), "", OutputType.AGENT_MODEL_FINISHED, kind, true, attrs));
-            log.info("节点 {} 工具多轮终稿已切片推送: chars={}, kind={}", ctx.nodeId(), text.length(), kind);
+            emitFinished(ctx, kind, attrs);
+            log.info("节点 {} 流式+工具完成: chars={}, kind={}", ctx.nodeId(), visible.length(), kind);
         }
+        return visible.toString();
+    }
+
+    /**
+     * 流式+工具多轮不挂记忆 Advisor；终答后用 Echo 模型触发 Advisor before/after 落盘，
+     * 不二次调用真实 LLM。
+     */
+    private void persistMemoryAfterToolStream(List<Message> seedMessages,
+                                              String assistantText,
+                                              LlmCallRequest req) {
+        MemoryMode mode = req.memoryMode() == null ? MemoryMode.NONE : req.memoryMode();
+        if (mode == MemoryMode.NONE || advisorProvider == null) {
+            return;
+        }
+        LlmRequestContext ctx = req.context();
+        if (ctx.conversationId() == null || ctx.conversationId().isBlank()) {
+            return;
+        }
+        try {
+            LlmCallRequest echoReq = LlmCallRequest.builder()
+                    .context(ctx)
+                    .systemTemplate(req.systemTemplate())
+                    .userMessage(req.userMessage())
+                    .variables(req.variables())
+                    .outputKey(req.outputKey())
+                    .streaming(false)
+                    .streamResponseKind(req.streamResponseKind())
+                    .inlineModel(req.inlineModel())
+                    .modelOverride(req.modelOverride())
+                    .tools(List.of())
+                    .mediaInputKey(req.mediaInputKey())
+                    .conflictPolicy(req.conflictPolicy())
+                    .memoryMode(mode)
+                    .deepThinking(req.deepThinking())
+                    .streamAttrs(req.streamAttrs())
+                    .build();
+            ChatModel echo = new EchoAssistantChatModel(assistantText == null ? "" : assistantText);
+            ChatClient.ChatClientRequestSpec spec = prepareSpec(echo, seedMessages, List.of(), echoReq);
+            spec.call().content();
+            log.info("节点 {} 流式+工具终答记忆已 echo 落盘: chars={}", ctx.nodeId(),
+                    assistantText == null ? 0 : assistantText.length());
+        }
+        catch (RuntimeException ex) {
+            log.warn("节点 {} 流式+工具记忆 echo 落盘失败: {}", ctx.nodeId(), ex.toString());
+        }
+    }
+
+    /** 仅回放既定 ASSISTANT 正文，供记忆 Advisor 落盘，不访问远端模型。 */
+    private static final class EchoAssistantChatModel implements ChatModel {
+        private final String text;
+
+        EchoAssistantChatModel(String text) {
+            this.text = text == null ? "" : text;
+        }
+
+        @Override
+        public ChatResponse call(Prompt prompt) {
+            return new ChatResponse(List.of(new Generation(new AssistantMessage(text))));
+        }
+
+        @Override
+        public reactor.core.publisher.Flux<ChatResponse> stream(Prompt prompt) {
+            return reactor.core.publisher.Flux.just(call(prompt));
+        }
+    }
+
+    private static ChatResponse lastWithToolCalls(List<ChatResponse> frames) {
+        if (frames == null || frames.isEmpty()) {
+            return null;
+        }
+        for (int i = frames.size() - 1; i >= 0; i--) {
+            ChatResponse cr = frames.get(i);
+            if (cr != null && cr.hasToolCalls()) {
+                return StreamingToolCallMergingManager.normalizeStreamingToolCalls(cr);
+            }
+        }
+        return null;
+    }
+
+    /** 取本帧 assistant 文本增量（流式每帧通常为 delta）。 */
+    private static String extractAssistantTextDelta(ChatResponse cr) {
+        Generation gen = cr.getResult();
+        if (gen == null || gen.getOutput() == null) {
+            return null;
+        }
+        AssistantMessage output = gen.getOutput();
+        String text = output.getText();
+        return text == null || text.isEmpty() ? null : text;
+    }
+
+    private void emitStreamingToken(LlmRequestContext ctx, String tok, String kind, Map<String, Object> attrs) {
+        streamBridge.emit(ctx.runId(), new TokenChunk(
+                ctx.nodeId(), tok, OutputType.AGENT_MODEL_STREAMING, kind, false, attrs));
+    }
+
+    private void emitFinished(LlmRequestContext ctx, String kind, Map<String, Object> attrs) {
+        streamBridge.emit(ctx.runId(), new TokenChunk(
+                ctx.nodeId(), "", OutputType.AGENT_MODEL_FINISHED, kind, true, attrs));
     }
 
     /**

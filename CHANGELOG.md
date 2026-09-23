@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.0.9] — 2026-09-23
+
+### Changed
+
+- **有工具真流式**：streaming+tools 走 `stream().chatResponse()` 手动多轮（Spring AI 1.1.x `ToolCallAdvisor.adviseStream` 未实现）；同步路径仍用 ToolCallAdvisor。新增 `StreamingToolCallMergingManager`、`TokenChunkObserver` / `ObservingGraphStreamBridge`。终答后 Echo ChatModel 触发记忆 Advisor 落盘。
+
 ## [1.0.8] — 2026-09-22
 
 ### Changed
