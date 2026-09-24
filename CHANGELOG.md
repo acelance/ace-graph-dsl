@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.3] — 2026-09-24
+
+### Fixed
+
+- **modelConfigKey 与 modelId 二选一校验**：`GenericAgentNodeService.validateSpec` 在已配置 `modelConfigKey` 时允许 `modelId` 为空；仅启用 Model 却两者皆空时给出明确错误。
+
+### Added
+
+- **设计器嵌入契约（P0/P1）**：`EmbedContext` / `:embed` / iframe `embed.html`；左侧 graphId 精确过滤；资源 Catalog 透传 `agentCode`/`otherBizParams`（含 SPI 四参 default）。
+
 ## [1.1.2] — 2026-09-23
 
 ### Fixed

@@ -160,8 +160,12 @@ public class GenericAgentNodeService {
             throw new IllegalArgumentException("agent 元数据不能为空");
         }
         boolean hasModelConfigKey = !isBlank(spec.modelConfigKey());
+        // 与运行期 ResourceBindings / ModelEndpointResolver 一致：有 modelConfigKey 则走注册中心整路，modelId 可空
         if (!hasModelConfigKey && isBlank(spec.modelId())) {
             errors.add("模型标识 modelId 不能为空（未配置 modelConfigKey 时必填）");
+        }
+        if (spec.enableModel() && isBlank(spec.modelConfigKey()) && isBlank(spec.modelId())) {
+            errors.add("已启用 Model 配置时须填写 modelConfigKey，或改填内联 modelId");
         }
         if (isBlank(spec.prompt()) && (spec.promptKeys() == null || spec.promptKeys().isEmpty())) {
             errors.add("prompt 与 promptKeys 至少填写一项");
