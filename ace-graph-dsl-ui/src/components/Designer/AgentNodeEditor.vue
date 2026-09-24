@@ -15,24 +15,46 @@ import {
   skillCheckedIdsFromSpec,
   skillKeysFromChecked
 } from '../../utils/agentResourceCatalog'
+import {
+  buildResourceCatalogParams,
+  OTHER_BIZ_PARAMS_MAX_BYTES
+} from '../../embed/context'
 import { usePermissionStore, MENU } from '../../stores/permissions'
 import { useI18n } from '../../i18n'
 
 const perm = usePermissionStore()
 const { t } = useI18n()
 
-const props = defineProps({ editNode: { type: Object, default: null } })
+const props = defineProps({
+  editNode: { type: Object, default: null },
+  /**
+   * Catalog 浏览会话（不落库）。
+   * fromGraph=true：「前往节点面板编辑」→ 带 graphId / agentCode 初值 / 静默 otherBizParams
+   */
+  catalogSession: {
+    type: Object,
+    default: () => ({ fromGraph: false })
+  }
+})
 const visible = defineModel('visible', { type: Boolean, default: false })
 const emit = defineEmits(['created'])
 
 const saving = ref(false)
 const testing = ref(false)
 const loading = ref(false)
+const catalogLoading = ref(false)
 const testOutput = ref(null)
 const streamKindOptions = ref([])
 const streamKindsLoading = ref(false)
 const bizParamInterpreterOptions = ref([])
 const bizParamInterpretersLoading = ref(false)
+
+/** 资源区 agentCode 浏览框（会话内可改，不落库） */
+const browseAgentCode = ref('')
+/** 仅图入口静默携带 */
+const sessionGraphId = ref('')
+const sessionOtherBizParams = ref('')
+const catalogsWarnedTooLong = ref(false)
 
 const defaultForm = () => ({
   nodeId: '',
@@ -114,14 +136,60 @@ const mcpTreeData = computed(() => buildMcpTreeData(mcpCatalog.value.items))
 const skillTreeData = computed(() => buildSkillTreeData(skillCatalog.value.items))
 const mcpHasCatalog = computed(() => mcpCatalog.value.items.length > 0 && !mcpCatalog.value.error)
 const skillHasCatalog = computed(() => skillCatalog.value.items.length > 0 && !skillCatalog.value.error)
+/** 启用 Model 且填写 modelConfigKey：整路走注册中心，节点级 modelId 不必填 */
+const usesModelConfig = computed(() =>
+  !!form.value.enableModel && !!(form.value.modelConfigKey || '').trim())
 
 async function loadEditorCatalogs() {
-  const [mcp, skills] = await Promise.all([
-    loadAgentResource('mcp'),
-    loadAgentResource('skills')
-  ])
-  mcpCatalog.value = mcp
-  skillCatalog.value = skills
+  catalogLoading.value = true
+  try {
+    const { params, otherBizParamsError } = buildResourceCatalogParams({
+      agentCode: browseAgentCode.value,
+      graphId: sessionGraphId.value || undefined,
+      otherBizParams: sessionOtherBizParams.value || undefined
+    })
+    if (otherBizParamsError && !catalogsWarnedTooLong.value) {
+      catalogsWarnedTooLong.value = true
+      ElMessage.warning(t('manager.otherBizParamsTooLong', { max: OTHER_BIZ_PARAMS_MAX_BYTES }))
+    }
+    const [mcp, skills] = await Promise.all([
+      loadAgentResource('mcp', params),
+      loadAgentResource('skills', params)
+    ])
+    mcpCatalog.value = mcp
+    skillCatalog.value = skills
+  } finally {
+    catalogLoading.value = false
+  }
+}
+
+async function refreshEditorCatalogs() {
+  await loadEditorCatalogs()
+  await syncMcpTreeChecks()
+  await syncSkillTreeChecks()
+}
+
+function initCatalogSession() {
+  const session = props.catalogSession || { fromGraph: false }
+  catalogsWarnedTooLong.value = false
+  if (session.fromGraph) {
+    browseAgentCode.value = session.agentCode || ''
+    sessionGraphId.value = session.graphId || ''
+    sessionOtherBizParams.value = session.otherBizParams || ''
+  } else {
+    browseAgentCode.value = ''
+    sessionGraphId.value = ''
+    sessionOtherBizParams.value = ''
+  }
+}
+
+function clearCatalogSession() {
+  browseAgentCode.value = ''
+  sessionGraphId.value = ''
+  sessionOtherBizParams.value = ''
+  catalogsWarnedTooLong.value = false
+  mcpCatalog.value = { items: [], error: null, empty: false }
+  skillCatalog.value = { items: [], error: null, empty: false }
 }
 
 async function syncMcpTreeChecks() {
@@ -221,8 +289,12 @@ async function ensureBizParamInterpreters() {
 }
 
 watch(visible, async (v) => {
-  if (!v) return
+  if (!v) {
+    clearCatalogSession()
+    return
+  }
   testOutput.value = null
+  initCatalogSession()
   const catalogPromise = loadEditorCatalogs()
   await Promise.all([ensureStreamKinds(), ensureBizParamInterpreters(), catalogPromise])
   if (props.editNode) {
@@ -391,8 +463,17 @@ async function onSubmit() {
           {{ t('propertyPanel.agentSpec.modelApiKeyMaskedHint') }}
         </span>
       </el-form-item>
-      <el-form-item :label="t('propertyPanel.agentSpec.modelId')" required>
-        <el-input v-model="form.modelId" placeholder="gpt-4o / qwen-max / ..." />
+      <el-form-item :label="t('propertyPanel.agentSpec.modelId')">
+        <el-input
+          v-model="form.modelId"
+          :disabled="usesModelConfig"
+          placeholder="gpt-4o / qwen-max / ..."
+        />
+        <span class="hint" style="display:block; margin-top:4px;">
+          {{ usesModelConfig
+            ? t('propertyPanel.agentSpec.modelIdFromConfigHint')
+            : t('propertyPanel.agentSpec.modelIdOptionalHint') }}
+        </span>
       </el-form-item>
 
       <el-divider content-position="left">{{ t('agentEditor.prompt') }}</el-divider>
@@ -453,6 +534,19 @@ async function onSubmit() {
       </template>
 
       <el-divider content-position="left">{{ t('propertyPanel.agentSpec.resources') }}</el-divider>
+      <div class="resource-browse-bar">
+        <el-input
+          v-model="browseAgentCode"
+          size="small"
+          clearable
+          :placeholder="t('agentEditor.browseAgentCodePlaceholder')"
+          class="resource-browse-input"
+          @blur="refreshEditorCatalogs"
+        />
+        <el-button size="small" :loading="catalogLoading" @click="refreshEditorCatalogs">
+          {{ t('agentEditor.refreshCatalog') }}
+        </el-button>
+      </div>
       <el-form-item :label="t('propertyPanel.agentSpec.enablePrompt')">
         <el-switch v-model="form.enablePrompt" />
       </el-form-item>
@@ -562,6 +656,16 @@ async function onSubmit() {
 
 <style scoped>
 .hint { font-size: 12px; color: var(--agd-color-text-secondary, #909399); margin-top: 4px; }
+.resource-browse-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 12px;
+}
+.resource-browse-input {
+  flex: 1;
+  min-width: 0;
+}
 .mcp-tree-wrap {
   width: 100%;
   max-height: 280px;

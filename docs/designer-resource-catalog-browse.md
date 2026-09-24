@@ -1,7 +1,7 @@
 # 设计期资源目录：两个入口与浏览参数
 
 > 状态：**定案（2026-09-21），代码未改。**  
-> 现网 SPI 仍是 `AgentResourceCatalog.list(agentCode, graphId, agentDefId)`，查询参数还没有 `bizKey`。  
+> 现网 SPI：`AgentResourceCatalog.list(agentCode, graphId, agentDefId)`，另有 default 四参重载含 **`otherBizParams`**（嵌入透传，见 [designer-embed-integration.md](./designer-embed-integration.md)）。设计期浏览框规划中的 `bizKey` 与嵌入字段**无强制等同**。  
 > 权威补充：本文。总方案原节 [`streaming-llm-node-template-design.md`](streaming-llm-node-template-design.md) §7.2 / §7.3。  
 > 业务侧排期与缺口：`lesso-ai-platform-agent-server/docs/designer-resource-option-dev-plan.md`、`designer-resource-option-tag-proposal.md`。
 
@@ -18,7 +18,9 @@
 | `agentCode` | 认识这个名字：智能体产品/入口编码。不规定业务如何按它裁剪 | 业务自定：全量或空列表（Lesso 的 Model 空则空列表；MCP / Skill / Prompt 今天是全量） |
 | `bizKey` | **不解释**。一段不透明字符串，分隔符和每段含义由业务定 | 业务当「没有额外条件」 |
 
-`graphId` 只表示「用户正在哪张图的属性面板里看内联节点」，不是节点归属，也不是 `bizKey` 的替身。
+> **与嵌入方案（2026-09-24）：** 嵌入上下文另有框架透传字段 [`otherBizParams`](./designer-embed-integration.md)。二者**无强制等同关系**：框架只保证把 `otherBizParams` 原样带到约定接口；是否在业务 Catalog / 执行入口里映射到本文规划的浏览 `bizKey`、或运行期 `BusinessContext.bizKey`，**完全由业务决定**（也可忽略）。实现 Catalog 浏览参数时，参数名以当时 SPI 定案为准，勿默认把嵌入字段改名成业务 Context 字段。
+
+`graphId` 只表示「用户正在哪张图的属性面板里看内联节点」，不是节点归属，也不是浏览条件字段的替身。
 
 浏览条件**不写入** `GenericAgentDefinition`，也不写入图内 `agentSpec`。
 

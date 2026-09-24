@@ -1,5 +1,5 @@
 <script setup>
-import { ref, watch, computed, nextTick } from 'vue'
+import { ref, watch, computed, nextTick, inject } from 'vue'
 import { Delete, Loading } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
 import { useGraphEditorStore } from '../../stores/graphEditor'
@@ -19,6 +19,11 @@ import {
   skillCheckedIdsFromSpec,
   skillKeysFromChecked
 } from '../../utils/agentResourceCatalog'
+import {
+  ACE_GRAPH_EMBED_KEY,
+  buildResourceCatalogParams,
+  OTHER_BIZ_PARAMS_MAX_BYTES
+} from '../../embed/context'
 import MermaidPreview from './MermaidPreview.vue'
 
 const props = defineProps({
@@ -29,6 +34,7 @@ const props = defineProps({
 const editor = useGraphEditorStore()
 const nodeStore = useNodeRegistryStore()
 const { t } = useI18n()
+const embedCtx = inject(ACE_GRAPH_EMBED_KEY, computed(() => ({})))
 
 const activeTab = ref('node')
 const keyStrategyRows = ref([])
@@ -67,10 +73,15 @@ const isGenericAgentSelected = computed(() => editor.selectedNode?.category === 
 /** 注册式（引用型）通用 Agent：无内联 agentSpec，元数据集中在节点面板管理 */
 const isGenericAgentRegistered = computed(() => isGenericAgentSelected.value && !currentAgentSpec.value)
 
-/** 注册式节点：跳转到「节点面板 → 通用 Agent」进行元数据编辑 */
+/** 注册式节点：跳转到「节点面板 → 通用 Agent」进行元数据编辑（图入口带 Catalog 上下文） */
 function gotoNodePanelAgent() {
   if (!editor.selectedNode) return
-  requestOpenAgentEditor(editor.selectedNode.nodeId)
+  const embed = embedCtx?.value || {}
+  requestOpenAgentEditor(editor.selectedNode.nodeId, {
+    graphId: editor.graphId || undefined,
+    agentCode: embed.agentCode || undefined,
+    otherBizParams: embed.otherBizParams || undefined
+  })
 }
 
 /** 用户手动选择的子图模式（覆盖数据驱动判断）。
@@ -182,6 +193,9 @@ function onConfigChange(key, value) {
 // 从 selectedNodeMeta（store 中完整节点对象）读取 agentSpec，而不从 selectedNode（浅引用）读取。
 // 原因：setSelectedNode 只透传 nodeId/config/category，不携带 agentSpec；完整节点在 editor.nodes 中。
 const currentAgentSpec = computed(() => selectedNodeMeta.value?.agentSpec || null)
+/** 启用 Model 且填写 modelConfigKey：整路走注册中心，节点级 modelId 不必填 */
+const usesAgentModelConfig = computed(() =>
+  !!currentAgentSpec.value?.enableModel && !!(currentAgentSpec.value?.modelConfigKey || '').trim())
 
 /** 掩码态下 API Key 输入框留空（避免把掩码字符串当真实 key 回写）；非掩码态显示真实值 */
 const agentSpecApiKeyDisplay = computed(() => {
@@ -270,7 +284,15 @@ async function ensureResourceCatalogsLoaded() {
   if (catalogLoading.value) return
   catalogLoading.value = true
   try {
-    const params = { graphId: editor.graphId || undefined }
+    const embed = embedCtx?.value || {}
+    const { params, otherBizParamsError } = buildResourceCatalogParams({
+      graphId: editor.graphId || undefined,
+      agentCode: embed.agentCode || undefined,
+      otherBizParams: embed.otherBizParams || undefined
+    })
+    if (otherBizParamsError) {
+      ElMessage.warning(t('manager.otherBizParamsTooLong', { max: OTHER_BIZ_PARAMS_MAX_BYTES }))
+    }
     const [prompts, models, tools, mcp, skills] = await Promise.all([
       listAgentResources('prompts', params).catch(() => ({ items: [] })),
       listAgentResources('models', params).catch(() => ({ items: [] })),
@@ -694,9 +716,15 @@ function onStreamingChange(val) {
               <el-form-item :label="t('propertyPanel.agentSpec.modelId')">
                 <el-input
                   :model-value="currentAgentSpec.modelId || ''"
+                  :disabled="usesAgentModelConfig"
                   @update:model-value="onAgentSpecField('modelId', $event)"
                   placeholder="gpt-4o / qwen-max / ..."
                 />
+                <span class="hint" style="display:block; margin-top:4px;">
+                  {{ usesAgentModelConfig
+                    ? t('propertyPanel.agentSpec.modelIdFromConfigHint')
+                    : t('propertyPanel.agentSpec.modelIdOptionalHint') }}
+                </span>
               </el-form-item>
 
               <el-divider content-position="left">{{ t('propertyPanel.agentSpec.prompt') }}</el-divider>

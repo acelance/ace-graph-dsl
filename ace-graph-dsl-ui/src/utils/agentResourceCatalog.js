@@ -3,7 +3,7 @@ import { listAgentResources } from '../api/graph'
 /**
  * 拉一类设计期资源。失败与空列表分开，不把异常收成 items: []。
  * @param {'prompts'|'models'|'tools'|'mcp'|'skills'} kind
- * @param {{ agentCode?: string, graphId?: string, agentDefId?: string }} params
+ * @param {{ agentCode?: string, graphId?: string, agentDefId?: string, otherBizParams?: string }} params
  * @returns {Promise<{ items: object[], error: Error|null, empty: boolean }>}
  */
 export async function loadAgentResource(kind, params = {}) {

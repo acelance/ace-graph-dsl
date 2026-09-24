@@ -151,15 +151,17 @@ public class GenericAgentNodeService {
     /**
      * 校验 agent 元数据。
      *
-     * <p>规则：modelId 必填；prompt 或 promptKeys 至少一项；outputKey 非空。</p>
+     * <p>规则：{@code modelConfigKey} 与内联 {@code modelId} 二选一——有 key 时 modelId 可空，
+     * 否则 modelId 必填；prompt 或 promptKeys 至少一项；outputKey 非空。</p>
      */
     public void validateSpec(GenericAgentSpec spec) {
         List<String> errors = new ArrayList<>();
         if (spec == null) {
             throw new IllegalArgumentException("agent 元数据不能为空");
         }
-        if (isBlank(spec.modelId())) {
-            errors.add("模型标识 modelId 不能为空");
+        boolean hasModelConfigKey = !isBlank(spec.modelConfigKey());
+        if (!hasModelConfigKey && isBlank(spec.modelId())) {
+            errors.add("模型标识 modelId 不能为空（未配置 modelConfigKey 时必填）");
         }
         if (isBlank(spec.prompt()) && (spec.promptKeys() == null || spec.promptKeys().isEmpty())) {
             errors.add("prompt 与 promptKeys 至少填写一项");

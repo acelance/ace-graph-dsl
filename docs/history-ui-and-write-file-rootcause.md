@@ -2,7 +2,7 @@
 
 | 项 | 内容 |
 |---|---|
-| 状态 | **问题一 P0/P1 已实现（1.1.1）；问题二 A1 配置 + B1 代码已完成，其余待拍板/实现** |
+| 状态 | **问题一 P0/P1（1.1.1）；问题二 B1/B2/B3/C2/C3 已实现（框架 1.1.2 已 deploy）；待发版冒烟 + A3 验收** |
 | 日期 | 2026-09-23（A1/B1 进度更新同日） |
 | 证据 | 截图三张 + `lesso-ai-platform-agent-74d7d68857-4tqtx_….log`（runId≈`6c8301fd…` / session≈`034cf130…`、`80211fd7…`） |
 | 图 | `ls-vertical-agent-dsl-test`（节点 `agent:intent_node` / `agent:ls_biz_node` / `agent:ls_out_put_node`） |

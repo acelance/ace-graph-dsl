@@ -20,6 +20,7 @@
 
 | 文档 | 说明 |
 |------|------|
+| [设计器嵌入集成方案（组件 / iframe）](../docs/designer-embed-integration.md) | A1/A2、B1 组件与 B2/B3 同源 iframe、EmbedContext、过滤/重排与安全 |
 | [脚本节点填写与使用样例](../ace-graph-dsl-backend/docs/SCRIPT_NODE_EXAMPLES.md) | 四引擎字段说明、样例、条件边、REST API |
 | [多脚本引擎方案](../ace-graph-dsl-backend/docs/MULTI_SCRIPT_ENGINE_PLAN.md) | Phase A/B/C、分包、开关与验收进度 |
 | [菜单/功能权限抽象与接入指南](../ace-graph-dsl-backend/docs/MENU_PERMISSION_INTEGRATION.md) | 菜单权限 SPI、REST API 与前端 `usePermissionStore` 用法 |
@@ -98,16 +99,28 @@ export default defineConfig({
 
 ### GraphDslManager
 
-带左侧目录的完整管理页，适合作为独立页面嵌入。
+带左侧目录的完整管理页，适合作为独立页面或业务页签嵌入。
 
 | Prop | 类型 | 默认值 | 说明 |
 |------|------|--------|------|
-| `title` | `String` | `'Graph DSL 管理中心'` | 目录面板标题 |
+| `title` | `String` | `''`（回落 i18n） | 目录面板标题 |
 | `apiBaseUrl` | `String` | `'/'` | 后端 API 根路径 |
+| `locale` | `String` | `'zh-CN'` | 界面语言 |
+| `embed` | `Object` | `null` | 嵌入上下文 `{ graphId?, agentCode?, otherBizParams? }`（推荐） |
+| `graphId` / `agentCode` / `otherBizParams` | `String` | — | 扁平别名；与 `embed` 同时存在时以 `embed` 为准 |
 
 ```vue
-<GraphDslManager title="流程编排中心" api-base-url="/" />
+<!-- A1 独立设计器 -->
+<GraphDslManager api-base-url="/" />
+
+<!-- A2 Agent 详情页签 -->
+<GraphDslManager
+  api-base-url="/"
+  :embed="{ graphId: 'order_flow', agentCode: 'agent_order', otherBizParams: JSON.stringify({ tenantId: 't1' }) }"
+/>
 ```
+
+完整契约、iframe 同源部署与验收见 [设计器嵌入集成方案](../docs/designer-embed-integration.md)。
 
 ### GraphDslDesigner
 
@@ -333,11 +346,14 @@ ace-graph-dsl-ui/
 | 状态管理 | Pinia 2.x |
 | 构建产物 | ESM（`dist/index.js`），运行时依赖 Vue 3 API |
 
-**Vue 3 + JS 项目**可直接按上文「快速开始」集成；**Vue 2 项目**若需使用设计器，可采用以下方式：
+**Vue 3 + JS 项目**可直接按上文「快速开始」或 `:embed` 对象集成；**Vue 2 / 非 Vue** 请用**同源 iframe**（`/ace-graph-designer/embed.html?embed=…`），详见 [designer-embed-integration.md](../docs/designer-embed-integration.md)。不要尝试在 Vue 2 宿主内硬嵌 Vue 3 SFC。
 
-1. **独立 Vue 3 子应用**（推荐）：通过 iframe、微前端（如 qiankun）或独立路由页挂载设计器，主应用保持 Vue 2。
-2. **宿主升级到 Vue 3**：与官方集成方式一致，长期维护成本最低。
-3. **源码直引**（`@acelance/graph-dsl-ui/src`）：宿主仍须为 Vue 3 + Element Plus + Pinia，无法绕过 Vue 2 限制。
+构建 iframe 静态包：
+
+```bash
+npm run build:embed
+# 产出 dist-embed/，反代挂到 /ace-graph-designer/
+```
 
 ## 通用 Agent 节点
 
@@ -355,7 +371,7 @@ ace-graph-dsl-ui/
 3. 在 AGENT 标签列表中点对应 Agent 拖入画布 → 走注册式通道（只读引用 + 「前往节点面板编辑」）。
 4. 注册式 Agent 的 keys / 配置变更在 `GenericAgentDefinition` 一处完成，引用它的所有图共享更新。
 
-资源候选在**这个弹窗**里请求 `GET /api/agent-resources/mcp` 与 `/skills`，不带 `graphId`。有数据时 MCP 为三级勾选树，Skill 为多选且不能手造 key。目录为空或失败时退回逗号文本，并提示原因。图内属性面板只在节点自带内联 `agentSpec` 时拉目录，并可带上正在编辑的图。浏览用 `agentCode`、`bizKey` 见 [designer-resource-catalog-browse.md](../docs/designer-resource-catalog-browse.md)，这两期不传。
+资源候选在注册式编辑弹窗「资源勾选」区请求 `GET /api/agent-resources/{mcp|skills}`（可带 `agentCode` / `graphId` / `otherBizParams`）。有数据时 MCP 为三级勾选树，Skill 为多选。目录为空或失败时退回逗号文本。图入口打开时用 embed 初值并静默透传 `otherBizParams`；节点面板新建/编辑时空 `agentCode` 框可手填。详见 [designer-embed-integration.md](../docs/designer-embed-integration.md) 与 [designer-resource-catalog-browse.md](../docs/designer-resource-catalog-browse.md)。
 
 > 权限：新建 / 删除 / 试跑受 `agent-node:create / delete / test` 菜单权限控制；只读用户仅可拖入引用。
 

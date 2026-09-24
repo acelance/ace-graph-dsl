@@ -143,7 +143,7 @@ export function createGraphApi(options = '/') {
     /**
      * 设计期资源 Catalog（P1.1）。
      * @param {'prompts'|'models'|'tools'|'mcp'|'skills'} kind
-     * @param {{ agentCode?: string, graphId?: string, agentDefId?: string }} params
+     * @param {{ agentCode?: string, graphId?: string, agentDefId?: string, otherBizParams?: string }} params
      */
     listAgentResources: (kind, params = {}) =>
       http.get(`/api/agent-resources/${kind}`, { params }).then(r => r.data),

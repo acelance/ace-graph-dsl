@@ -44,46 +44,54 @@ public class AgentResourceCatalogController {
     @GetMapping("/prompts")
     public Map<String, Object> prompts(@RequestParam(required = false) String agentCode,
                                        @RequestParam(required = false) String graphId,
-                                       @RequestParam(required = false) String agentDefId) {
-        return list(ResourceType.PROMPT, agentCode, graphId, agentDefId);
+                                       @RequestParam(required = false) String agentDefId,
+                                       @RequestParam(required = false) String otherBizParams) {
+        return list(ResourceType.PROMPT, agentCode, graphId, agentDefId, otherBizParams);
     }
 
     @GetMapping("/models")
     public Map<String, Object> models(@RequestParam(required = false) String agentCode,
                                       @RequestParam(required = false) String graphId,
-                                      @RequestParam(required = false) String agentDefId) {
-        return list(ResourceType.MODEL, agentCode, graphId, agentDefId);
+                                      @RequestParam(required = false) String agentDefId,
+                                      @RequestParam(required = false) String otherBizParams) {
+        return list(ResourceType.MODEL, agentCode, graphId, agentDefId, otherBizParams);
     }
 
     @GetMapping("/tools")
     public Map<String, Object> tools(@RequestParam(required = false) String agentCode,
                                      @RequestParam(required = false) String graphId,
-                                     @RequestParam(required = false) String agentDefId) {
-        return list(ResourceType.LOCAL_TOOL, agentCode, graphId, agentDefId);
+                                     @RequestParam(required = false) String agentDefId,
+                                     @RequestParam(required = false) String otherBizParams) {
+        return list(ResourceType.LOCAL_TOOL, agentCode, graphId, agentDefId, otherBizParams);
     }
 
     @GetMapping("/mcp")
     public Map<String, Object> mcp(@RequestParam(required = false) String agentCode,
                                    @RequestParam(required = false) String graphId,
-                                   @RequestParam(required = false) String agentDefId) {
-        return list(ResourceType.MCP, agentCode, graphId, agentDefId);
+                                   @RequestParam(required = false) String agentDefId,
+                                   @RequestParam(required = false) String otherBizParams) {
+        return list(ResourceType.MCP, agentCode, graphId, agentDefId, otherBizParams);
     }
 
     @GetMapping("/skills")
     public Map<String, Object> skills(@RequestParam(required = false) String agentCode,
                                       @RequestParam(required = false) String graphId,
-                                      @RequestParam(required = false) String agentDefId) {
-        return list(ResourceType.SKILL, agentCode, graphId, agentDefId);
+                                      @RequestParam(required = false) String agentDefId,
+                                      @RequestParam(required = false) String otherBizParams) {
+        return list(ResourceType.SKILL, agentCode, graphId, agentDefId, otherBizParams);
     }
 
-    private Map<String, Object> list(ResourceType type, String agentCode, String graphId, String agentDefId) {
+    private Map<String, Object> list(ResourceType type, String agentCode, String graphId,
+                                     String agentDefId, String otherBizParams) {
         MenuPermissionGuard.require(menuPermissions, GraphMenuPermissions.GRAPH_VIEW, "无权查看资源 Catalog");
         AgentResourceCatalog catalog = catalogs.get(type);
         List<ResourceItem> items = catalog == null
                 ? List.of()
-                : new ArrayList<>(catalog.list(agentCode, graphId, agentDefId));
-        log.info("Catalog.list type={}, agentCode={}, graphId={}, size={} (withChildren={})",
-                type, agentCode, graphId, items.size(),
+                : new ArrayList<>(catalog.list(agentCode, graphId, agentDefId, otherBizParams));
+        log.info("Catalog.list type={}, agentCode={}, graphId={}, otherBizParamsLen={}, size={} (withChildren={})",
+                type, agentCode, graphId,
+                otherBizParams == null ? 0 : otherBizParams.length(),
+                items.size(),
                 items.stream().anyMatch(i -> i.children() != null && !i.children().isEmpty()));
         return Map.of("items", items);
     }
