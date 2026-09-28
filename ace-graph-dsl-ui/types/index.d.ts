@@ -406,6 +406,44 @@ export function hasStructuralDiff(diff: StructureDiff | null | undefined): boole
 export function formatDefinitionJson(def: Record<string, any>): string
 
 // ============================================================================
+// Embed: embed/context.js
+// ============================================================================
+
+/** 业务嵌入上下文（仅三键下沉） */
+export interface EmbedContext {
+  graphId?: string
+  agentCode?: string
+  otherBizParams?: string
+}
+
+export const ACE_GRAPH_EMBED_KEY: unique symbol
+export const OTHER_BIZ_PARAMS_MAX_BYTES: 4096
+
+export function utf8ByteLength(str: string): number
+export function validateOtherBizParams(value: unknown): {
+  ok: boolean
+  value?: string
+  error?: 'TOO_LONG'
+}
+export function mergeEmbed(
+  primary?: EmbedContext | null,
+  aliases?: Partial<EmbedContext> | null
+): EmbedContext
+export function parseEmbedFromProps(props: {
+  embed?: EmbedContext | null
+  graphId?: string
+  agentCode?: string
+  otherBizParams?: string
+}): EmbedContext
+export function parseEmbedFromSearch(search: string | URLSearchParams): EmbedContext
+export function buildResourceCatalogParams(input?: {
+  agentCode?: string
+  graphId?: string
+  otherBizParams?: string
+  agentDefId?: string
+}): { params: Record<string, string>; otherBizParamsError?: 'TOO_LONG' }
+
+// ============================================================================
 // Vue 组件: components/*.vue
 // ============================================================================
 
@@ -423,8 +461,21 @@ export const GraphDslDesigner: DefineComponent<
 
 /**
  * 管理中心组件（图目录列表 + 设计器视图）。
+ * Props: title / apiBaseUrl / locale / embed / graphId / agentCode / otherBizParams
  */
-export const GraphDslManager: DefineComponent<{}, {}, {}>
+export const GraphDslManager: DefineComponent<
+  {
+    title?: string
+    apiBaseUrl?: string
+    locale?: string
+    embed?: EmbedContext | null
+    graphId?: string
+    agentCode?: string
+    otherBizParams?: string
+  },
+  {},
+  {}
+>
 
 /**
  * 工具栏组件（保存/校验/预览/发布/版本历史按钮）。
@@ -512,6 +563,14 @@ declare module '@acelance/graph-dsl-ui' {
     diffGraphStructure,
     hasStructuralDiff,
     formatDefinitionJson,
+    ACE_GRAPH_EMBED_KEY,
+    OTHER_BIZ_PARAMS_MAX_BYTES,
+    utf8ByteLength,
+    validateOtherBizParams,
+    mergeEmbed,
+    parseEmbedFromProps,
+    parseEmbedFromSearch,
+    buildResourceCatalogParams,
     GraphDslDesigner,
     GraphDslManager,
     DesignerToolbar,

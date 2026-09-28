@@ -1,8 +1,15 @@
 <script setup>
-import { ref, onMounted, watch, computed } from 'vue'
+import { ref, onMounted, watch, computed, provide } from 'vue'
+import { ElMessage } from 'element-plus'
 import { listSummaries } from '../api/graph'
 import { usePermissionStore, MENU } from '../stores/permissions'
 import { configureGraphDslI18n, useI18n } from '../i18n'
+import {
+  ACE_GRAPH_EMBED_KEY,
+  parseEmbedFromProps,
+  validateOtherBizParams,
+  OTHER_BIZ_PARAMS_MAX_BYTES
+} from '../embed/context'
 import GraphDslDesigner from './GraphDslDesigner.vue'
 import PropertyPanel from './Designer/PropertyPanel.vue'
 import NodePanel from './Designer/NodePanel.vue'
@@ -11,7 +18,13 @@ import { ArrowLeft, ArrowRight } from '@element-plus/icons-vue'
 const props = defineProps({
   title: { type: String, default: '' },
   apiBaseUrl: { type: String, default: '/' },
-  locale: { type: String, default: 'zh-CN' }
+  locale: { type: String, default: 'zh-CN' },
+  /** 业务嵌入上下文（对象优先） */
+  embed: { type: Object, default: null },
+  /** 扁平别名：仅作缺省，不覆盖 embed 内已有键 */
+  graphId: { type: String, default: undefined },
+  agentCode: { type: String, default: undefined },
+  otherBizParams: { type: String, default: undefined }
 })
 
 const perm = usePermissionStore()
@@ -21,6 +34,21 @@ watch(() => props.locale, (loc) => {
   if (loc) configureGraphDslI18n({ locale: loc })
 }, { immediate: true })
 
+const embedCtx = computed(() => parseEmbedFromProps(props))
+provide(ACE_GRAPH_EMBED_KEY, embedCtx)
+
+watch(
+  () => props.embed?.otherBizParams ?? props.otherBizParams,
+  (raw) => {
+    if (raw == null || String(raw) === '') return
+    const checked = validateOtherBizParams(raw)
+    if (!checked.ok) {
+      ElMessage.warning(t('manager.otherBizParamsTooLong', { max: OTHER_BIZ_PARAMS_MAX_BYTES }))
+    }
+  },
+  { immediate: true }
+)
+
 const summaries = ref([])
 const selectedGraphId = ref('')
 const panelExpanded = ref(false)
@@ -29,6 +57,22 @@ const showCreate = ref(false)
 const newGraphId = ref('')
 const newDisplayName = ref('')
 const designerRef = ref()
+
+/** 过滤框文案（可手改）；失焦后写入 appliedFilter */
+const catalogFilterText = ref('')
+/** 已生效的精确匹配过滤串（空 = 全量） */
+const appliedFilter = ref('')
+
+const visibleSummaries = computed(() => {
+  const f = (appliedFilter.value || '').trim()
+  if (!f) return summaries.value
+  return summaries.value.filter(s => s.graphId === f)
+})
+
+const catalogEmptyDescription = computed(() => {
+  if ((appliedFilter.value || '').trim()) return t('manager.emptyCatalogFiltered')
+  return t('manager.emptyCatalog')
+})
 
 // 节点面板折叠抽屉：默认展开，状态持久化到 localStorage
 const NODE_PANEL_COLLAPSED_KEY = 'agd.nodePanel.collapsed'
@@ -60,14 +104,42 @@ const isSelectedBootstrap = computed(() =>
 
 const showDesigner = computed(() => Boolean(selectedGraphId.value && panelExpanded.value))
 
+function reconcileSelectionAfterFilter() {
+  const list = visibleSummaries.value
+  if (selectedGraphId.value && !list.some(s => s.graphId === selectedGraphId.value)) {
+    selectedGraphId.value = ''
+    panelExpanded.value = false
+  }
+  if (list.length === 1) {
+    selectedGraphId.value = list[0].graphId
+    panelExpanded.value = true
+  }
+}
+
+function applyCatalogFilter() {
+  appliedFilter.value = (catalogFilterText.value || '').trim()
+  catalogFilterText.value = appliedFilter.value
+  reconcileSelectionAfterFilter()
+}
+
+/** embed.graphId → 过滤框初值并立即生效 */
+watch(
+  () => embedCtx.value.graphId,
+  (gid) => {
+    if (gid) {
+      catalogFilterText.value = gid
+      appliedFilter.value = gid
+    }
+    reconcileSelectionAfterFilter()
+  },
+  { immediate: true }
+)
+
 async function refreshCatalog() {
   loading.value = true
   try {
     summaries.value = await listSummaries()
-    if (selectedGraphId.value && !summaries.value.some(s => s.graphId === selectedGraphId.value)) {
-      selectedGraphId.value = ''
-      panelExpanded.value = false
-    }
+    reconcileSelectionAfterFilter()
   } finally {
     loading.value = false
   }
@@ -125,13 +197,24 @@ onMounted(async () => {
             <el-button size="small" @click="refreshCatalog" :loading="loading">{{ t('common.refresh') }}</el-button>
           </div>
         </div>
+        <div class="catalog-filter">
+          <el-input
+            v-model="catalogFilterText"
+            size="small"
+            clearable
+            :placeholder="t('manager.catalogFilterPlaceholder')"
+            @blur="applyCatalogFilter"
+            @clear="applyCatalogFilter"
+            @keydown.enter.prevent="applyCatalogFilter"
+          />
+        </div>
         <el-button v-if="perm.can(MENU.GRAPH_CREATE)" type="primary" plain class="create-btn" @click="showCreate = true">
           {{ t('manager.createGraph') }}
         </el-button>
 
         <div v-loading="loading" class="catalog-scroll">
-          <div v-if="summaries.length" class="catalog-list">
-            <div v-for="item in summaries" :key="item.graphId" class="catalog-block">
+          <div v-if="visibleSummaries.length" class="catalog-list">
+            <div v-for="item in visibleSummaries" :key="item.graphId" class="catalog-block">
               <div
                 class="catalog-item-row"
                 :class="{ active: isActive(item.graphId) }"
@@ -154,7 +237,7 @@ onMounted(async () => {
               </div>
             </div>
           </div>
-          <el-empty v-else-if="!loading" :description="t('manager.emptyCatalog')" />
+          <el-empty v-else-if="!loading" :description="catalogEmptyDescription" />
         </div>
       </template>
 
@@ -231,6 +314,10 @@ onMounted(async () => {
   margin: 0;
   font-size: 15px;
   color: var(--agd-color-text, #303133);
+}
+.catalog-filter {
+  padding: 8px 16px 0;
+  flex-shrink: 0;
 }
 .create-btn {
   margin: 12px 16px 0;

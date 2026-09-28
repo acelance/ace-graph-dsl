@@ -36,12 +36,15 @@
   ],
   "files": [
     "dist",
+    "dist-embed",
     "src",
     "types"
   ],
   "scripts": {
     "dev": "vite",
+    "dev:embed": "vite --mode embed --open /embed.html",
     "build": "vite build",
+    "build:embed": "vite build --mode embed",
     "preview": "vite preview",
     "prepublishOnly": "vite build"
   },

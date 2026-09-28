@@ -350,6 +350,7 @@ ace:
 - **资源引用**：`McpServerRegistry` SPI 按 key 解析 prompt / skill / mcp 三类资源。
 - **管理 API**：`GenericAgentController` 暴露 `/agents` 一组端点（列表 / 详情 / 创建 / 更新 / 删除 / 引用查询 / 试跑），权限复用 `agent-node:*` 菜单 key。
 - **引用 / 孤儿检测**：`GenericAgentNodeService` 提供引用图、孤儿节点查询，删除前校验避免悬空引用。
+- **设计期资源目录**：候选列表走 `GET /api/agent-resources/{prompts|models|tools|mcp|skills}`，业务实现 `AgentResourceCatalog`。注册式节点在节点面板编辑，不带 `graphId`；图内联 spec 的属性面板可带当前图。浏览参数 `agentCode` 与不透明 `bizKey` 的定案见 [designer-resource-catalog-browse.md](../docs/designer-resource-catalog-browse.md)（2026-09-21，SPI 尚未增加 `bizKey`）。
 
 ## 发布流程
 
@@ -431,6 +432,7 @@ mvn clean package
 | 条件边 Dispatcher | `RegisteredEdgeDispatcher` | 实现 `dispatcherId()`、`possibleTargets()` 和 `toAction()` |
 | 持久化 | `GraphDefinitionRepository` | 自定义实现并注册为 Spring Bean，覆盖自动配置 |
 | ObjectMapper | `ObjectMapper` | 注册名为默认或自定义 Bean 可覆盖 JSON 序列化行为 |
+| 设计期资源目录 | `AgentResourceCatalog` | 按 `ResourceType` 返回 `{ items }`。`agentCode` 只传递；`bizKey` 定案为不透明字符串，由实现自行解析。见 [浏览参数定案](../docs/designer-resource-catalog-browse.md) |
 
 ## License
 

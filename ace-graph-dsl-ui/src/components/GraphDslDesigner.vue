@@ -5,6 +5,7 @@ import Toolbar from './Designer/Toolbar.vue'
 import Canvas from './Designer/Canvas.vue'
 import EdgeParamValidationPanel from './Designer/EdgeParamValidationPanel.vue'
 import DryRunDrawer from './Designer/DryRunDrawer.vue'
+import ExecutionDrawer from './Designer/ExecutionDrawer.vue'
 import TopologyValidationPanel from './Designer/TopologyValidationPanel.vue'
 import NodeSearch from './Designer/NodeSearch.vue'
 import GroupPanel from './Designer/GroupPanel.vue'
@@ -29,6 +30,7 @@ const nodeStore = useNodeRegistryStore()
 const perm = usePermissionStore()
 const canvasRef = ref()
 const showDryRun = ref(false)
+const showDebugExec = ref(false)
 const importFileRef = ref()
 const { t } = useI18n()
 
@@ -111,6 +113,11 @@ function onRedo() {
 
 function onDryRun() {
   showDryRun.value = true
+}
+
+/** 调试流式执行（/debug/stream），需 graph:validate */
+function onDebugStream() {
+  showDebugExec.value = true
 }
 
 function onTopologyCheck() {
@@ -226,6 +233,7 @@ defineExpose({ onNodeDrag, canvasRef })
         @undo="onUndo"
         @redo="onRedo"
         @dryRun="onDryRun"
+        @debugStream="onDebugStream"
         @importDsl="onImportDsl"
         @exportDsl="onExportDsl"
         @topology="onTopologyCheck"
@@ -243,6 +251,7 @@ defineExpose({ onNodeDrag, canvasRef })
       <EdgeParamValidationPanel />
       <TopologyValidationPanel />
       <DryRunDrawer v-model:visible="showDryRun" :graph-id="graphId" />
+      <ExecutionDrawer v-model:visible="showDebugExec" :graph-id="graphId" />
       <input
         ref="importFileRef"
         type="file"

@@ -142,6 +142,9 @@ npm run dev    # 默认 http://127.0.0.1:5173
 | [脚本节点样例](ace-graph-dsl-backend/docs/SCRIPT_NODE_EXAMPLES.md) | Aviator 脚本节点填写与 API 契约 |
 | [菜单权限接入指南](ace-graph-dsl-backend/docs/MENU_PERMISSION_INTEGRATION.md) | 对接宿主权限框架的 SPI 与前端用法 |
 | [GitHub Packages 发布指南](docs/GITHUB_PACKAGES_GUIDE.md) | Monorepo 发布、Maven / npm 独立发版 |
+| [设计期资源目录](docs/designer-resource-catalog-browse.md) | 注册式节点与图的分工；Catalog 的 `agentCode` / 不透明 `bizKey`（定案，未改代码） |
+| [流式 LLM 节点模板](docs/streaming-llm-node-template-design.md) | Agent 资源勾选、Catalog API、流式类型（§7.2 链到上一篇） |
+| [流式 LLM 开发计划](docs/streaming-llm-implementation-plan.md) | 框架 / 业务分期与完成状态 |
 
 ## Graph DSL 示例
 

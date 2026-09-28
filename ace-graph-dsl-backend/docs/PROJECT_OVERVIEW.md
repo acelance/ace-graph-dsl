@@ -245,4 +245,5 @@ ScriptEngineRegistry ── Aviator / SpEL（core）
 
 - [后端 README](../README.md) — 后端使用说明、配置项、完整 REST API
 - [前端 README](../../ace-graph-dsl-ui/README.md) — 前端组件库使用说明
+- [设计期资源目录](../../docs/designer-resource-catalog-browse.md) — 注册式节点与图的分工；Catalog 浏览参数 `agentCode` / 不透明 `bizKey`（2026-09-21 定案，未改代码）
 - [节点灵活性增强探索方案](./NODE_FLEXIBILITY_EXPLORATION.md) — 动态节点 / 脚本 / 权限设计背景

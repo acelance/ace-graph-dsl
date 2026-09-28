@@ -196,13 +196,77 @@ public class AceGraphDslAutoConfiguration {
     public GenericAgentNodeService genericAgentNodeService(
             GenericAgentDefinitionRepository genericAgentDefinitionRepository,
             io.acelance.graph.dsl.registry.GraphNodeRegistry nodeRegistry,
-            org.springframework.context.ApplicationContext applicationContext,
-            GraphAuditLogger auditLogger) {
+            io.acelance.graph.dsl.agent.GenericAgentNodeFactory genericAgentNodeFactory,
+            GraphAuditLogger auditLogger,
+            ObjectProvider<io.acelance.graph.dsl.resource.ResourceKeyValidator> resourceKeyValidator) {
         return new GenericAgentNodeService(
                 genericAgentDefinitionRepository,
                 nodeRegistry,
-                applicationContext,
-                auditLogger);
+                genericAgentNodeFactory,
+                auditLogger,
+                resourceKeyValidator.getIfAvailable());
+    }
+
+    @Bean
+    @ConditionalOnMissingBean(io.acelance.graph.dsl.streamkind.StreamResponseKindCatalog.class)
+    public io.acelance.graph.dsl.streamkind.StreamResponseKindCatalog streamResponseKindCatalog() {
+        return new io.acelance.graph.dsl.streamkind.DefaultStreamResponseKindCatalog();
+    }
+
+    @Bean
+    @ConditionalOnMissingBean(io.acelance.graph.dsl.streamkind.StreamResponseKindResolver.class)
+    public io.acelance.graph.dsl.streamkind.StreamResponseKindResolver streamResponseKindResolver(
+            io.acelance.graph.dsl.streamkind.StreamResponseKindCatalog streamResponseKindCatalog) {
+        return new io.acelance.graph.dsl.streamkind.StreamResponseKindResolver(streamResponseKindCatalog);
+    }
+
+    @Bean
+    @ConditionalOnMissingBean(io.acelance.graph.dsl.bizparam.NodeBizParamInterpreterRegistry.class)
+    public io.acelance.graph.dsl.bizparam.NodeBizParamInterpreterRegistry nodeBizParamInterpreterRegistry(
+            ObjectProvider<io.acelance.graph.dsl.bizparam.NodeBizParamInterpreter> interpreters) {
+        return new io.acelance.graph.dsl.bizparam.NodeBizParamInterpreterRegistry(
+                interpreters.orderedStream().toList());
+    }
+
+    @Bean
+    @ConditionalOnMissingBean(io.acelance.graph.dsl.bizparam.NodeBizParamCatalog.class)
+    public io.acelance.graph.dsl.bizparam.NodeBizParamCatalog nodeBizParamCatalog(
+            io.acelance.graph.dsl.bizparam.NodeBizParamInterpreterRegistry registry) {
+        return registry;
+    }
+
+    @Bean
+    @ConditionalOnMissingBean(io.acelance.graph.dsl.definition.AceGraphNodeHelper.class)
+    public io.acelance.graph.dsl.definition.AceGraphNodeHelper aceGraphNodeHelper(
+            io.acelance.graph.dsl.persistence.GraphDefinitionRepository repository,
+            ObjectProvider<BuiltinGraphRegistry> builtinRegistries,
+            io.acelance.graph.dsl.bizparam.NodeBizParamInterpreterRegistry registry) {
+        return new io.acelance.graph.dsl.definition.AceGraphNodeHelper(graphId -> {
+            BuiltinGraphRegistry builtins = builtinRegistries.getIfAvailable();
+            if (builtins != null) {
+                io.acelance.graph.dsl.definition.GraphDefinition builtin = builtins.get(graphId);
+                if (builtin != null) {
+                    return builtin;
+                }
+            }
+            io.acelance.graph.dsl.definition.GraphDefinition enabled = repository.getEnabled(graphId);
+            if (enabled != null) {
+                return enabled;
+            }
+            try {
+                return repository.loadLatest(graphId);
+            } catch (RuntimeException ignored) {
+                return null;
+            }
+        }, registry);
+    }
+
+    @Bean
+    @ConditionalOnMissingBean(io.acelance.graph.dsl.prompt.PromptRenderer.class)
+    public io.acelance.graph.dsl.prompt.PromptRenderer promptRenderer(
+            @Qualifier(AceGraphDslBeans.OBJECT_MAPPER) ObjectMapper objectMapper) {
+        return new io.acelance.graph.dsl.prompt.PromptRenderer(
+                objectMapper, io.acelance.graph.dsl.prompt.PromptRenderProperties.defaults());
     }
 
     @Bean
@@ -234,7 +298,7 @@ public class AceGraphDslAutoConfiguration {
                     new JdbcTemplate(aceGraphDslSqliteDataSourceProvider.getObject()),
                     objectMapper,
                     tablePrefix);
-            default -> new InMemoryDynamicNodeDefinitionRepository();
+            case MEMORY, AUTO, REDIS -> new InMemoryDynamicNodeDefinitionRepository();
         };
     }
 
@@ -267,7 +331,7 @@ public class AceGraphDslAutoConfiguration {
                     new JdbcTemplate(aceGraphDslSqliteDataSourceProvider.getObject()),
                     objectMapper,
                     tablePrefix);
-            default -> new InMemoryGenericAgentDefinitionRepository();
+            case MEMORY, AUTO, REDIS -> new InMemoryGenericAgentDefinitionRepository();
         };
     }
 
@@ -319,7 +383,7 @@ public class AceGraphDslAutoConfiguration {
                     new JdbcTemplate(aceGraphDslSqliteDataSourceProvider.getObject()),
                     objectMapper,
                     properties.getPersistence().getJdbc().getTablePrefix());
-            default -> new InMemoryGraphDefinitionRepository();
+            case MEMORY, AUTO -> new InMemoryGraphDefinitionRepository();
         };
     }
 
@@ -330,8 +394,9 @@ public class AceGraphDslAutoConfiguration {
             io.acelance.graph.dsl.store.GraphRuntime runtime,
             @Qualifier(AceGraphDslBeans.OBJECT_MAPPER) ObjectMapper objectMapper,
             AceGraphDslProperties properties,
-            ResourceLoader resourceLoader) {
-        return new GraphDslBootstrapLoader(repository, runtime, objectMapper, properties, resourceLoader);
+            ResourceLoader resourceLoader,
+            BuiltinGraphRegistry builtinRegistry) {
+        return new GraphDslBootstrapLoader(repository, runtime, objectMapper, properties, resourceLoader, builtinRegistry);
     }
 
     @Bean
@@ -356,7 +421,9 @@ public class AceGraphDslAutoConfiguration {
             ObjectProvider<DataSourceProperties> dataSourcePropertiesProvider) {
 
         String configured = properties.getPersistence().getType();
-        PersistenceType explicit = switch (configured.toLowerCase()) {
+        String normalized = configured == null ? "auto" : configured.trim().toLowerCase();
+        PersistenceType explicit = switch (normalized) {
+            case "memory", "mem", "in-memory", "inmemory" -> PersistenceType.MEMORY;
             case "sqlite" -> PersistenceType.SQLITE;
             case "redis" -> PersistenceType.REDIS;
             case "jdbc" -> PersistenceType.JDBC;
@@ -365,10 +432,15 @@ public class AceGraphDslAutoConfiguration {
         if (explicit != PersistenceType.AUTO) {
             return explicit;
         }
-        if (properties.getPersistence().isPreferRedis() && redisConnectionFactoryProvider.getIfAvailable() != null) {
+        // dynamic/generic 仓储可能不传 Redis Provider（传 null），须判空
+        if (properties.getPersistence().isPreferRedis()
+                && redisConnectionFactoryProvider != null
+                && redisConnectionFactoryProvider.getIfAvailable() != null) {
             return PersistenceType.REDIS;
         }
-        DataSourceProperties dsProps = dataSourcePropertiesProvider.getIfAvailable();
+        DataSourceProperties dsProps = dataSourcePropertiesProvider == null
+                ? null
+                : dataSourcePropertiesProvider.getIfAvailable();
         if (dsProps != null && dsProps.getUrl() != null && !dsProps.getUrl().contains("sqlite")) {
             return PersistenceType.JDBC;
         }

@@ -15,6 +15,9 @@ import com.alibaba.cloud.ai.graph.CompiledGraph;
 import com.alibaba.cloud.ai.graph.NodeOutput;
 import com.alibaba.cloud.ai.graph.RunnableConfig;
 import com.alibaba.cloud.ai.graph.exception.GraphStateException;
+import io.acelance.graph.dsl.resource.ResourceKeyValidationGate;
+import io.acelance.graph.dsl.resource.ResourceKeyValidator;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -43,16 +46,19 @@ public class GraphDefinitionController {
     private final GraphMenuPermissionResolver menuPermissions;
     private final BuiltinGraphRegistry builtinRegistry;
     private final DynamicGraphBuilder builder;
+    private final ResourceKeyValidator resourceKeyValidator;
 
     public GraphDefinitionController(GraphDefinitionRepository store, GraphRuntime runtime,
                                      GraphPreviewService previewService, GraphMenuPermissionResolver menuPermissions,
-                                     BuiltinGraphRegistry builtinRegistry, DynamicGraphBuilder builder) {
+                                     BuiltinGraphRegistry builtinRegistry, DynamicGraphBuilder builder,
+                                     ObjectProvider<ResourceKeyValidator> resourceKeyValidator) {
         this.store = store;
         this.runtime = runtime;
         this.previewService = previewService;
         this.menuPermissions = menuPermissions;
         this.builtinRegistry = builtinRegistry;
         this.builder = builder;
+        this.resourceKeyValidator = resourceKeyValidator == null ? null : resourceKeyValidator.getIfAvailable();
     }
 
     /** 列出所有图定义（最新版本），合并内置图 */
@@ -116,6 +122,8 @@ public class GraphDefinitionController {
         if (!graphId.equals(def.graphId())) {
             throw new IllegalArgumentException("graphId 不一致: path=" + graphId + ", body=" + def.graphId());
         }
+        // P3.6：有 ResourceKeyValidator 时校验图内 Agent 资源 key
+        ResourceKeyValidationGate.assertValidGraph(resourceKeyValidator, null, def);
         return store.saveDraft(def, body.baseVersion());
     }
 

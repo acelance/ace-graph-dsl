@@ -20,10 +20,29 @@ const showScriptEditor = ref(false)
 const editingNode = ref(null)
 const showAgentEditor = ref(false)
 const editingAgent = ref(null)
+/** 打开 Agent 编辑器时的 Catalog 会话（图入口 / 节点面板入口） */
+const agentCatalogSession = ref({ fromGraph: false })
 const props = defineProps({ embedded: { type: Boolean, default: false } })
 const emit = defineEmits(['node-drag'])
 // P3 UX：节点面板可折叠为抽屉；默认不折叠（向后兼容既有页面）
 const collapsed = defineModel('collapsed', { type: Boolean, default: false })
+
+function openAgentEditor(node, session = { fromGraph: false }) {
+  editingAgent.value = node
+  agentCatalogSession.value = {
+    fromGraph: !!session.fromGraph,
+    graphId: session.graphId || undefined,
+    agentCode: session.agentCode || undefined,
+    otherBizParams: session.otherBizParams || undefined
+  }
+  showAgentEditor.value = true
+}
+
+watch(showAgentEditor, (open) => {
+  if (!open) {
+    agentCatalogSession.value = { fromGraph: false }
+  }
+})
 
 const filteredNodes = computed(() => {
   let list = nodeStore.nodes
@@ -89,7 +108,14 @@ watch(
     if (!nodeId) return
     await ensureRegistryLoaded()
     const target = nodeStore.nodes.find(n => n.origin === 'GENERIC_AGENT' && n.nodeId === nodeId)
-    if (target) onEdit(target)
+    if (target) {
+      openAgentEditor(target, {
+        fromGraph: true,
+        graphId: agentBus.graphId || undefined,
+        agentCode: agentBus.agentCode || undefined,
+        otherBizParams: agentBus.otherBizParams || undefined
+      })
+    }
   }
 )
 
@@ -103,8 +129,7 @@ async function onAgentCreated() {
 
 function onEdit(node) {
   if (node.origin === 'GENERIC_AGENT') {
-    editingAgent.value = node
-    showAgentEditor.value = true
+    openAgentEditor(node, { fromGraph: false })
   } else {
     editingNode.value = node
     showScriptEditor.value = true
@@ -117,8 +142,7 @@ function onNew() {
 }
 
 function onAgentNew() {
-  editingAgent.value = null
-  showAgentEditor.value = true
+  openAgentEditor(null, { fromGraph: false })
 }
 
 async function onDelete(node) {
@@ -226,7 +250,12 @@ async function onDelete(node) {
     </div>
     <el-empty v-if="filteredNodes.length === 0" :description="t('nodePanel.empty')" :image-size="40" />
     <ScriptNodeEditor v-model:visible="showScriptEditor" :edit-node="editingNode" @created="onScriptCreated" />
-    <AgentNodeEditor v-model:visible="showAgentEditor" :edit-node="editingAgent" @created="onAgentCreated" />
+    <AgentNodeEditor
+      v-model:visible="showAgentEditor"
+      :edit-node="editingAgent"
+      :catalog-session="agentCatalogSession"
+      @created="onAgentCreated"
+    />
     </div><!-- /.panel-content -->
   </div>
 </template>

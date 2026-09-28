@@ -5,6 +5,8 @@ package io.acelance.graph.dsl.persistence;
  */
 public enum PersistenceType {
     AUTO,
+    /** 进程内内存仓储（本地联调 / 无外部存储） */
+    MEMORY,
     SQLITE,
     REDIS,
     JDBC

@@ -26,11 +26,13 @@ import java.util.concurrent.ConcurrentHashMap;
  * <p>多实例部署时，通过 {@link #get(String)} 的 DB 版本检查实现懒加载同步：
  * 实例 A 发布后，实例 B 在下次请求时自动感知版本变化并重编译图。</p>
  *
- * <p>{@code dynamicNodeBootstrapLoader} 负责启动时把持久化的脚本节点加载到注册中心，
- * 必须在 {@link #init()} 编译图之前完成，否则引用脚本节点的图会编译失败。</p>
+ * <p>启动时须先把持久化节点装进注册中心，再编译图：
+ * {@code dynamicNodeBootstrapLoader}（脚本节点）、
+ * {@code genericAgentNodeBootstrapLoader}（无内联 agentSpec 的 GENERIC_AGENT）。
+ * 否则引用型节点会在校验阶段失败，图进不了内存池。</p>
  */
 @Component
-@DependsOn("dynamicNodeBootstrapLoader")
+@DependsOn({"dynamicNodeBootstrapLoader", "genericAgentNodeBootstrapLoader"})
 public class GraphRuntime {
 
     private static final Logger log = LoggerFactory.getLogger(GraphRuntime.class);

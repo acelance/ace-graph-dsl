@@ -5,6 +5,87 @@ All notable changes to the Ace Graph DSL project are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+## [1.1.3] — 2026-09-24
+
+### Fixed
+
+- **modelConfigKey 与 modelId 二选一校验**：`GenericAgentNodeService.validateSpec` 在已配置 `modelConfigKey` 时允许 `modelId` 为空；仅启用 Model 却两者皆空时给出明确错误。
+
+### Added
+
+- **设计器嵌入契约（P0/P1）**：`EmbedContext` / `:embed` / iframe `embed.html`；左侧 graphId 精确过滤；资源 Catalog 透传 `agentCode`/`otherBizParams`（含 SPI 四参 default）。
+
+## [1.1.2] — 2026-09-23
+
+### Fixed
+
+- **历史 USER 材料污染（B2/C3）**：LLM user 含 `[material]` 时 Template 挂 `display_content` 兜底剥离；与 Lesso codec/Advisor 双保险配合。
+- **工具轮中间文本进主气泡（C2）**：`streamCallWithTools` 仅无 toolCalls 的终答轮进入 `visible`（→ 记忆 content）；中间轮过程字仍可 SSE emit（thinking 通道），不拼进 visible。
+
+### Changed
+
+- **记忆展示观测**：挂/未挂 `display_content` 时打 info/warn 日志，便于核对落盘路径。
+
+## [1.1.1] — 2026-09-23
+
+### Fixed
+
+- **未知工具软降级**：`StreamingToolCallMergingManager` 对模型幻觉的未注册 tool 名（如 `write_file`）挂占位 callback，回 `unknown_tool` 提示并继续多轮，不再抛 `No ToolCallback found`。
+- **bizParam nodeId 别名（问题二 B1）**：`AceGraphNodeHelper.findNode` 支持运行时 `agent:xxx` → 定义 `xxx` 回退查找。
+
+### Changed
+
+- **工具轮日志**：`StreamingLlmTemplate` 每轮打印 `requestedTools` / `unknownTools` / `knownCount`（成功失败均可见）。
+
+## [1.1.0] — 2026-09-23
+
+### Fixed
+
+- **forceSkills 静默跳过**：有效白名单改为 `skillKeys ∪ forceSkills`；口令/点选的 skill 即使设计器未勾选也会进 L1、预激活 L2，并可 `load_skill`。
+
+### Changed
+
+- **流式+工具 maxRounds**：默认 **30**，配置项 `ace.graph.dsl.llm.stream-tool-max-rounds`。
+
+## [1.0.9] — 2026-09-23
+
+### Changed
+
+- **有工具真流式**：streaming+tools 走 `stream().chatResponse()` 手动多轮（Spring AI 1.1.x `ToolCallAdvisor.adviseStream` 未实现）；同步路径仍用 ToolCallAdvisor。新增 `StreamingToolCallMergingManager`、`TokenChunkObserver` / `ObservingGraphStreamBridge`。终答后 Echo ChatModel 触发记忆 Advisor 落盘。
+
+## [1.0.8] — 2026-09-22
+
+### Changed
+
+- **记忆 USER 展示正文 SPI**：框架 `StreamingLlmTemplate` 不再穷举 state key；新增 `MemoryDisplayUserTextResolver` / `KeyListMemoryDisplayUserTextResolver`，由业务侧 Bean 决定兜底 key。未注册 SPI 时不写 `display_content`。
+- **多节点即时落盘**：出口节点 Ordered Advisor `writeUser=false`；非出口 `READ_WRITE` 写 USER（经 SPI）+ ASSISTANT（可挂 `extras.thinking`）。
+
+## [1.0.7] — 2026-09-22
+
+### Fixed
+
+- **构图保留键**：`DynamicGraphBuilder` 自动为 `conversationId` / `agentCode` / `runId` / `forceSkills` / `deepThinking` / `modelOverrides` 补 `REPLACE` KeyStrategy，避免多节点合并丢会话键导致记忆 Advisor 跳过。
+- **本地 Template 兜底**：`GenericAgentNode` 本地装配 `StreamingLlmTemplate` 时注入 `ChatClientAdvisorProvider` 与 `PromptContentResolver`，避免无 Bean 路径下对话记忆整段失效。
+
+### Added
+
+- **设计器 `memoryMode`**：属性面板 / Agent 编辑器可配置 `NONE` | `READ_ONLY` | `READ_WRITE`（节点 LLM 完成即按 Advisor 落盘，非图尾统一 persist）。
+
+## [1.0.6]
+
+### Changed
+
+- **多模态分流（§8.2 / §8.3）**：`MediaRefResolver.ResolveResult` 增加 `materialNotes`。图片/音视频进 `medias`（`UserMessage.media`）；xlsx/pdf/docx 等进材料注记并追加到 user 文本，供工具/Skill 读 `url=`；不安全 URL 仍进 `skippedNotes`。`DefaultMediaRefResolver` / `StreamingLlmTemplate` 已接线。图配置无需改拓扑（`mediaInputKey` 仍指向 state 引用列表）。
+- **启动顺序**：`GraphRuntime` 同时 `@DependsOn` 脚本节点与 GenericAgent 节点 bootstrap，避免引用型 GENERIC_AGENT 在注册中心未就绪时编译失败。
+- **文档（设计期资源目录，浏览参数未改代码）**：定案注册式 Agent 与图内联 spec 的分工，以及 Catalog 浏览参数 `agentCode`（框架只传递）和 `bizKey`（不透明字符串，业务自解析）。见 [designer-resource-catalog-browse.md](docs/designer-resource-catalog-browse.md)。
+- **设计器**：节点面板「编辑通用 Agent」打开时请求 `GET /api/agent-resources/mcp` 与 `/skills`，不带 `graphId`。MCP 有数据时用三级树写回 `mcpKeys` / `mcpToolWhitelist`；Skill 有数据时多选且关闭 `allow-create`。目录为空与加载失败分开提示。属性面板的 Skill 多选同样关闭手填入选。
+- **设计器 MCP 树**：server 节点显示为资源编码(显示名称)，例如 `tianyancha(天眼查)`；工具节点只显示资源编码。写入 `mcpKeys` 的仍是资源编码。
+- **设计器 Skill**：多选来自注册中心的全部 skill，不再被进程 `lesso.ai.skills` 热刷新白名单裁成一两条。选项显示为资源编码(显示名称)，写入 `skillKeys` 的仍是资源编码。
+- **设计器 Skill UI**：与 MCP 相同的勾选树（扁平），不再用下拉。
+- **设计器发布**：内容相对基线无变更时，不再用预占的下一版号（如 1.0.3）去发布；回落到已存在的基线版本（如 1.0.2），避免「版本不存在」。
+
 ## [1.2.0] — 2026-08-08
 
 ### Added

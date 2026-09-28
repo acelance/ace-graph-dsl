@@ -31,14 +31,14 @@ __START__ ─► agentSource(GENERIC_AGENT)
 
 ### 1. 后端 JUnit（推荐，最快验证并发）
 
-`GenericAgentFanOutIntegrationTest` 会用带人工延迟的 `DelayChatClientFactory` 覆盖内置 `StubChatClientFactory`，并断言：
+`GenericAgentFanOutIntegrationTest` 会用带人工延迟的 `DelayChatModelFactory` 覆盖默认 `StubChatModelFactory`，并断言：
 
 - `maxActiveBranches >= 2` —— **确定性**证明两条分支**真并发**执行（不依赖绝对耗时，避免计时抖动误判）；
 - `agent_source_result` / `branchA_result` / `branchB_result` / `agent_result` 四个输出 key 均写回。
 
 ```bash
 cd ace-graph-dsl/ace-graph-dsl-backend
-mvn.cmd -pl ace-graph-dsl-core test -Dtest=GenericAgentFanOutIntegrationTest
+mvn.cmd -pl ace-graph-dsl-ai test -Dtest=GenericAgentFanOutIntegrationTest
 ```
 
 > 说明：`DynamicGraphBuilder` 在构建时会把 `agentSource` 的两条 `parallel=true` 出边重写为一个内部扇出节点（`FanOutNodeAction`），
@@ -49,8 +49,8 @@ mvn.cmd -pl ace-graph-dsl-core test -Dtest=GenericAgentFanOutIntegrationTest
 ### 2. 设计器 / 运行时（需内置 Stub 或真实适配器）
 
 - 此 JSON 可直接作为图定义导入/保存（`modelApiKey` 落库时会被 `AgentSecretMasking` 自动掩码，仅留后 4 位）。
-- 不引入真实 LLM 适配模块时，后端默认用 `StubChatClientFactory` 返回固定 JSON 结构，整图可端到端跑通。
-- 引入可选模块 `ace-graph-dsl-agent`（基于 spring-ai 的 `DefaultChatClientFactory`）后自动切换为真实模型调用。
+- 未提供业务 `ChatModelFactory` 时，后端默认用 `StubChatModelFactory` 返回固定 JSON 结构，整图可端到端跑通。
+- 业务注册真实 `ChatModelFactory`（返回 spring-ai `ChatModel`）后自动切换为真实模型调用。
 
 > **前端试运行注意**：早期版本存在 `subgraphRef` 空字符串误判（前端序列化每个节点都带 `subgraphRef: ""`，
 > 被误判为子图节点，试运行报「子图未定义」）。该问题已在 `NodeRef.hasSubgraph()` 加 `!isBlank()` 防护修复

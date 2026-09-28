@@ -3,9 +3,35 @@ import vue from '@vitejs/plugin-vue'
 import { fileURLToPath, URL } from 'node:url'
 
 // `vite` / `vite --mode demo` 启动 demo 开发服务器；
-// `vite build` 产出可发布的库 dist（ESM + 抽取的样式）。
-export default defineConfig(({ command }) => {
+// `vite build` 产出可发布的库 dist（ESM + 抽取的样式）；
+// `vite build --mode embed` 产出同源 iframe 静态包 dist-embed/（挂载 /ace-graph-designer/）。
+export default defineConfig(({ command, mode }) => {
   const isBuild = command === 'build'
+  const isEmbed = mode === 'embed'
+
+  if (isEmbed) {
+    return {
+      plugins: [vue()],
+      base: '/ace-graph-designer/',
+      server: {
+        host: '127.0.0.1',
+        port: 5174,
+        proxy: {
+          '/api': {
+            target: 'http://127.0.0.1:8087',
+            changeOrigin: true
+          }
+        }
+      },
+      build: {
+        outDir: 'dist-embed',
+        emptyOutDir: true,
+        rollupOptions: {
+          input: fileURLToPath(new URL('./embed.html', import.meta.url))
+        }
+      }
+    }
+  }
 
   return {
     plugins: [vue()],

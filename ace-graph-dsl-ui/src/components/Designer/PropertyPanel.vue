@@ -1,12 +1,29 @@
 <script setup>
-import { ref, watch, computed, nextTick } from 'vue'
+import { ref, watch, computed, nextTick, inject } from 'vue'
 import { Delete, Loading } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
 import { useGraphEditorStore } from '../../stores/graphEditor'
 import { useNodeRegistryStore } from '../../stores/nodeRegistry'
 import { useI18n } from '../../i18n'
 import { requestOpenAgentEditor } from '../../stores/agentEditorBus'
-import { listScriptEngines } from '../../api/graph'
+import { listScriptEngines, listAgentResources } from '../../api/graph'
+import { loadStreamKindOptions } from '../../utils/streamKinds'
+import { loadBizParamInterpreterOptions } from '../../utils/bizParamInterpreters'
+import {
+  loadAgentResource,
+  buildMcpTreeData,
+  buildSkillTreeData,
+  resourceCodeLabel,
+  mcpCheckedIdsFromSpec,
+  mcpBindingFromChecked,
+  skillCheckedIdsFromSpec,
+  skillKeysFromChecked
+} from '../../utils/agentResourceCatalog'
+import {
+  ACE_GRAPH_EMBED_KEY,
+  buildResourceCatalogParams,
+  OTHER_BIZ_PARAMS_MAX_BYTES
+} from '../../embed/context'
 import MermaidPreview from './MermaidPreview.vue'
 
 const props = defineProps({
@@ -17,6 +34,7 @@ const props = defineProps({
 const editor = useGraphEditorStore()
 const nodeStore = useNodeRegistryStore()
 const { t } = useI18n()
+const embedCtx = inject(ACE_GRAPH_EMBED_KEY, computed(() => ({})))
 
 const activeTab = ref('node')
 const keyStrategyRows = ref([])
@@ -55,10 +73,15 @@ const isGenericAgentSelected = computed(() => editor.selectedNode?.category === 
 /** 注册式（引用型）通用 Agent：无内联 agentSpec，元数据集中在节点面板管理 */
 const isGenericAgentRegistered = computed(() => isGenericAgentSelected.value && !currentAgentSpec.value)
 
-/** 注册式节点：跳转到「节点面板 → 通用 Agent」进行元数据编辑 */
+/** 注册式节点：跳转到「节点面板 → 通用 Agent」进行元数据编辑（图入口带 Catalog 上下文） */
 function gotoNodePanelAgent() {
   if (!editor.selectedNode) return
-  requestOpenAgentEditor(editor.selectedNode.nodeId)
+  const embed = embedCtx?.value || {}
+  requestOpenAgentEditor(editor.selectedNode.nodeId, {
+    graphId: editor.graphId || undefined,
+    agentCode: embed.agentCode || undefined,
+    otherBizParams: embed.otherBizParams || undefined
+  })
 }
 
 /** 用户手动选择的子图模式（覆盖数据驱动判断）。
@@ -170,6 +193,9 @@ function onConfigChange(key, value) {
 // 从 selectedNodeMeta（store 中完整节点对象）读取 agentSpec，而不从 selectedNode（浅引用）读取。
 // 原因：setSelectedNode 只透传 nodeId/config/category，不携带 agentSpec；完整节点在 editor.nodes 中。
 const currentAgentSpec = computed(() => selectedNodeMeta.value?.agentSpec || null)
+/** 启用 Model 且填写 modelConfigKey：整路走注册中心，节点级 modelId 不必填 */
+const usesAgentModelConfig = computed(() =>
+  !!currentAgentSpec.value?.enableModel && !!(currentAgentSpec.value?.modelConfigKey || '').trim())
 
 /** 掩码态下 API Key 输入框留空（避免把掩码字符串当真实 key 回写）；非掩码态显示真实值 */
 const agentSpecApiKeyDisplay = computed(() => {
@@ -194,18 +220,199 @@ function onAgentSpecApiKeyInput(val) {
   editor.updateSelectedAgentSpec(next)
 }
 
-/** tools 数组 ↔ 逗号分隔文本 */
-const agentSpecToolsText = computed(() => {
-  const s = currentAgentSpec.value
-  if (!s || !Array.isArray(s.tools)) return ''
-  return s.tools.join(', ')
-})
+/* ───────── 流式类型下拉（P0.4）───────── */
+const streamKindOptions = ref([])
+const streamKindsLoading = ref(false)
 
-function onAgentSpecToolsInput(text) {
+async function ensureStreamKindsLoaded() {
+  if (streamKindOptions.value.length) return
+  streamKindsLoading.value = true
+  try {
+    streamKindOptions.value = await loadStreamKindOptions(editor.graphId)
+  } finally {
+    streamKindsLoading.value = false
+  }
+}
+
+/* ───────── 业务附加参数解释器下拉 ───────── */
+const bizParamInterpreterOptions = ref([])
+const bizParamInterpretersLoading = ref(false)
+
+async function ensureBizParamInterpretersLoaded() {
+  if (bizParamInterpreterOptions.value.length) return
+  bizParamInterpretersLoading.value = true
+  try {
+    bizParamInterpreterOptions.value = await loadBizParamInterpreterOptions(editor.graphId)
+  } finally {
+    bizParamInterpretersLoading.value = false
+  }
+}
+
+function onEnableBizParamsToggle(on) {
   const s = currentAgentSpec.value
   if (!s) return
-  const arr = (text || '').split(',').map(x => x.trim()).filter(Boolean)
-  editor.updateSelectedAgentSpec({ ...s, tools: arr })
+  const next = { ...s, enableBizParams: !!on }
+  if (on && !next.bizParamInterpreterId) {
+    next.bizParamInterpreterId = 'string'
+  }
+  editor.updateSelectedAgentSpec(next)
+}
+
+watch(() => currentAgentSpec.value, (s) => {
+  if (s) {
+    ensureStreamKindsLoaded()
+    ensureBizParamInterpretersLoaded()
+    ensureResourceCatalogsLoaded()
+  }
+}, { immediate: true })
+
+/* ───────── P1.1 Catalog 列表（空则回落手动输入）───────── */
+const catalog = ref({
+  prompts: [],
+  models: [],
+  tools: [],
+  mcp: [],
+  skills: []
+})
+const catalogLoading = ref(false)
+const resourceStatus = ref({
+  mcp: { error: false, empty: false },
+  skills: { error: false, empty: false }
+})
+
+async function ensureResourceCatalogsLoaded() {
+  if (catalogLoading.value) return
+  catalogLoading.value = true
+  try {
+    const embed = embedCtx?.value || {}
+    const { params, otherBizParamsError } = buildResourceCatalogParams({
+      graphId: editor.graphId || undefined,
+      agentCode: embed.agentCode || undefined,
+      otherBizParams: embed.otherBizParams || undefined
+    })
+    if (otherBizParamsError) {
+      ElMessage.warning(t('manager.otherBizParamsTooLong', { max: OTHER_BIZ_PARAMS_MAX_BYTES }))
+    }
+    const [prompts, models, tools, mcp, skills] = await Promise.all([
+      listAgentResources('prompts', params).catch(() => ({ items: [] })),
+      listAgentResources('models', params).catch(() => ({ items: [] })),
+      listAgentResources('tools', params).catch(() => ({ items: [] })),
+      loadAgentResource('mcp', params),
+      loadAgentResource('skills', params)
+    ])
+    catalog.value = {
+      prompts: prompts?.items || [],
+      models: models?.items || [],
+      tools: tools?.items || [],
+      mcp: mcp.items,
+      skills: skills.items
+    }
+    resourceStatus.value = {
+      mcp: { error: !!mcp.error, empty: mcp.empty },
+      skills: { error: !!skills.error, empty: skills.empty }
+    }
+  } finally {
+    catalogLoading.value = false
+  }
+}
+
+function onAgentSpecKeysSelect(field, keys) {
+  const s = currentAgentSpec.value
+  if (!s) return
+  editor.updateSelectedAgentSpec({ ...s, [field]: Array.isArray(keys) ? keys : [] })
+}
+
+/* ───────── P0.5 资源两级勾选辅助 ───────── */
+function parseCsv(text) {
+  return (text || '').split(',').map(x => x.trim()).filter(Boolean)
+}
+
+function csvOf(arr) {
+  return Array.isArray(arr) ? arr.join(', ') : ''
+}
+
+/** 将 UI 文本 "s1:t1|t2;s2:t3" 解析为 mcpToolWhitelist Map */
+function parseMcpWhitelist(text) {
+  const map = {}
+  ;(text || '').split(';').map(x => x.trim()).filter(Boolean).forEach(part => {
+    const idx = part.indexOf(':')
+    if (idx < 0) return
+    const server = part.slice(0, idx).trim()
+    const tools = part.slice(idx + 1).split('|').map(x => x.trim()).filter(Boolean)
+    if (server) map[server] = tools
+  })
+  return map
+}
+
+function formatMcpWhitelist(wl) {
+  if (!wl || typeof wl !== 'object') return ''
+  return Object.entries(wl).map(([k, v]) => `${k}:${(v || []).join('|')}`).join('; ')
+}
+
+function onAgentSpecCsvField(field, text) {
+  const s = currentAgentSpec.value
+  if (!s) return
+  editor.updateSelectedAgentSpec({ ...s, [field]: parseCsv(text) })
+}
+
+function onAgentSpecWhitelistInput(text) {
+  const s = currentAgentSpec.value
+  if (!s) return
+  editor.updateSelectedAgentSpec({ ...s, mcpToolWhitelist: parseMcpWhitelist(text) })
+}
+
+const mcpTreeRef = ref(null)
+const skillTreeRef = ref(null)
+const mcpTreeData = computed(() => buildMcpTreeData(catalog.value.mcp))
+const skillTreeData = computed(() => buildSkillTreeData(catalog.value.skills))
+const mcpHasCatalog = computed(() => (catalog.value.mcp || []).length > 0)
+const skillHasCatalog = computed(() => (catalog.value.skills || []).length > 0)
+const mcpCheckedKeys = computed(() =>
+  mcpCheckedIdsFromSpec(currentAgentSpec.value, mcpTreeData.value)
+)
+const skillCheckedKeys = computed(() =>
+  skillCheckedIdsFromSpec(currentAgentSpec.value?.skillKeys, skillTreeData.value)
+)
+const mcpAdvancedText = ref(false)
+
+function onMcpTreeCheck() {
+  const s = currentAgentSpec.value
+  if (!s) return
+  const { mcpKeys, mcpToolWhitelist } = mcpBindingFromChecked(mcpTreeRef.value, mcpTreeData.value)
+  editor.updateSelectedAgentSpec({ ...s, mcpKeys, mcpToolWhitelist })
+}
+
+function onSkillTreeCheck() {
+  const s = currentAgentSpec.value
+  if (!s) return
+  editor.updateSelectedAgentSpec({
+    ...s,
+    skillKeys: skillKeysFromChecked(skillTreeRef.value)
+  })
+}
+
+watch(
+  [mcpCheckedKeys, () => editor.selectedNode?.nodeId, mcpHasCatalog],
+  async () => {
+    if (!mcpHasCatalog.value) return
+    await nextTick()
+    mcpTreeRef.value?.setCheckedKeys?.(mcpCheckedKeys.value || [])
+  }
+)
+
+watch(
+  [skillCheckedKeys, () => editor.selectedNode?.nodeId, skillHasCatalog, () => currentAgentSpec.value?.enableSkill],
+  async () => {
+    if (!skillHasCatalog.value || !currentAgentSpec.value?.enableSkill) return
+    await nextTick()
+    skillTreeRef.value?.setCheckedKeys?.(skillCheckedKeys.value || [])
+  }
+)
+
+function onAgentSpecToggle(field, enabled) {
+  const s = currentAgentSpec.value
+  if (!s) return
+  editor.updateSelectedAgentSpec({ ...s, [field]: !!enabled })
 }
 
 function addKey() {
@@ -509,9 +716,15 @@ function onStreamingChange(val) {
               <el-form-item :label="t('propertyPanel.agentSpec.modelId')">
                 <el-input
                   :model-value="currentAgentSpec.modelId || ''"
+                  :disabled="usesAgentModelConfig"
                   @update:model-value="onAgentSpecField('modelId', $event)"
                   placeholder="gpt-4o / qwen-max / ..."
                 />
+                <span class="hint" style="display:block; margin-top:4px;">
+                  {{ usesAgentModelConfig
+                    ? t('propertyPanel.agentSpec.modelIdFromConfigHint')
+                    : t('propertyPanel.agentSpec.modelIdOptionalHint') }}
+                </span>
               </el-form-item>
 
               <el-divider content-position="left">{{ t('propertyPanel.agentSpec.prompt') }}</el-divider>
@@ -523,58 +736,7 @@ function onStreamingChange(val) {
                   @update:model-value="onAgentSpecField('prompt', $event)"
                   placeholder="You are a helpful assistant..."
                 />
-              </el-form-item>
-              <el-form-item :label="t('propertyPanel.agentSpec.promptKey')">
-                <el-input
-                  :model-value="currentAgentSpec.promptKey || ''"
-                  @update:model-value="onAgentSpecField('promptKey', $event)"
-                  placeholder="prompts:consult_v2"
-                />
                 <span class="hint" style="display:block; margin-top:4px;">{{ t('propertyPanel.agentSpec.promptHint') }}</span>
-              </el-form-item>
-
-              <el-divider content-position="left">{{ t('propertyPanel.agentSpec.skill') }}</el-divider>
-              <el-form-item :label="t('propertyPanel.agentSpec.skill')">
-                <el-input
-                  :model-value="currentAgentSpec.skill || ''"
-                  @update:model-value="onAgentSpecField('skill', $event)"
-                  placeholder="skill:tax_calc"
-                />
-              </el-form-item>
-              <el-form-item :label="t('propertyPanel.agentSpec.skillKey')">
-                <el-input
-                  :model-value="currentAgentSpec.skillKey || ''"
-                  @update:model-value="onAgentSpecField('skillKey', $event)"
-                  placeholder="skills:tax_calc"
-                />
-                <span class="hint" style="display:block; margin-top:4px;">{{ t('propertyPanel.agentSpec.skillHint') }}</span>
-              </el-form-item>
-
-              <el-divider content-position="left">{{ t('propertyPanel.agentSpec.mcp') }}</el-divider>
-              <el-form-item :label="t('propertyPanel.agentSpec.mcp')">
-                <el-input
-                  :model-value="currentAgentSpec.mcp || ''"
-                  @update:model-value="onAgentSpecField('mcp', $event)"
-                  placeholder="mcp:filesystem"
-                />
-              </el-form-item>
-              <el-form-item :label="t('propertyPanel.agentSpec.mcpKey')">
-                <el-input
-                  :model-value="currentAgentSpec.mcpKey || ''"
-                  @update:model-value="onAgentSpecField('mcpKey', $event)"
-                  placeholder="mcps:filesystem"
-                />
-                <span class="hint" style="display:block; margin-top:4px;">{{ t('propertyPanel.agentSpec.mcpHint') }}</span>
-              </el-form-item>
-
-              <el-divider content-position="left">{{ t('propertyPanel.agentSpec.tools') }}</el-divider>
-              <el-form-item :label="t('propertyPanel.agentSpec.tools')">
-                <el-input
-                  :model-value="agentSpecToolsText"
-                  @update:model-value="onAgentSpecToolsInput"
-                  placeholder="search, calculator, ..."
-                />
-                <span class="hint" style="display:block; margin-top:4px;">{{ t('propertyPanel.agentSpec.toolsHint') }}</span>
               </el-form-item>
 
               <el-divider content-position="left">{{ t('propertyPanel.inputKeys') }}</el-divider>
@@ -593,6 +755,257 @@ function onStreamingChange(val) {
                   placeholder="agent_result"
                 />
                 <span class="hint" style="display:block; margin-top:4px;">{{ t('propertyPanel.agentSpec.outputKeyHint') }}</span>
+              </el-form-item>
+              <el-form-item :label="t('propertyPanel.agentSpec.mediaInputKey')">
+                <el-input
+                  :model-value="currentAgentSpec.mediaInputKey || ''"
+                  @update:model-value="onAgentSpecField('mediaInputKey', $event || null)"
+                  placeholder="multimodal_refs"
+                />
+                <span class="hint" style="display:block; margin-top:4px;">{{ t('propertyPanel.agentSpec.mediaInputKeyHint') }}</span>
+              </el-form-item>
+
+              <el-divider content-position="left">{{ t('propertyPanel.agentSpec.streamResponseKind') }}</el-divider>
+              <el-form-item :label="t('propertyPanel.agentSpec.streamResponseKind')">
+                <el-select
+                  :model-value="currentAgentSpec.streamResponseKind || ''"
+                  @update:model-value="onAgentSpecField('streamResponseKind', $event || null)"
+                  clearable
+                  filterable
+                  :loading="streamKindsLoading"
+                  style="width: 100%;"
+                  :placeholder="t('propertyPanel.agentSpec.streamResponseKind')"
+                >
+                  <el-option
+                    v-for="opt in streamKindOptions"
+                    :key="opt.code"
+                    :label="`${opt.label} (${opt.code})`"
+                    :value="opt.code"
+                  />
+                </el-select>
+                <span class="hint" style="display:block; margin-top:4px;">{{ t('propertyPanel.agentSpec.streamResponseKindHint') }}</span>
+              </el-form-item>
+
+              <el-divider content-position="left">{{ t('propertyPanel.agentSpec.memoryMode') }}</el-divider>
+              <el-form-item :label="t('propertyPanel.agentSpec.memoryMode')">
+                <el-select
+                  :model-value="currentAgentSpec.memoryMode || 'NONE'"
+                  @update:model-value="onAgentSpecField('memoryMode', $event || 'NONE')"
+                  style="width: 100%;"
+                >
+                  <el-option :label="t('propertyPanel.agentSpec.memoryModeNone')" value="NONE" />
+                  <el-option :label="t('propertyPanel.agentSpec.memoryModeReadOnly')" value="READ_ONLY" />
+                  <el-option :label="t('propertyPanel.agentSpec.memoryModeReadWrite')" value="READ_WRITE" />
+                </el-select>
+                <span class="hint" style="display:block; margin-top:4px;">{{ t('propertyPanel.agentSpec.memoryModeHint') }}</span>
+              </el-form-item>
+
+              <el-divider content-position="left">{{ t('propertyPanel.agentSpec.deepThinking') }}</el-divider>
+              <el-form-item :label="t('propertyPanel.agentSpec.applyDeepThinking')">
+                <el-switch
+                  :model-value="!!currentAgentSpec.applyDeepThinking"
+                  @update:model-value="onAgentSpecToggle('applyDeepThinking', $event)"
+                />
+                <span class="hint" style="display:block; margin-top:4px;">{{ t('propertyPanel.agentSpec.applyDeepThinkingHint') }}</span>
+              </el-form-item>
+
+              <el-divider content-position="left">{{ t('propertyPanel.agentSpec.bizParams') }}</el-divider>
+              <el-form-item :label="t('propertyPanel.agentSpec.enableBizParams')">
+                <el-switch
+                  :model-value="!!currentAgentSpec.enableBizParams"
+                  @update:model-value="onEnableBizParamsToggle"
+                />
+                <span class="hint" style="display:block; margin-top:4px;">{{ t('propertyPanel.agentSpec.enableBizParamsHint') }}</span>
+              </el-form-item>
+              <template v-if="currentAgentSpec.enableBizParams">
+                <el-form-item :label="t('propertyPanel.agentSpec.bizParamInterpreterId')" required>
+                  <el-select
+                    :model-value="currentAgentSpec.bizParamInterpreterId || 'string'"
+                    @update:model-value="onAgentSpecField('bizParamInterpreterId', $event || 'string')"
+                    filterable
+                    :loading="bizParamInterpretersLoading"
+                    style="width: 100%;"
+                    :placeholder="t('propertyPanel.agentSpec.bizParamInterpreterId')"
+                  >
+                    <el-option
+                      v-for="opt in bizParamInterpreterOptions"
+                      :key="opt.id"
+                      :label="`${opt.displayName} (${opt.id})`"
+                      :value="opt.id"
+                    />
+                  </el-select>
+                  <span class="hint" style="display:block; margin-top:4px;">{{ t('propertyPanel.agentSpec.bizParamInterpreterIdHint') }}</span>
+                </el-form-item>
+                <el-form-item :label="t('propertyPanel.agentSpec.bizParamRaw')">
+                  <el-input
+                    type="textarea"
+                    :rows="4"
+                    :model-value="currentAgentSpec.bizParamRaw || ''"
+                    @update:model-value="onAgentSpecField('bizParamRaw', $event || null)"
+                    :placeholder="t('propertyPanel.agentSpec.bizParamRawPlaceholder')"
+                  />
+                  <span class="hint" style="display:block; margin-top:4px;">{{ t('propertyPanel.agentSpec.bizParamRawHint') }}</span>
+                </el-form-item>
+              </template>
+
+              <el-divider content-position="left">{{ t('propertyPanel.agentSpec.resources') }}</el-divider>
+              <el-form-item :label="t('propertyPanel.agentSpec.enablePrompt')">
+                <el-switch
+                  :model-value="!!currentAgentSpec.enablePrompt"
+                  @update:model-value="onAgentSpecToggle('enablePrompt', $event)"
+                />
+              </el-form-item>
+              <el-form-item v-if="currentAgentSpec.enablePrompt" :label="t('propertyPanel.agentSpec.promptKeys')">
+                <el-select
+                  v-if="catalog.prompts.length"
+                  :model-value="currentAgentSpec.promptKeys || []"
+                  multiple
+                  filterable
+                  allow-create
+                  default-first-option
+                  :loading="catalogLoading"
+                  style="width:100%;"
+                  @update:model-value="onAgentSpecKeysSelect('promptKeys', $event)"
+                >
+                  <el-option
+                    v-for="it in catalog.prompts"
+                    :key="it.key"
+                    :label="it.label || it.key"
+                    :value="it.key"
+                  />
+                </el-select>
+                <el-input
+                  v-else
+                  :model-value="csvOf(currentAgentSpec.promptKeys)"
+                  @update:model-value="onAgentSpecCsvField('promptKeys', $event)"
+                  placeholder="prompts:a, prompts:b"
+                />
+                <span class="hint" style="display:block; margin-top:4px;">{{ t('propertyPanel.agentSpec.promptKeysHint') }}</span>
+              </el-form-item>
+              <el-form-item :label="t('propertyPanel.agentSpec.enableModel')">
+                <el-switch
+                  :model-value="!!currentAgentSpec.enableModel"
+                  @update:model-value="onAgentSpecToggle('enableModel', $event)"
+                />
+              </el-form-item>
+              <el-form-item v-if="currentAgentSpec.enableModel" :label="t('propertyPanel.agentSpec.modelConfigKey')">
+                <el-input
+                  :model-value="currentAgentSpec.modelConfigKey || ''"
+                  @update:model-value="onAgentSpecField('modelConfigKey', $event)"
+                  placeholder="models:default"
+                />
+                <span class="hint" style="display:block; margin-top:4px;">{{ t('propertyPanel.agentSpec.modelConfigKeyHint') }}</span>
+              </el-form-item>
+              <el-form-item :label="t('propertyPanel.agentSpec.enableMcp')">
+                <el-switch
+                  :model-value="!!currentAgentSpec.enableMcp"
+                  @update:model-value="onAgentSpecToggle('enableMcp', $event)"
+                />
+              </el-form-item>
+              <template v-if="currentAgentSpec.enableMcp">
+                <el-form-item :label="t('propertyPanel.agentSpec.mcpTree')">
+                  <div v-if="mcpHasCatalog" class="mcp-tree-wrap">
+                    <el-tree
+                      ref="mcpTreeRef"
+                      :data="mcpTreeData"
+                      node-key="id"
+                      show-checkbox
+                      default-expand-all
+                      :props="{ label: 'label', children: 'children' }"
+                      :default-checked-keys="mcpCheckedKeys"
+                      @check="onMcpTreeCheck"
+                    />
+                    <span class="hint" style="display:block; margin-top:4px;">{{ t('propertyPanel.agentSpec.mcpTreeHint') }}</span>
+                    <el-button link type="primary" style="margin-top:4px;" @click="mcpAdvancedText = !mcpAdvancedText">
+                      {{ mcpAdvancedText ? t('propertyPanel.agentSpec.mcpAdvancedHide') : t('propertyPanel.agentSpec.mcpAdvancedShow') }}
+                    </el-button>
+                  </div>
+                  <div v-else>
+                    <span v-if="resourceStatus.mcp.error" class="hint" style="display:block; margin-bottom:4px;">{{ t('propertyPanel.agentSpec.catalogLoadFailed') }}</span>
+                    <span v-else-if="resourceStatus.mcp.empty" class="hint" style="display:block; margin-bottom:4px;">{{ t('propertyPanel.agentSpec.catalogEmpty') }}</span>
+                    <el-input
+                      :model-value="csvOf(currentAgentSpec.mcpKeys)"
+                      @update:model-value="onAgentSpecCsvField('mcpKeys', $event)"
+                      placeholder="mcp:crm, mcp:erp"
+                    />
+                    <span class="hint" style="display:block; margin-top:4px;">{{ t('propertyPanel.agentSpec.mcpKeysHint') }}</span>
+                  </div>
+                </el-form-item>
+                <el-form-item
+                  v-if="!mcpHasCatalog || mcpAdvancedText"
+                  :label="t('propertyPanel.agentSpec.mcpToolWhitelist')"
+                >
+                  <el-input
+                    :model-value="formatMcpWhitelist(currentAgentSpec.mcpToolWhitelist)"
+                    @update:model-value="onAgentSpecWhitelistInput($event)"
+                    placeholder="mcp:crm:query_order|list_order"
+                  />
+                  <span class="hint" style="display:block; margin-top:4px;">{{ t('propertyPanel.agentSpec.mcpToolWhitelistHint') }}</span>
+                </el-form-item>
+              </template>
+              <el-form-item :label="t('propertyPanel.agentSpec.enableSkill')">
+                <el-switch
+                  :model-value="!!currentAgentSpec.enableSkill"
+                  @update:model-value="onAgentSpecToggle('enableSkill', $event)"
+                />
+              </el-form-item>
+              <el-form-item v-if="currentAgentSpec.enableSkill" :label="skillHasCatalog ? t('propertyPanel.agentSpec.skillTree') : t('propertyPanel.agentSpec.skillKeys')">
+                <div v-if="skillHasCatalog" class="mcp-tree-wrap">
+                  <el-tree
+                    ref="skillTreeRef"
+                    :data="skillTreeData"
+                    node-key="id"
+                    show-checkbox
+                    default-expand-all
+                    :props="{ label: 'label', children: 'children' }"
+                    :default-checked-keys="skillCheckedKeys"
+                    @check="onSkillTreeCheck"
+                  />
+                  <span class="hint" style="display:block; margin-top:4px;">{{ t('propertyPanel.agentSpec.skillTreeHint') }}</span>
+                </div>
+                <div v-else>
+                  <span v-if="resourceStatus.skills.error" class="hint" style="display:block; margin-bottom:4px;">{{ t('propertyPanel.agentSpec.catalogLoadFailed') }}</span>
+                  <span v-else-if="resourceStatus.skills.empty" class="hint" style="display:block; margin-bottom:4px;">{{ t('propertyPanel.agentSpec.catalogEmpty') }}</span>
+                  <el-input
+                    :model-value="csvOf(currentAgentSpec.skillKeys)"
+                    @update:model-value="onAgentSpecCsvField('skillKeys', $event)"
+                    placeholder="skills:tax, skills:monitor"
+                  />
+                  <span class="hint" style="display:block; margin-top:4px;">{{ t('propertyPanel.agentSpec.skillKeysHint') }}</span>
+                </div>
+              </el-form-item>
+              <el-form-item :label="t('propertyPanel.agentSpec.enableLocalTools')">
+                <el-switch
+                  :model-value="!!currentAgentSpec.enableLocalTools"
+                  @update:model-value="onAgentSpecToggle('enableLocalTools', $event)"
+                />
+              </el-form-item>
+              <el-form-item v-if="currentAgentSpec.enableLocalTools" :label="t('propertyPanel.agentSpec.localToolKeys')">
+                <el-select
+                  v-if="catalog.tools.length"
+                  :model-value="currentAgentSpec.localToolKeys || []"
+                  multiple
+                  filterable
+                  allow-create
+                  default-first-option
+                  :loading="catalogLoading"
+                  style="width:100%;"
+                  @update:model-value="onAgentSpecKeysSelect('localToolKeys', $event)"
+                >
+                  <el-option
+                    v-for="it in catalog.tools"
+                    :key="it.key"
+                    :label="it.label || it.key"
+                    :value="it.key"
+                  />
+                </el-select>
+                <el-input
+                  v-else
+                  :model-value="csvOf(currentAgentSpec.localToolKeys)"
+                  @update:model-value="onAgentSpecCsvField('localToolKeys', $event)"
+                  placeholder="tools:search"
+                />
+                <span class="hint" style="display:block; margin-top:4px;">{{ t('propertyPanel.agentSpec.localToolKeysHint') }}</span>
               </el-form-item>
             </template>
 
@@ -852,4 +1265,13 @@ function onStreamingChange(val) {
 }
 .mapping-key { flex: 1; min-width: 0; }
 .mapping-target { flex: 1.4; min-width: 0; }
+.mcp-tree-wrap {
+  width: 100%;
+  max-height: 280px;
+  overflow: auto;
+  border: 1px solid var(--agd-color-border, #dcdfe6);
+  border-radius: 4px;
+  padding: 6px 8px;
+}
+.hint { font-size: 12px; color: var(--agd-color-text-secondary, #909399); }
 </style>

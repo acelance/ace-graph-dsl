@@ -22,7 +22,7 @@ const props = defineProps({
   showActions: { type: Boolean, default: true },
   readOnly: { type: Boolean, default: false }
 })
-const emit = defineEmits(['save', 'validate', 'preview', 'publish', 'undo', 'redo', 'dryRun', 'importDsl', 'exportDsl', 'topology', 'zoomIn', 'zoomOut', 'fit', 'resetZoom', 'autoLayout', 'toggleMinimap', 'createGroup', 'toggleBoxSelect', 'extractSubgraph'])
+const emit = defineEmits(['save', 'validate', 'preview', 'publish', 'undo', 'redo', 'dryRun', 'debugStream', 'importDsl', 'exportDsl', 'topology', 'zoomIn', 'zoomOut', 'fit', 'resetZoom', 'autoLayout', 'toggleMinimap', 'createGroup', 'toggleBoxSelect', 'extractSubgraph'])
 
 const showVersionHistory = ref(false)
 
@@ -124,7 +124,14 @@ const isDraftUnpublished = computed(() => {
 })
 
 async function ensureVersionBeforePersist() {
-  if (!editor.hasContentChanged()) return true
+  // 预占了下一版号但画布相对基线无变更：回落到基线，避免保存跳过却去发布不存在的版本
+  if (!editor.hasContentChanged()) {
+    const baseline = editor.baselineVersion
+    if (baseline && editor.version !== baseline && !editor.versionExists(editor.version)) {
+      editor.version = baseline
+    }
+    return true
+  }
   if (!editor.needsVersionBump()) return true
   const suggested = editor.suggestNextVersion()
   const max = editor.maxKnownVersion() || editor.baselineVersion
@@ -277,6 +284,9 @@ async function onPublish() {
         </el-button>
         <el-button v-if="perm.can(MENU.GRAPH_VALIDATE)" :icon="VideoPlay" @click="emit('dryRun')" size="small">
           {{ t('toolbar.dryRun') }}
+        </el-button>
+        <el-button v-if="perm.can(MENU.GRAPH_VALIDATE)" type="warning" plain @click="emit('debugStream')" size="small">
+          {{ t('toolbar.debugStream') }}
         </el-button>
         <el-button v-if="perm.can(MENU.GRAPH_VALIDATE)" :icon="Share" @click="emit('topology')" size="small">
           {{ t('toolbar.topology') }}

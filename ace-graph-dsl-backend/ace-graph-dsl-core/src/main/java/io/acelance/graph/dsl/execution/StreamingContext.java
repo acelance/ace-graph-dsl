@@ -99,4 +99,12 @@ public class StreamingContext {
     public boolean isLast() {
         return isLast;
     }
+
+    /**
+     * 流式响应类型标签（BIZ / OUTPUT / 业务扩展），来自 {@link TokenChunk#responseKind()}。
+     * 来自 graph.stream() 的节点输出路径通常为 null，除非业务自行填充。
+     */
+    public String getResponseKind() {
+        return tokenChunk != null ? tokenChunk.responseKind() : null;
+    }
 }

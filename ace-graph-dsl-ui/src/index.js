@@ -12,6 +12,17 @@ export { usePermissionStore, MENU } from './stores/permissions'
 export { default as GraphDslDesigner } from './components/GraphDslDesigner.vue'
 export { default as GraphDslManager } from './components/GraphDslManager.vue'
 
+export {
+  ACE_GRAPH_EMBED_KEY,
+  OTHER_BIZ_PARAMS_MAX_BYTES,
+  mergeEmbed,
+  parseEmbedFromProps,
+  parseEmbedFromSearch,
+  validateOtherBizParams,
+  buildResourceCatalogParams,
+  utf8ByteLength
+} from './embed/context'
+
 export { default as DesignerToolbar } from './components/Designer/Toolbar.vue'
 export { default as DesignerNodePanel } from './components/Designer/NodePanel.vue'
 export { default as DesignerCanvas } from './components/Designer/Canvas.vue'

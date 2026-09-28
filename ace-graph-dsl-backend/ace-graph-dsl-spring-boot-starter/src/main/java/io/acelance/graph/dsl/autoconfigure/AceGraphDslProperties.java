@@ -227,7 +227,7 @@ public class AceGraphDslProperties {
     }
 
     public static class Persistence {
-        /** auto | sqlite | redis | jdbc */
+        /** auto | memory | sqlite | redis | jdbc */
         private String type = "auto";
         /** type=auto 且 Redis 可用时是否优先 Redis */
         private boolean preferRedis = true;
