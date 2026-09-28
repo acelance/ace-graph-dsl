@@ -4,7 +4,10 @@
 > 状态：草案  
 > 日期：2026-09-18  
 > 对应规划：[ACE-Graph-DSL-多智能体中期规划.md](./ACE-Graph-DSL-多智能体中期规划.md)  
-> 选型依据：[ACE-Graph-DSL-多智能体内核选型.md](./ACE-Graph-DSL-多智能体内核选型.md)
+> 选型依据：[ACE-Graph-DSL-多智能体内核选型.md](./ACE-Graph-DSL-多智能体内核选型.md)  
+> 模式分层口径：[ACE-Graph-DSL-高阶模式集成目标说明.md](./ACE-Graph-DSL-高阶模式集成目标说明.md)  
+> FAQ / 统一口径：[ACE-Graph-DSL-多智能体FAQ与统一口径.md](./ACE-Graph-DSL-多智能体FAQ与统一口径.md)  
+> 开发设计与计划：[ACE-Graph-DSL-SAA高阶模式节点-开发设计与计划.md](./ACE-Graph-DSL-SAA高阶模式节点-开发设计与计划.md)
 
 ---
 
@@ -49,8 +52,9 @@ StateGraph.addNode(...)  →  CompiledGraph
 |----------|----|--------|
 | 普通 / 脚本节点 | `DynamicGraphBuilder.buildSingleNodeAction` | 不改 |
 | GenericAgent | `resolveGenericAgent` → `GenericAgentNode.toAction` | 不改；仅被子 Agent 解析器复用 |
-| 子图 | `addNode(id, CompiledGraph)` | 若 FlowAgent 可导出图，高阶节点走同一挂载方式 |
-| 图级并行 | `FanOutNodeAction` | 保留；与节点内 `ParallelAgent` 不是同一层 |
+| 子图 | `addNode(id, CompiledGraph)` | 高阶节点 **现行不走此路**；升 B 时才与此同类 |
+| 图级并行 / 条件边 / 串行边 | `FanOutNodeAction`、conditional、normal | 全部保留；与节点内四种 FlowAgent **分层**，详见[高阶模式集成目标说明](./ACE-Graph-DSL-高阶模式集成目标说明.md) |
+| **高阶节点挂载（定案）** | **`NodeAction` 适配器（方式 A）** | FlowAgent.invoke/stream；确认可导出后再升 B，**不改 DSL**。见[开发设计 §4.4](./ACE-Graph-DSL-SAA高阶模式节点-开发设计与计划.md) |
 
 ---
 
@@ -71,7 +75,7 @@ ace-graph-dsl-saa-agent                    新模块，可选
 
 ace-graph-dsl-agentscope-agent             新模块，可选，M3
   AgentScopeSubAgentResolver
-  依赖：spring-ai-alibaba-starter-agentscope 或 agentscope-core + 自适配
+  依赖：优先 spring-ai-alibaba-starter-agentscope（Q4 定案）；仅兜底时 agentscope-core + 自适配
          ace-graph-dsl-saa-agent（只依赖子 Agent SPI，不反向依赖）
 
 ace-graph-dsl-ui
@@ -182,12 +186,12 @@ if category == SAA_WORKFLOW:
 3. 按 `pattern` 构建 FlowAgent：
    - `SEQUENTIAL` → `SequentialAgent.builder().subAgents(...)`
    - `PARALLEL` → `ParallelAgent`
-   - `ROUTING` → `LlmRoutingAgent`（或当前 BOM 中的 Routing 实现类）
+   - `ROUTING` → **Framework 自带路由类**（Q3 定案：不造轮子；常见名 `LlmRoutingAgent`，FQCN 以 BOM 为准，见[开发设计 §4.6](./ACE-Graph-DSL-SAA高阶模式节点-开发设计与计划.md)）
    - `LOOP` → `LoopAgent`，body 为内嵌 Sequential 或单个子 Agent，加上退出条件与 `maxIterations`
-4. 将 FlowAgent 包成 `NodeAction`：
+4. 将 FlowAgent 包成 **`NodeAction`（方式 A，定案）**：
    - 进入时：按 `inputKeys` 从 `OverAllState` 取值，填入 Framework 初始 state。
    - 退出时：读取约定结果，写入父 `outputKey`。
-5. 若 M1 验证发现 FlowAgent 可 `asNode()` / 导出 `CompiledGraph`，则改为 `stateGraph.addNode(id, compiledGraph)`，与子图路径一致。该优化不改变 DSL。
+5. **后续增强（不阻塞 M1/M2）：** 若确认 FlowAgent 可 `asNode()` / 导出 `CompiledGraph`，再改为 `stateGraph.addNode(id, compiledGraph)`（方式 B）。**不改变 DSL / 设计器。** 详解见[开发设计与计划 §4.4](./ACE-Graph-DSL-SAA高阶模式节点-开发设计与计划.md)。
 
 **状态边界：** 业务图只看见父节点的输入键与 `outputKey`。子 Agent 中间键可以写入同一 `OverAllState`（便于轨迹与 `{placeholder}`），但是图的下游边只应依赖父 `outputKey`。校验器对「下游边读取子中间键」给出警告，不在 M1 硬失败。
 
@@ -224,10 +228,11 @@ record ResolveRequest(
 
 1. 用现有 `GenericAgentNodeFactory` / `GenericAgentNodeService` 取出 `GraphBoundAgentNode`。
 2. `withGraphId(graphId)`，保持 MCP secret、工具命名空间与单节点一致。
-3. 包一层薄适配器，实现 Framework 所需的子 Agent 类型（`ReactAgent` 或 `Agent` 基类，以 M1 spike 选定的 API 为准）：
+3. 包一层薄适配器，**优先实现 Framework 官方 `Agent`（或 BOM 文档规定的 subAgent 类型）**（Q2 定案，见[开发设计 §5.2](./ACE-Graph-DSL-SAA高阶模式节点-开发设计与计划.md)）：
    - `instruction` 中的 `{key}` 从当前 state 渲染为本次输入。
-   - 调用 `GenericAgentNode.toAction`。
+   - **内部委托**现有 GenericAgent 执行路径（`toAction` / StreamingLlmTemplate），不复制 prompt/MCP 逻辑。
    - 将其 `outputKey` 映射到 `subAgents[].outputKey`。
+4. **禁止**将反射/未文档化内部 API 作为默认可发布路径；仅当 M0 证明官方接口不可行时，附录记录并评审后再议。
 
 不复制 GenericAgent 的 prompt / mcpKeys。注册节点改配置后，高阶节点下次编译即生效。
 
@@ -258,7 +263,7 @@ AgentScopeAgent（优先用 SAA starter 的包装，若 BOM 提供）
 | `prompt` + `promptKeys` 渲染结果 | `sysPrompt` |
 | `modelConfigKey` 解析出的 endpoint / modelId | AgentScope `Model` 或 SAA `ChatModel` 桥 |
 | `mcpKeys` / `skillKeys` | Toolkit；不在 AgentScope 侧另建 MCP 连接池，复用现有 `LessoAceGraphMcpSessionRegistry` 一类会话 |
-| `memoryMode` | M3 只支持 `NONE` 与「沿用父图 thread 的只读记忆」；`READ_WRITE` 另立专项，避免双记忆源 |
+| `memoryMode` | **Q5 定案：中期不做子级 `READ_WRITE`**；默认 `NONE`；只读沿用父 thread 为可选弱能力。见[开发设计 §5.5](./ACE-Graph-DSL-SAA高阶模式节点-开发设计与计划.md) |
 | `instruction` | `AgentScopeAgent.instruction`，占位符与 GenericAgent 路径相同 |
 
 Msg 不得泄漏到 `OverAllState`。适配器只回写 `outputKey` 对应的字符串或结构化 Map。
@@ -311,12 +316,13 @@ Msg 不得泄漏到 `OverAllState`。适配器只回写 `outputKey` 对应的字
 `AceGraphExecutionController` 不改协议。高阶节点对调用方仍是普通图节点。  
 `streamResponseKind` 以父节点为准，避免每个子 Agent 各推一条 OUTPUT。
 
-子 Agent 若内部流式，M1 聚合为父节点的 BIZ 增量；M4 再考虑把子步骤边界打进现有轨迹结构（`agent:{nodeId}` 之下增加 `sub:{name}`）。
+子 Agent 若内部流式，M1 聚合为父节点的 BIZ 增量；**不修改 SSE 协议**（Q6）。  
+M4 再决定是否扩展 SSE 子步骤事件；试运行子步骤摘要可先做，不依赖协议变更。详见[开发设计 §7.1](./ACE-Graph-DSL-SAA高阶模式节点-开发设计与计划.md)。
 
-### 9.2 轨迹（M4 必达，M1 最低限度）
+### 9.2 轨迹（M1 日志必达；M4 UI；SSE 扩展待 M4 决策）
 
-最低限度（M1）：日志包含 `graphId`、`nodeId`、`pattern`、子 Agent `name`、耗时、是否成功。  
-M4：试运行面板展示有序列表：
+最低限度（M1）：日志包含 `graphId`、`nodeId`、`pattern`、子 Agent `name`、耗时、是否成功。**禁止**为子步骤改 SSE。  
+M4：试运行面板展示有序列表（可不依赖 SSE 扩展）：
 
 ```text
 SAA_WORKFLOW sql_quality [SEQUENTIAL]
@@ -345,19 +351,22 @@ SAA_WORKFLOW sql_quality [SEQUENTIAL]
 
 ## 11. M1 技术切片（建议先做的 spike）
 
-在写完整 Factory 之前，用一个不进设计器的单元测试回答两个问题：
+在写完整 Factory 之前，用一个不进设计器的单元测试验证 **方式 A**：
 
-1. 当前 BOM 的 `SequentialAgent` 能否在 ACE 的 `StateGraph` 里作为 `NodeAction` 或子 `CompiledGraph` 运行，并写回 `OverAllState`。
-2. 一个现有 `GenericAgentNode.toAction` 能否包成该 `SequentialAgent` 的 subAgent，而 MCP key 仍由 ACE 目录注入。
+1. 当前 BOM 的 `SequentialAgent` 经 **`NodeAction` 适配器** 在 ACE 的 `StateGraph` 里运行，并写回 `OverAllState`。  
+2. 一个现有 GenericAgent 经 **官方 Agent 接口包装** 后，能否作为 `SequentialAgent` 的 subAgent，且 MCP key 仍由 ACE 目录注入（Q2）。  
+3. **可选：** 探测是否已有 `asNode()` / 导出 `CompiledGraph`（记入附录，**不作为 M1 门禁**）。
 
-结论写入本方案附录，再决定第 5 节步骤 5 走适配器还是子图挂载。  
-在 spike 完成前，不开始设计器表单。
+结论写入[开发设计附录 A](./ACE-Graph-DSL-SAA高阶模式节点-开发设计与计划.md)。  
+在 spike（方式 A + 官方包装）完成前，不开始设计器表单。
 
 Spike 通过标准：
 
-- 两个 stub 子 Agent 顺序执行，第二个能读到第一个写入的 key。
+- 两个 stub（或包装后的）子 Agent 顺序执行，第二个能读到第一个写入的 key。
 - 异常信息包含子 Agent 名。
+- 附录写明所用官方类型全名。
 - 不引入 AgentScope 坐标。
+- 「尚不能升 B」**不**算失败；「官方接口不可行」须显式记录，**不得**默认改反射上线。
 
 ---
 
@@ -365,12 +374,12 @@ Spike 通过标准：
 
 | 编号 | 问题 | 决定时机 |
 |------|------|----------|
-| Q1 | FlowAgent 在 1.1.2.x 是否暴露 `asNode()` / `CompiledGraph` | M1 spike |
-| Q2 | GenericAgent 包进 FlowAgent 时，用官方 `Agent` 接口还是反射适配 | M1 spike |
-| Q3 | Routing 用 `LlmRoutingAgent` 还是图内条件边再包一层 | M2 开始前；默认用 Framework 类，避免再造路由 |
-| Q4 | AgentScope 桥用 `starter-agentscope` 还是直接 `agentscope-core` | M3 开始前；优先 starter |
-| Q5 | 子 Agent `READ_WRITE` 记忆与父图 thread 如何合并 | M3 不做；默认 NONE |
-| Q6 | 轨迹事件是否扩展现有 SSE 协议 | M4；M1 只打日志 |
+| Q1 | FlowAgent 挂载：A NodeAction vs B CompiledGraph | **已定案** | **现行 A**；确认可导出再升 B。见[开发设计 §4.4](./ACE-Graph-DSL-SAA高阶模式节点-开发设计与计划.md) |
+| Q2 | GenericAgent 包进 FlowAgent：官方 Agent 接口 vs 反射等 | **已定案** | **优先官方 Agent 接口**；详见[开发设计 §5.2](./ACE-Graph-DSL-SAA高阶模式节点-开发设计与计划.md) |
+| Q3 | Routing：Framework 类 vs 自研 / 图条件边冒充 | **已定案** | **用 Framework 自带路由类，不造轮子**；见[开发设计 §4.6](./ACE-Graph-DSL-SAA高阶模式节点-开发设计与计划.md) |
+| Q4 | AgentScope 桥：starter-agentscope vs agentscope-core | **已定案** | **优先 `spring-ai-alibaba-starter-agentscope`**；见[开发设计 §5.4](./ACE-Graph-DSL-SAA高阶模式节点-开发设计与计划.md) |
+| Q5 | 子 Agent `READ_WRITE` 记忆与父图 thread 如何合并 | **已定案（不做）** | **中期先不做**；子默认 `NONE`；见[开发设计 §5.5](./ACE-Graph-DSL-SAA高阶模式节点-开发设计与计划.md) |
+| Q6 | 轨迹/子步骤是否扩展现有 SSE 协议 | **已定案（分阶段）** | **M1 只日志、不改 SSE**；是否扩展 **M4 再定**。见[开发设计 §7.1](./ACE-Graph-DSL-SAA高阶模式节点-开发设计与计划.md) |
 
 ---
 

@@ -1,0 +1,57 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>io.acelance</groupId>
+        <artifactId>ace-graph-dsl-backend</artifactId>
+        <version>1.1.3</version>
+    </parent>
+
+    <artifactId>ace-graph-dsl-saa-agent</artifactId>
+    <name>ace-graph-dsl-saa-agent</name>
+    <description>
+        可选模块：将 SAA Agent Framework 高阶模式（Sequential/Parallel/Routing/Loop）
+        以 NodeAction（方式 A）挂入 ACE StateGraph。core 不强制依赖本模块。
+    </description>
+
+    <dependencies>
+        <dependency>
+            <groupId>io.acelance</groupId>
+            <artifactId>ace-graph-dsl-core</artifactId>
+        </dependency>
+        <!-- 与 graph-core 同 BOM；M0 起引入，验证 SequentialAgent 挂载 -->
+        <dependency>
+            <groupId>com.alibaba.cloud.ai</groupId>
+            <artifactId>spring-ai-alibaba-agent-framework</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.ai</groupId>
+            <artifactId>spring-ai-client-chat</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.slf4j</groupId>
+            <artifactId>slf4j-api</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <version>3.2.5</version>
+                <configuration>
+                    <skipTests>false</skipTests>
+                </configuration>
+            </plugin>
+        </plugins>
+    </build>
+</project>
