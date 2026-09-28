@@ -1,12 +1,12 @@
 <script setup>
-import { ref, watch, computed, nextTick, inject } from 'vue'
+import { ref, watch, computed, nextTick, inject, onMounted } from 'vue'
 import { Delete, Loading } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
 import { useGraphEditorStore } from '../../stores/graphEditor'
 import { useNodeRegistryStore } from '../../stores/nodeRegistry'
 import { useI18n } from '../../i18n'
 import { requestOpenAgentEditor } from '../../stores/agentEditorBus'
-import { listScriptEngines, listAgentResources } from '../../api/graph'
+import { listScriptEngines, listAgentResources, getSaaCapabilities } from '../../api/graph'
 import { loadStreamKindOptions } from '../../utils/streamKinds'
 import { loadBizParamInterpreterOptions } from '../../utils/bizParamInterpreters'
 import {
@@ -25,6 +25,8 @@ import {
   OTHER_BIZ_PARAMS_MAX_BYTES
 } from '../../embed/context'
 import MermaidPreview from './MermaidPreview.vue'
+import SaaWorkflowForm from './SaaWorkflowForm.vue'
+import { normalizeSaaSpec } from '../../utils/saaWorkflow'
 
 const props = defineProps({
   /** 嵌入左侧目录时使用紧凑布局 */
@@ -46,7 +48,8 @@ watch(() => editor.keyStrategies, (ks) => {
 const STRUCTURAL_DESCRIPTORS = {
   SUBGRAPH: { nodeId: '', displayName: 'Subgraph', category: 'SUBGRAPH', origin: 'STRUCTURAL', inputKeys: [], outputKeys: [], configurableProps: {} },
   AGENT: { nodeId: '', displayName: 'Agent', category: 'AGENT', origin: 'STRUCTURAL', inputKeys: [], outputKeys: [], configurableProps: {} },
-  GENERIC_AGENT: { nodeId: '', displayName: 'Generic Agent', category: 'GENERIC_AGENT', origin: 'STRUCTURAL', inputKeys: [], outputKeys: [], configurableProps: {} }
+  GENERIC_AGENT: { nodeId: '', displayName: 'Generic Agent', category: 'GENERIC_AGENT', origin: 'STRUCTURAL', inputKeys: [], outputKeys: [], configurableProps: {} },
+  SAA_WORKFLOW: { nodeId: '', displayName: 'SAA Workflow', category: 'SAA_WORKFLOW', origin: 'STRUCTURAL', inputKeys: [], outputKeys: [], configurableProps: {} }
 }
 
 const selectedDescriptor = computed(() => {
@@ -54,7 +57,9 @@ const selectedDescriptor = computed(() => {
   const d = nodeStore.nodes.find(n => n.nodeId === editor.selectedNode.nodeId)
   if (d) return d
   const cat = editor.selectedNode.category
-  if (cat === 'SUBGRAPH' || cat === 'AGENT' || cat === 'GENERIC_AGENT') return STRUCTURAL_DESCRIPTORS[cat]
+  if (cat === 'SUBGRAPH' || cat === 'AGENT' || cat === 'GENERIC_AGENT' || cat === 'SAA_WORKFLOW') {
+    return STRUCTURAL_DESCRIPTORS[cat]
+  }
   return null
 })
 
@@ -65,13 +70,43 @@ const selectedNodeMeta = computed(() => {
 })
 
 const isStructuralSelected = computed(() =>
-  editor.selectedNode?.category === 'SUBGRAPH' || editor.selectedNode?.category === 'AGENT' || editor.selectedNode?.category === 'GENERIC_AGENT'
+  editor.selectedNode?.category === 'SUBGRAPH'
+  || editor.selectedNode?.category === 'AGENT'
+  || editor.selectedNode?.category === 'GENERIC_AGENT'
+  || editor.selectedNode?.category === 'SAA_WORKFLOW'
 )
 const isSubgraphSelected = computed(() => editor.selectedNode?.category === 'SUBGRAPH')
 const isAgentSelected = computed(() => editor.selectedNode?.category === 'AGENT')
 const isGenericAgentSelected = computed(() => editor.selectedNode?.category === 'GENERIC_AGENT')
+const isSaaWorkflowSelected = computed(() => editor.selectedNode?.category === 'SAA_WORKFLOW')
 /** 注册式（引用型）通用 Agent：无内联 agentSpec，元数据集中在节点面板管理 */
 const isGenericAgentRegistered = computed(() => isGenericAgentSelected.value && !currentAgentSpec.value)
+
+/** SAA 模块是否启用（探测失败时 fail-open 为 true，避免阻断设计） */
+const saaModuleEnabled = ref(true)
+/** AgentScope 子 Agent 模块是否启用 */
+const agentscopeEnabled = ref(false)
+
+onMounted(async () => {
+  try {
+    const cap = await getSaaCapabilities()
+    if (cap && typeof cap.saaWorkflowEnabled === 'boolean') {
+      saaModuleEnabled.value = cap.saaWorkflowEnabled
+    }
+    if (cap && typeof cap.agentscopeEnabled === 'boolean') {
+      agentscopeEnabled.value = cap.agentscopeEnabled
+    }
+  } catch (e) {
+    console.warn('[PropertyPanel] getSaaCapabilities failed, fail-open', e)
+    saaModuleEnabled.value = true
+  }
+})
+
+const currentSaaSpec = computed(() => normalizeSaaSpec(selectedNodeMeta.value?.saaSpec))
+
+function onSaaSpecChange(next) {
+  editor.updateSelectedSaaSpec(normalizeSaaSpec(next))
+}
 
 /** 注册式节点：跳转到「节点面板 → 通用 Agent」进行元数据编辑（图入口带 Catalog 上下文） */
 function gotoNodePanelAgent() {
@@ -629,6 +664,17 @@ function onStreamingChange(val) {
             <el-form-item :label="t('propertyPanel.displayName')">
               <el-input :model-value="selectedNodeMeta?.displayName || ''" :disabled="isGenericAgentRegistered" @update:model-value="onRenameDisplayName" />
             </el-form-item>
+
+            <!-- SAA 高阶多智能体 -->
+            <template v-if="isSaaWorkflowSelected">
+              <SaaWorkflowForm
+                :model-value="currentSaaSpec"
+                :module-enabled="saaModuleEnabled"
+                :agentscope-enabled="agentscopeEnabled"
+                @update:model-value="onSaaSpecChange"
+              />
+            </template>
+
             <template v-if="isSubgraphSelected">
               <el-form-item :label="t('propertyPanel.subgraphMode')">
                 <el-radio-group :model-value="subgraphMode" @update:model-value="onSubgraphModeChange">

@@ -341,13 +341,20 @@ public class GraphExecutionController {
         return RunnableConfig.builder().threadId(threadId).build();
     }
 
-    /** 剔除运行态保留键，避免泄漏到最终结果 / 状态快照。 */
+    /**
+     * 剔除运行态保留键，避免泄漏到最终结果 / 状态快照。
+     *
+     * <p>保留 {@code ace.graph.dsl.saa.*}（M4 子步骤轨迹），供试运行 / 调试面板展示；
+     * <b>不</b>新增 SSE 事件类型（Q6）。</p>
+     */
     private static Map<String, Object> stripReserved(Map<String, Object> data) {
         if (data == null || data.isEmpty()) {
             return data;
         }
         Map<String, Object> out = new LinkedHashMap<>(data);
-        out.keySet().removeIf(k -> k != null && k.startsWith(ModelOverrideSpec.ACE_RESERVED_PREFIX));
+        out.keySet().removeIf(k -> k != null
+                && k.startsWith(ModelOverrideSpec.ACE_RESERVED_PREFIX)
+                && !k.startsWith("ace.graph.dsl.saa."));
         return out;
     }
 

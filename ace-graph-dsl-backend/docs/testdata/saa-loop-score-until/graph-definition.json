@@ -1,0 +1,47 @@
+{
+  "graphId": "saa-loop-score-until",
+  "displayName": "SAA Loop：打分直至达标",
+  "version": "1.0.0",
+  "description": "M2 样例：SAA_WORKFLOW(LOOP)，score GT 0.8 或达 maxIterations=5 退出。需引入 ace-graph-dsl-saa-agent。",
+  "keyStrategies": {
+    "user_query": "REPLACE",
+    "score": "REPLACE",
+    "final_score": "REPLACE"
+  },
+  "nodes": [
+    {
+      "nodeId": "score_loop",
+      "category": "SAA_WORKFLOW",
+      "config": { "label": "打分循环" },
+      "x": 320,
+      "y": 200,
+      "saaSpec": {
+        "pattern": "LOOP",
+        "inputKeys": "user_query",
+        "outputKey": "final_score",
+        "streamResponseKind": "BIZ",
+        "maxIterations": 5,
+        "exitConditionKey": "score",
+        "exitConditionOp": "GT",
+        "exitConditionValue": "0.8",
+        "subAgents": [
+          {
+            "name": "scorer",
+            "impl": "GENERIC_AGENT",
+            "ref": "generic:sql-rater",
+            "instruction": "对以下需求打分到 0~1：{user_query}",
+            "outputKey": "score"
+          }
+        ]
+      }
+    }
+  ],
+  "edges": [
+    { "from": "__START__", "to": "score_loop", "type": "normal" },
+    { "from": "score_loop", "to": "__END__", "type": "normal" }
+  ],
+  "compile": {
+    "interruptBefore": [],
+    "saver": "memory"
+  }
+}

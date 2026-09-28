@@ -1,0 +1,52 @@
+{
+  "graphId": "saa-routing-sql-or-chat",
+  "displayName": "SAA Routing：SQL 或闲聊",
+  "version": "1.0.0",
+  "description": "M2 样例：SAA_WORKFLOW(ROUTING)，LlmRoutingAgent 按 modelConfigKey 选 sql_generator 或 chat_helper。需引入 ace-graph-dsl-saa-agent，并配置可解析的路由器模型 key。",
+  "keyStrategies": {
+    "user_query": "REPLACE",
+    "sql_out": "REPLACE",
+    "chat_out": "REPLACE",
+    "route_out": "REPLACE"
+  },
+  "nodes": [
+    {
+      "nodeId": "router_node",
+      "category": "SAA_WORKFLOW",
+      "config": { "label": "SQL 或闲聊路由" },
+      "x": 320,
+      "y": 200,
+      "saaSpec": {
+        "pattern": "ROUTING",
+        "inputKeys": "user_query",
+        "outputKey": "route_out",
+        "streamResponseKind": "BIZ",
+        "modelConfigKey": "models:default",
+        "subAgents": [
+          {
+            "name": "sql_generator",
+            "impl": "GENERIC_AGENT",
+            "ref": "generic:sql-gen",
+            "instruction": "{user_query}",
+            "outputKey": "sql_out"
+          },
+          {
+            "name": "chat_helper",
+            "impl": "GENERIC_AGENT",
+            "ref": "generic:chat-helper",
+            "instruction": "{user_query}",
+            "outputKey": "chat_out"
+          }
+        ]
+      }
+    }
+  ],
+  "edges": [
+    { "from": "__START__", "to": "router_node", "type": "normal" },
+    { "from": "router_node", "to": "__END__", "type": "normal" }
+  ],
+  "compile": {
+    "interruptBefore": [],
+    "saver": "memory"
+  }
+}

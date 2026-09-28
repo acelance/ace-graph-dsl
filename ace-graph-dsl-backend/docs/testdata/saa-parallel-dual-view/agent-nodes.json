@@ -1,0 +1,34 @@
+[
+  {
+    "nodeId": "view-alpha",
+    "displayName": "业务视角",
+    "description": "PARALLEL 样例子 Agent A",
+    "version": "1.0.0",
+    "spec": {
+      "modelBaseUrl": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+      "modelApiKey": "sk-demo",
+      "modelId": "qwen-plus",
+      "prompt": "你从业务视角简洁回答。",
+      "inputKeys": "user_query",
+      "outputKey": "agent_result",
+      "streamResponseKind": "BIZ",
+      "memoryMode": "NONE"
+    }
+  },
+  {
+    "nodeId": "view-beta",
+    "displayName": "技术视角",
+    "description": "PARALLEL 样例子 Agent B",
+    "version": "1.0.0",
+    "spec": {
+      "modelBaseUrl": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+      "modelApiKey": "sk-demo",
+      "modelId": "qwen-plus",
+      "prompt": "你从技术视角简洁回答。",
+      "inputKeys": "user_query",
+      "outputKey": "agent_result",
+      "streamResponseKind": "BIZ",
+      "memoryMode": "NONE"
+    }
+  }
+]

@@ -46,6 +46,7 @@
         <module>ace-graph-dsl-core</module>
         <module>ace-graph-dsl-ai</module>
         <module>ace-graph-dsl-saa-agent</module>
+        <module>ace-graph-dsl-agentscope-agent</module>
         <module>ace-graph-dsl-script-qlexpress</module>
         <module>ace-graph-dsl-script-groovy</module>
         <module>ace-graph-dsl-persistence</module>
@@ -68,6 +69,11 @@
             <dependency>
                 <groupId>io.acelance</groupId>
                 <artifactId>ace-graph-dsl-saa-agent</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>io.acelance</groupId>
+                <artifactId>ace-graph-dsl-agentscope-agent</artifactId>
                 <version>${project.version}</version>
             </dependency>
             <dependency>

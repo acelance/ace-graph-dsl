@@ -12,6 +12,8 @@ const ICON_PATHS = {
   SUBGRAPH: 'M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z M3 12h18 M8 17h6',
   AGENT: 'M12 2l2 7h7l-6 4 2 7-5-5-5 5 2-7-6-4h7z',
   GENERIC_AGENT: 'M12 2a3 3 0 0 1 3 3v1h3a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h3V5a3 3 0 0 1 3-3z M9 11h.01 M15 11h.01 M9 15h6',
+  /** 高阶多智能体（SAA_WORKFLOW）：链式节点示意 */
+  SAA_WORKFLOW: 'M4 8h4v8H4z M10 8h4v8h-4z M16 8h4v8h-4z M8 12h2 M14 12h2',
 }
 
 const CAT_COLORS = {
@@ -23,6 +25,7 @@ const CAT_COLORS = {
     SUBGRAPH: { stroke: '#6366f1', fill: '#eef2ff', bar: '#6366f1', icon: '#4f46e5' },
     AGENT:  { stroke: '#0d9488', fill: '#ecfeff', bar: '#0d9488', icon: '#0f766e' },
     GENERIC_AGENT: { stroke: '#db2777', fill: '#fdf2f8', bar: '#db2777', icon: '#be185d' },
+    SAA_WORKFLOW: { stroke: '#0ea5e9', fill: '#f0f9ff', bar: '#0ea5e9', icon: '#0284c7' },
   },
   dark: {
     NORMAL: { stroke: '#60a5fa', fill: '#1e3a5f', bar: '#60a5fa', icon: '#60a5fa' },
@@ -32,6 +35,7 @@ const CAT_COLORS = {
     SUBGRAPH: { stroke: '#818cf8', fill: '#1e1b4b', bar: '#818cf8', icon: '#a5b4fc' },
     AGENT:  { stroke: '#2dd4bf', fill: '#042f2e', bar: '#2dd4bf', icon: '#5eead4' },
     GENERIC_AGENT: { stroke: '#f472b6', fill: '#4a0e2e', bar: '#f472b6', icon: '#f9a8d4' },
+    SAA_WORKFLOW: { stroke: '#38bdf8', fill: '#0c4a6e', bar: '#38bdf8', icon: '#7dd3fc' },
   },
 }
 
@@ -263,6 +267,7 @@ export const DspCircleNode = { type: 'dsp-circle', model: DspCircleModel, view: 
 export const DspSubgraphNode = { type: 'dsp-subgraph', model: DspRectModel, view: DspRectView }
 export const DspAgentNode = { type: 'dsp-agent', model: DspRectModel, view: DspRectView }
 export const DspGenericAgentNode = { type: 'dsp-generic-agent', model: DspRectModel, view: DspRectView }
+export const DspSaaWorkflowNode = { type: 'dsp-saa-workflow', model: DspRectModel, view: DspRectView }
 
 // ── 子流程分组容器（虚线圆角矩形 + 标题栏，无连接锚点） ──
 const GROUP_COLORS = {
@@ -335,5 +340,6 @@ export function resolveNodeType(category, kind) {
   if (category === 'SUBGRAPH') return 'dsp-subgraph'
   if (category === 'AGENT') return 'dsp-agent'
   if (category === 'GENERIC_AGENT') return 'dsp-generic-agent'
+  if (category === 'SAA_WORKFLOW') return 'dsp-saa-workflow'
   return 'dsp-rect'
 }

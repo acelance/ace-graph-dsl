@@ -1,0 +1,18 @@
+[
+  {
+    "nodeId": "sql-rater",
+    "displayName": "评分器",
+    "description": "LOOP 样例子 Agent：输出 0~1 分数",
+    "version": "1.0.0",
+    "spec": {
+      "modelBaseUrl": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+      "modelApiKey": "sk-demo",
+      "modelId": "qwen-plus",
+      "prompt": "只输出 0~1 之间的分数数字。",
+      "inputKeys": "user_query",
+      "outputKey": "agent_result",
+      "streamResponseKind": "BIZ",
+      "memoryMode": "NONE"
+    }
+  }
+]

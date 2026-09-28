@@ -1,0 +1,51 @@
+{
+  "graphId": "saa-agentscope-sequential-sql",
+  "displayName": "SAA Sequential · AGENTSCOPE 子 Agent",
+  "version": "1.0.0",
+  "description": "M3 样例：与 saa-sequential-sql-quality 同拓扑，子 Agent 改为 impl=AGENTSCOPE / ref=agentscope:{id}。需同时引入 ace-graph-dsl-saa-agent 与 ace-graph-dsl-agentscope-agent。",
+  "keyStrategies": {
+    "user_query": "REPLACE",
+    "sql": "REPLACE",
+    "score": "REPLACE",
+    "sql_score": "REPLACE"
+  },
+  "nodes": [
+    {
+      "nodeId": "sql_quality",
+      "category": "SAA_WORKFLOW",
+      "config": { "label": "SQL 生成与评分（AgentScope）" },
+      "x": 320,
+      "y": 200,
+      "saaSpec": {
+        "pattern": "SEQUENTIAL",
+        "inputKeys": "user_query",
+        "outputKey": "sql_score",
+        "streamResponseKind": "BIZ",
+        "subAgents": [
+          {
+            "name": "sql_generator",
+            "impl": "AGENTSCOPE",
+            "ref": "agentscope:sql-gen",
+            "instruction": "{user_query}",
+            "outputKey": "sql"
+          },
+          {
+            "name": "sql_rater",
+            "impl": "AGENTSCOPE",
+            "ref": "agentscope:sql-rater",
+            "instruction": "SQL:\n{sql}\n请求:\n{user_query}",
+            "outputKey": "score"
+          }
+        ]
+      }
+    }
+  ],
+  "edges": [
+    { "from": "__START__", "to": "sql_quality", "type": "normal" },
+    { "from": "sql_quality", "to": "__END__", "type": "normal" }
+  ],
+  "compile": {
+    "interruptBefore": [],
+    "saver": "memory"
+  }
+}

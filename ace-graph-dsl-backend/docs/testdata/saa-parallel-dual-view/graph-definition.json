@@ -1,0 +1,51 @@
+{
+  "graphId": "saa-parallel-dual-view",
+  "displayName": "SAA Parallel：双视角并行",
+  "version": "1.0.0",
+  "description": "M2 样例：SAA_WORKFLOW(PARALLEL)，两个子 Agent 并行写 out_a/out_b，父 outputKey=merged 做合并键。需引入 ace-graph-dsl-saa-agent，并注册 agent-nodes.json。",
+  "keyStrategies": {
+    "user_query": "REPLACE",
+    "out_a": "REPLACE",
+    "out_b": "REPLACE",
+    "merged": "REPLACE"
+  },
+  "nodes": [
+    {
+      "nodeId": "dual_view",
+      "category": "SAA_WORKFLOW",
+      "config": { "label": "双视角并行" },
+      "x": 320,
+      "y": 200,
+      "saaSpec": {
+        "pattern": "PARALLEL",
+        "inputKeys": "user_query",
+        "outputKey": "merged",
+        "streamResponseKind": "BIZ",
+        "subAgents": [
+          {
+            "name": "view_alpha",
+            "impl": "GENERIC_AGENT",
+            "ref": "generic:view-alpha",
+            "instruction": "从业务视角回答：{user_query}",
+            "outputKey": "out_a"
+          },
+          {
+            "name": "view_beta",
+            "impl": "GENERIC_AGENT",
+            "ref": "generic:view-beta",
+            "instruction": "从技术视角回答：{user_query}",
+            "outputKey": "out_b"
+          }
+        ]
+      }
+    }
+  ],
+  "edges": [
+    { "from": "__START__", "to": "dual_view", "type": "normal" },
+    { "from": "dual_view", "to": "__END__", "type": "normal" }
+  ],
+  "compile": {
+    "interruptBefore": [],
+    "saver": "memory"
+  }
+}

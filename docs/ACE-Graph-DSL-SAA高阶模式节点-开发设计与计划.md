@@ -839,13 +839,13 @@ M4 轨迹 / 示例图 / 培训文案 / 可运营
 | 子 Agent 包装（Q2） | **优先官方 Agent（或 BOM 文档规定的 subAgent 类型）**；内委 GenericAgent |
 | 非官方变通 | **禁止默认为主路径**；仅官方不可行时附录记录 + 评审 |
 | Routing 实现（Q3） | **Framework 自带路由类**；不造轮子；不拿图条件边冒充 |
-| Routing 类 FQCN（M2 填写） | （待填，对照 BOM；可能为 `LlmRoutingAgent` 等） |
+| Routing 类 FQCN（M2 填写） | `com.alibaba.cloud.ai.graph.agent.flow.agent.LlmRoutingAgent`（BOM 1.1.2.2） |
 | AgentScope 桥接（Q4） | **优先 `spring-ai-alibaba-starter-agentscope`**（同 BOM） |
-| AgentScope 实际坐标/版本（M3 填写） | （待填） |
-| 是否改用 agentscope-core 兜底 | □ 否 □ 是（原因须评审） |
+| AgentScope 实际坐标/版本（M3 填写） | `com.alibaba.cloud.ai:spring-ai-alibaba-starter-agentscope:1.1.2.2`（同 BOM）；包装类 `com.alibaba.cloud.ai.agent.agentscope.AgentScopeAgent` |
+| 是否改用 agentscope-core 兜底 | □ 否（M3 已选否，主路径 starter） □ 是（原因须评审） |
 | 子 Agent 记忆（Q5） | **中期不做 READ_WRITE**；默认 `NONE` |
 | SSE 子步骤（Q6） | **M1 不改协议，只日志**；是否扩展 **M4 再定** |
-| Q6 M4 结论（届时填） | □ 不扩展 SSE □ 扩展 SSE（方案摘要：____） |
+| Q6 M4 结论（届时填） | **☑ 不扩展 SSE**（方案甲：试运行 / debug state 的 `ace.graph.dsl.saa.subSteps` + 日志；线上对话 UI 中期不强制实时子步骤） |
 | DSL 影响 | **无**（Q1～Q6 均不把「子 READ_WRITE / 必改 SSE」写进中期必达） |
 
 ### A.2 Spike 实测（M0 · 2026-09-28）
@@ -862,6 +862,44 @@ M4 轨迹 / 示例图 / 培训文案 / 可运营
 | 是否允许启动 M1 | **是**（取决于 **A + 官方包装** 均已通过） |
 | 验证用例 | `ace-graph-dsl-saa-agent` → `SequentialAgentNodeActionSpikeTest` |
 
+### A.3 M1 / M2 落地回填（2026-09-28）
+
+| 项 | 结论 |
+|----|------|
+| M1 SEQUENTIAL | **已交付**：`SaaWorkflowNodeFactoryImpl` + `FlowAgentNodeAction`；样例 `docs/testdata/saa-sequential-sql-quality`；测试 `SequentialSaaWorkflowFactoryIntegrationTest` |
+| M2 PARALLEL | **已交付**：`ParallelAgent` + `mergeOutputKey`；样例 `saa-parallel-dual-view`；测试 `parallelMergesTwoSubAgentOutputs` |
+| M2 ROUTING | **已交付**：`LlmRoutingAgent`；路由器 `modelConfigKey` → `ModelMountResolver` + `ChatModelFactory`，缺省回落 ChatModel Bean / 桩端点；样例 `saa-routing-sql-or-chat` |
+| M2 LOOP | **已交付**：`LoopAgent`；有 exitCondition* → `StateKeyExitLoopStrategy`，否则 `CountLoopStrategy`；样例 `saa-loop-score-until` |
+| 挂载形态 | 统一 **方式 A**（`FlowAgentNodeAction`）；`SequentialFlowAgentNodeAction` 保留供 M0 spike |
+| UI | 设计器 pattern 四选一 + ROUTING/LOOP 表单项（`SaaWorkflowForm.vue`） |
+| 校验 | `SaaWorkflowValidator.OPEN_PATTERNS` = 四 pattern；PARALLEL/ROUTING ≥2 子 Agent；LOOP maxIterations ≤10 |
+| SSE（Q6） | **未改**；子步骤仅服务端日志 |
+
+### A.4 M3 AgentScope 子 Agent（2026-09-28）
+
+| 项 | 结论 |
+|----|------|
+| Maven 坐标 | `com.alibaba.cloud.ai:spring-ai-alibaba-starter-agentscope:1.1.2.2` |
+| 包装类 FQCN | `com.alibaba.cloud.ai.agent.agentscope.AgentScopeAgent` |
+| ACE 模块 | `ace-graph-dsl-agentscope-agent`（可选；starter 不传递） |
+| Resolver | `AgentScopeSubAgentResolver`：`impl=AGENTSCOPE`，`ref=agentscope:{id}` |
+| 资源 | id → ACE 注册 GenericAgentSpec；模型经 `AgentScopeModelFactory`（内联或 modelConfigKey） |
+| 记忆（Q5） | 强制 NONE（`InMemoryMemory`）；READ_WRITE 校验/运行时报错 |
+| 样例 | `docs/testdata/saa-agentscope-sequential-sql` |
+| 测试 | `AgentScopeSequentialFactoryIntegrationTest` |
+| 是否改用 agentscope-core 兜底 | **否**（主路径为官方 starter） |
+
+### A.5 M4 可运营 / Q6 结论（2026-09-28）
+
+| 项 | 结论 |
+|----|------|
+| Q6 SSE 扩展 | **不扩展**（中期） |
+| 子步骤可见性 | ① SLF4J 日志 ② OverAllState `ace.graph.dsl.saa.subSteps` / `subStepsMeta` ③ 试运行面板子步骤树 |
+| SSE 契约 | **未改**；`stripReserved` 对 `ace.graph.dsl.saa.*` 放行以便 debug_node.data 可见 |
+| 资产 | `docs/testdata/README-SAA.md` 索引四模式 + AgentScope 样例 |
+| 培训 | `docs/ACE-Graph-DSL-何时用图边何时用高阶节点.md`；设计器 SAA 表单提示该路径 |
+| 后续若扩展 SSE | 须单独契约评审；不得默认真线改 Formatter |
+
 ---
 
 ## 附录 B · 修订记录
@@ -876,3 +914,6 @@ M4 轨迹 / 示例图 / 培训文案 / 可运营
 | 2026-09-28 | **Q5 定案**：子 Agent READ_WRITE 记忆中期先不做；默认 NONE；§5.5 展开 |
 | 2026-09-28 | **Q6 定案**：M1 只日志、不改 SSE；是否扩展子步骤事件留 M4 再定；§7.1 展开 |
 | 2026-09-28 | **M0 Spike 通过**：新增模块 `ace-graph-dsl-saa-agent`；方式 A + ReactAgent subAgent 链式写回 OverAllState；附录 A.2 回填；**允许启动 M1** |
+| 2026-09-28 | **M1/M2 落地**：四 pattern Factory + 校验开放 + UI 切换 + 四模式样例；附录 A.3 回填 Routing FQCN=`LlmRoutingAgent` |
+| 2026-09-28 | **M3 落地**：模块 `ace-graph-dsl-agentscope-agent`；Q4 starter-agentscope + `AgentScopeAgent`；附录 A.4；能力探测 `agentscopeEnabled` |
+| 2026-09-28 | **M4 落地**：**Q6=不扩展 SSE**；子步骤轨迹键 + DryRun 子步骤树；样例索引与一页培训文案；附录 A.5 |

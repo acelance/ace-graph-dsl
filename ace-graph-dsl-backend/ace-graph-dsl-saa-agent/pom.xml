@@ -22,6 +22,11 @@
             <groupId>io.acelance</groupId>
             <artifactId>ace-graph-dsl-core</artifactId>
         </dependency>
+        <!-- 复用 GenericAgentNode 执行路径（Q2 官方 Agent 包装内部委托） -->
+        <dependency>
+            <groupId>io.acelance</groupId>
+            <artifactId>ace-graph-dsl-ai</artifactId>
+        </dependency>
         <!-- 与 graph-core 同 BOM；M0 起引入，验证 SequentialAgent 挂载 -->
         <dependency>
             <groupId>com.alibaba.cloud.ai</groupId>
@@ -30,6 +35,10 @@
         <dependency>
             <groupId>org.springframework.ai</groupId>
             <artifactId>spring-ai-client-chat</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-autoconfigure</artifactId>
         </dependency>
         <dependency>
             <groupId>org.slf4j</groupId>

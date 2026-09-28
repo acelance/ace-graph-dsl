@@ -1,0 +1,68 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>io.acelance</groupId>
+        <artifactId>ace-graph-dsl-backend</artifactId>
+        <version>1.1.3</version>
+    </parent>
+
+    <artifactId>ace-graph-dsl-agentscope-agent</artifactId>
+    <name>ace-graph-dsl-agentscope-agent</name>
+    <description>
+        可选模块（M3 / Q4）：impl=AGENTSCOPE 子 Agent，优先 spring-ai-alibaba-starter-agentscope
+        包装为 FlowAgent subAgent。不替代 ACE 图主编排；starter 不强制传递。
+    </description>
+
+    <dependencies>
+        <dependency>
+            <groupId>io.acelance</groupId>
+            <artifactId>ace-graph-dsl-core</artifactId>
+        </dependency>
+        <!-- ModelMountResolver / ModelEndpoint：按 ACE key 解析模型 -->
+        <dependency>
+            <groupId>io.acelance</groupId>
+            <artifactId>ace-graph-dsl-ai</artifactId>
+        </dependency>
+        <!-- Q4：官方 AgentScope ↔ SAA 桥（同 BOM） -->
+        <dependency>
+            <groupId>com.alibaba.cloud.ai</groupId>
+            <artifactId>spring-ai-alibaba-starter-agentscope</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-autoconfigure</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.slf4j</groupId>
+            <artifactId>slf4j-api</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <!-- 集成测试：走 Saa Factory + SEQUENTIAL -->
+        <dependency>
+            <groupId>io.acelance</groupId>
+            <artifactId>ace-graph-dsl-saa-agent</artifactId>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <version>3.2.5</version>
+                <configuration>
+                    <skipTests>false</skipTests>
+                </configuration>
+            </plugin>
+        </plugins>
+    </build>
+</project>

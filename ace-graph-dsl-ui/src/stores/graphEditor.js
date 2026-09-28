@@ -182,6 +182,7 @@ export const useGraphEditorStore = defineStore('aceGraphEditor', () => {
           subgraphRef: n.properties?.subgraphRef || '',
           subgraph: n.properties?.subgraph || null,
           agentSpec: n.properties?.agentSpec || null,
+          saaSpec: n.properties?.saaSpec || null,
           config: n.properties?.config || {},
           x: n.x,
           y: n.y
@@ -556,6 +557,20 @@ export const useGraphEditorStore = defineStore('aceGraphEditor', () => {
     nodes.value.splice(idx, 1, next)
   }
 
+  /**
+   * 将属性面板编辑的 saaSpec 写回选中节点（store 层）；Canvas.vue 会监听并同步到 lf properties。
+   * 与 updateSelectedAgentSpec 同理：更新 nodes 中完整节点，而非 selectedNode 浅引用。
+   */
+  function updateSelectedSaaSpec(spec) {
+    const target = selectedNode.value
+    if (!target) return
+    const idx = nodes.value.findIndex(n => n.nodeId === target.nodeId)
+    if (idx < 0) return
+    const current = nodes.value[idx]
+    const next = { ...current, saaSpec: spec ? { ...spec } : null }
+    nodes.value.splice(idx, 1, next)
+  }
+
   function loadVersionAsBaseline(def) {
     const normalized = applyDefinition(def)
     baselineVersion.value = normalized.version
@@ -913,6 +928,7 @@ export const useGraphEditorStore = defineStore('aceGraphEditor', () => {
     maxKnownVersion, versionExists,
     publishCurrent, loadLatest, loadEnabledVersion, fetchVersions, selectGraph, initNewGraph, resetEditor,
     setSelectedNode, clearSelectedNode, updateSelectedNodeConfig, updateSelectedAgentSpec,
+    updateSelectedSaaSpec,
     setSelectedEdge, clearSelectedEdge, updateSelectedEdgeParallel, updateSelectedEdgeAggregation, requestEdgeEdit, requestEdgeConvert, clearEdgeCommands,
     enterSubgraph, exitSubgraph, goToBreadcrumb, updateSubgraphNodeMeta, renameSelectedNode, requestRerender, loadGraphIds,
     openSubgraphPreview, closeSubgraphPreview,

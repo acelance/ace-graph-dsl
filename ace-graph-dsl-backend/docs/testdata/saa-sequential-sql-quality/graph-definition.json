@@ -1,0 +1,51 @@
+{
+  "graphId": "saa-sequential-sql-quality",
+  "displayName": "SAA Sequential：SQL 生成与评分",
+  "version": "1.0.0",
+  "description": "M1 样例：单节点 SAA_WORKFLOW(SEQUENTIAL)，子 Agent 引用已注册 GENERIC_AGENT（generic:sql-gen / generic:sql-rater）。需引入 ace-graph-dsl-saa-agent，并先注册 agent-nodes.json 中的两个通用 Agent。",
+  "keyStrategies": {
+    "user_query": "REPLACE",
+    "sql": "REPLACE",
+    "score": "REPLACE",
+    "sql_score": "REPLACE"
+  },
+  "nodes": [
+    {
+      "nodeId": "sql_quality",
+      "category": "SAA_WORKFLOW",
+      "config": { "label": "SQL 生成与评分" },
+      "x": 320,
+      "y": 200,
+      "saaSpec": {
+        "pattern": "SEQUENTIAL",
+        "inputKeys": "user_query",
+        "outputKey": "sql_score",
+        "streamResponseKind": "BIZ",
+        "subAgents": [
+          {
+            "name": "sql_generator",
+            "impl": "GENERIC_AGENT",
+            "ref": "generic:sql-gen",
+            "instruction": "{user_query}",
+            "outputKey": "sql"
+          },
+          {
+            "name": "sql_rater",
+            "impl": "GENERIC_AGENT",
+            "ref": "generic:sql-rater",
+            "instruction": "SQL:\n{sql}\n请求:\n{user_query}",
+            "outputKey": "score"
+          }
+        ]
+      }
+    }
+  ],
+  "edges": [
+    { "from": "__START__", "to": "sql_quality", "type": "normal" },
+    { "from": "sql_quality", "to": "__END__", "type": "normal" }
+  ],
+  "compile": {
+    "interruptBefore": [],
+    "saver": "memory"
+  }
+}

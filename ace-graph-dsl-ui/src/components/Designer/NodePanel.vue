@@ -66,7 +66,8 @@ const filteredNodes = computed(() => {
  * Agent（代码岛）已搁置——其"智能"属后端代码，与可视化设计器定位矛盾，
  * 后端代码保留但面板不暴露入口。 */
 const structuralNodes = computed(() => ([
-  { nodeId: '', category: 'SUBGRAPH', displayName: t('nodePanel.subgraph'), isStructural: true, inputKeys: [], outputKeys: [] }
+  { nodeId: '', category: 'SUBGRAPH', displayName: t('nodePanel.subgraph'), isStructural: true, inputKeys: [], outputKeys: [] },
+  { nodeId: '', category: 'SAA_WORKFLOW', displayName: t('nodePanel.saaWorkflow'), isStructural: true, inputKeys: [], outputKeys: [] }
 ]))
 
 function onDragStart(e, n) {
@@ -76,7 +77,7 @@ function onDragStart(e, n) {
 }
 
 function categoryTagType(c) {
-  return { NORMAL: 'info', ROUTER: 'warning', MERGE: 'success', HITL: '', SUBGRAPH: 'primary', AGENT: 'success', GENERIC_AGENT: 'danger' }[c] || 'info'
+  return { NORMAL: 'info', ROUTER: 'warning', MERGE: 'success', HITL: '', SUBGRAPH: 'primary', AGENT: 'success', GENERIC_AGENT: 'danger', SAA_WORKFLOW: '' }[c] || 'info'
 }
 
 function isHitlCategory(c) {

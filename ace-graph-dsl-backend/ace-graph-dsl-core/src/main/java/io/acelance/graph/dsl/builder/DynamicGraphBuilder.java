@@ -20,11 +20,15 @@ import io.acelance.graph.dsl.script.ScriptEdgeActionFactory;
 import io.acelance.graph.dsl.script.ScriptNodeFactory;
 import io.acelance.graph.dsl.agent.GenericAgentNodeFactory;
 import io.acelance.graph.dsl.agent.GraphBoundAgentNode;
+import io.acelance.graph.dsl.agent.SaaWorkflowNodeFactory;
 import io.acelance.graph.dsl.definition.GenericAgentSpec;
+import io.acelance.graph.dsl.definition.SaaWorkflowKeys;
+import io.acelance.graph.dsl.definition.SaaWorkflowSpec;
 import io.acelance.graph.dsl.llm.LlmRequestContext;
 import io.acelance.graph.dsl.runtime.ModelOverrideSpec;
 import io.acelance.graph.dsl.streamkind.StreamResponseKind;
 import io.acelance.graph.dsl.streamkind.StreamResponseKindResolver;
+import io.acelance.graph.dsl.validation.SaaWorkflowValidator;
 import com.alibaba.cloud.ai.graph.CompileConfig;
 import com.alibaba.cloud.ai.graph.CompiledGraph;
 import com.alibaba.cloud.ai.graph.KeyStrategy;
@@ -80,7 +84,9 @@ public class DynamicGraphBuilder {
             LlmRequestContext.ACE_CONVERSATION_ID_KEY,
             LlmRequestContext.ACE_DEEP_THINKING_KEY,
             ModelOverrideSpec.ACE_RUN_ID_KEY,
-            ModelOverrideSpec.ACE_MODEL_OVERRIDES_KEY
+            ModelOverrideSpec.ACE_MODEL_OVERRIDES_KEY,
+            SaaWorkflowKeys.SUB_STEPS_KEY,
+            SaaWorkflowKeys.SUB_STEPS_META_KEY
     );
 
     private final GraphNodeRegistry nodeRegistry;
@@ -95,6 +101,8 @@ public class DynamicGraphBuilder {
     private final GraphDefinitionRepository definitionRepository;
     /** 可选：未引入 ace-graph-dsl-ai 时为空，遇 GENERIC_AGENT 给出可操作报错 */
     private final ObjectProvider<GenericAgentNodeFactory> agentNodeFactory;
+    /** 可选：未引入 ace-graph-dsl-saa-agent 时为空，遇 SAA_WORKFLOW 给出可操作报错 */
+    private final ObjectProvider<SaaWorkflowNodeFactory> saaWorkflowNodeFactory;
 
     public DynamicGraphBuilder(GraphNodeRegistry nodeRegistry,
                                EdgeDispatcherRegistry dispatcherRegistry,
@@ -107,6 +115,23 @@ public class DynamicGraphBuilder {
                                ScriptNodeFactory scriptNodeFactory,
                                GraphDefinitionRepository definitionRepository,
                                ObjectProvider<GenericAgentNodeFactory> agentNodeFactory) {
+        this(nodeRegistry, dispatcherRegistry, validator, applicationContext, saverRegistry,
+                scriptEdgeActionFactory, executionListeners, nodeDefRepository, scriptNodeFactory,
+                definitionRepository, agentNodeFactory, null);
+    }
+
+    public DynamicGraphBuilder(GraphNodeRegistry nodeRegistry,
+                               EdgeDispatcherRegistry dispatcherRegistry,
+                               GraphValidator validator,
+                               ApplicationContext applicationContext,
+                               CheckpointSaverRegistry saverRegistry,
+                               ScriptEdgeActionFactory scriptEdgeActionFactory,
+                               List<GraphExecutionListener> executionListeners,
+                               DynamicNodeDefinitionRepository nodeDefRepository,
+                               ScriptNodeFactory scriptNodeFactory,
+                               GraphDefinitionRepository definitionRepository,
+                               ObjectProvider<GenericAgentNodeFactory> agentNodeFactory,
+                               ObjectProvider<SaaWorkflowNodeFactory> saaWorkflowNodeFactory) {
         this.nodeRegistry = nodeRegistry;
         this.dispatcherRegistry = dispatcherRegistry;
         this.validator = validator;
@@ -118,6 +143,7 @@ public class DynamicGraphBuilder {
         this.scriptNodeFactory = scriptNodeFactory;
         this.definitionRepository = definitionRepository;
         this.agentNodeFactory = agentNodeFactory;
+        this.saaWorkflowNodeFactory = saaWorkflowNodeFactory;
     }
 
     /**
@@ -525,6 +551,22 @@ public class DynamicGraphBuilder {
             for (String key : RESERVED_STATE_KEYS) {
                 strategies.putIfAbsent(key, new ReplaceStrategy());
             }
+            // SAA 子/父输出键：未声明时自动补 REPLACE，便于中间键透传
+            if (def.nodes() != null) {
+                for (NodeRef ref : def.nodes()) {
+                    if (!SaaWorkflowValidator.isSaaWorkflowNode(ref)) {
+                        continue;
+                    }
+                    for (String key : SaaWorkflowValidator.collectNeededKeys(ref)) {
+                        strategies.putIfAbsent(key, new ReplaceStrategy());
+                    }
+                    if (ref.saaSpec() != null) {
+                        for (String in : ref.saaSpec().inputKeyList()) {
+                            strategies.putIfAbsent(in, new ReplaceStrategy());
+                        }
+                    }
+                }
+            }
             return strategies;
         };
     }
@@ -538,8 +580,32 @@ public class DynamicGraphBuilder {
         if (ref.hasAgentSpec() || GraphNodeDescriptor.CATEGORY_GENERIC_AGENT.equals(ref.category())) {
             return node_async(resolveGenericAgent(def, ref).toAction(nodeCtx));
         }
+        if (SaaWorkflowValidator.isSaaWorkflowNode(ref)) {
+            return node_async(resolveSaaWorkflow(def, ref, nodeCtx));
+        }
         RegisteredGraphNode node = nodeRegistry.get(ref.nodeId());
         return node_async(node.toAction(nodeCtx));
+    }
+
+    /**
+     * 编译 SAA_WORKFLOW 节点为 NodeAction（方式 A）。
+     */
+    private com.alibaba.cloud.ai.graph.action.NodeAction resolveSaaWorkflow(
+            GraphDefinition def, NodeRef ref, NodeRuntimeContext nodeCtx) throws GraphStateException {
+        SaaWorkflowNodeFactory factory = saaWorkflowNodeFactory == null
+                ? null : saaWorkflowNodeFactory.getIfAvailable();
+        if (factory == null) {
+            throw new GraphStateException("图 " + def.graphId() + " 含 SAA_WORKFLOW 节点 " + ref.nodeId()
+                    + "，但未找到 SaaWorkflowNodeFactory；请引入 ace-graph-dsl-saa-agent 依赖");
+        }
+        SaaWorkflowSpec spec = ref.saaSpec();
+        if (spec == null) {
+            throw new GraphStateException("SAA_WORKFLOW 节点缺少 saaSpec: " + ref.nodeId());
+        }
+        log.info("编译 SAA_WORKFLOW 节点, graphId={}, nodeId={}, pattern={}, subAgents={}",
+                def.graphId(), ref.nodeId(), spec.pattern(),
+                spec.subAgents() == null ? 0 : spec.subAgents().size());
+        return factory.create(def.graphId(), ref.nodeId(), spec, nodeCtx);
     }
 
     /**

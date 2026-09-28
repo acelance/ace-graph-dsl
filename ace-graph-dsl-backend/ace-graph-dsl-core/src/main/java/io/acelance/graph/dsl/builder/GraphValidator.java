@@ -1,5 +1,7 @@
 package io.acelance.graph.dsl.builder;
 
+import io.acelance.graph.dsl.agent.SaaWorkflowNodeFactory;
+import io.acelance.graph.dsl.agent.SubAgentResolver;
 import io.acelance.graph.dsl.definition.GraphDefinition;
 import io.acelance.graph.dsl.definition.GraphEdge;
 import io.acelance.graph.dsl.definition.NodeRef;
@@ -7,6 +9,10 @@ import io.acelance.graph.dsl.registry.EdgeDispatcherRegistry;
 import io.acelance.graph.dsl.registry.GraphNodeDescriptor;
 import io.acelance.graph.dsl.registry.GraphNodeRegistry;
 import io.acelance.graph.dsl.script.ScriptEdgeActionFactory;
+import io.acelance.graph.dsl.validation.SaaWorkflowValidator;
+import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
 import java.util.ArrayList;
@@ -32,15 +38,46 @@ public class GraphValidator {
     private final EdgeDispatcherRegistry dispatcherRegistry;
     private final ScriptEdgeActionFactory scriptEdgeActionFactory;
     private final EdgeParamReachabilityValidator reachabilityValidator;
+    private final SaaWorkflowValidator saaWorkflowValidator;
 
+    /**
+     * 测试 / 无 SAA 模块时的便捷构造（高阶节点未启用）。
+     */
     public GraphValidator(GraphNodeRegistry nodeRegistry,
                           EdgeDispatcherRegistry dispatcherRegistry,
                           ScriptEdgeActionFactory scriptEdgeActionFactory,
                           EdgeParamReachabilityValidator reachabilityValidator) {
+        this(nodeRegistry, dispatcherRegistry, scriptEdgeActionFactory, reachabilityValidator,
+                null, List.of());
+    }
+
+    /**
+     * Spring 注入构造：按是否存在 {@link SaaWorkflowNodeFactory} 判定模块启用。
+     */
+    @Autowired
+    public GraphValidator(GraphNodeRegistry nodeRegistry,
+                          EdgeDispatcherRegistry dispatcherRegistry,
+                          ScriptEdgeActionFactory scriptEdgeActionFactory,
+                          EdgeParamReachabilityValidator reachabilityValidator,
+                          ObjectProvider<SaaWorkflowNodeFactory> saaWorkflowNodeFactory,
+                          ObjectProvider<SubAgentResolver> subAgentResolvers) {
+        this(nodeRegistry, dispatcherRegistry, scriptEdgeActionFactory, reachabilityValidator,
+                saaWorkflowNodeFactory != null ? saaWorkflowNodeFactory.getIfAvailable() : null,
+                subAgentResolvers != null ? subAgentResolvers.orderedStream().toList() : List.of());
+    }
+
+    GraphValidator(GraphNodeRegistry nodeRegistry,
+                   EdgeDispatcherRegistry dispatcherRegistry,
+                   ScriptEdgeActionFactory scriptEdgeActionFactory,
+                   EdgeParamReachabilityValidator reachabilityValidator,
+                   SaaWorkflowNodeFactory saaFactory,
+                   List<SubAgentResolver> resolvers) {
         this.nodeRegistry = nodeRegistry;
         this.dispatcherRegistry = dispatcherRegistry;
         this.scriptEdgeActionFactory = scriptEdgeActionFactory;
         this.reachabilityValidator = reachabilityValidator;
+        this.saaWorkflowValidator = new SaaWorkflowValidator(
+                nodeRegistry, resolvers, saaFactory != null);
     }
 
     /**
@@ -116,6 +153,11 @@ public class GraphValidator {
                 }
                 continue;
             }
+            // SAA 高阶工作流节点：不走普通注册表，委托 SaaWorkflowValidator
+            if (SaaWorkflowValidator.isSaaWorkflowNode(ref)) {
+                saaWorkflowValidator.validateNode(def.graphId(), ref, errors);
+                continue;
+            }
             // 通用 agent 节点：双通道——内联 agentSpec 自带元数据，或引用已入库的 agent 节点定义
             if (ref.hasAgentSpec() || GraphNodeDescriptor.CATEGORY_GENERIC_AGENT.equals(ref.category())) {
                 if (ref.agentSpec() == null && !nodeRegistry.contains(ref.nodeId())) {
@@ -159,6 +201,11 @@ public class GraphValidator {
         def.nodes().stream()
                 .filter(ref -> ref.agentSpec() != null)
                 .map(ref -> ref.agentSpec().effectiveOutputKey())
+                .forEach(neededKeys::add);
+        // SAA 高阶节点：父 outputKey + 子 outputKey
+        def.nodes().stream()
+                .filter(SaaWorkflowValidator::isSaaWorkflowNode)
+                .flatMap(ref -> SaaWorkflowValidator.collectNeededKeys(ref).stream())
                 .forEach(neededKeys::add);
         for (String key : neededKeys) {
             if (!declaredKeys.contains(key)) {

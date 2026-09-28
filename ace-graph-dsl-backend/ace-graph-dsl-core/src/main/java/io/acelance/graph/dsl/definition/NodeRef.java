@@ -16,10 +16,12 @@ import java.util.Map;
  *       循环体以脚本/已注册动作形式存在（代码岛），反向提取时可能失真。</li>
  *   <li><b>GENERIC_AGENT</b>：通过 {@link #agentSpec()} 携带声明式元数据
  *       （模型/prompt/skill/mcp/tools），后端据此动态装配模板节点，一般模型调用无需内嵌代码。</li>
+ *   <li><b>SAA_WORKFLOW</b>：通过 {@link #saaSpec()} 携带高阶模式（Sequential/Parallel/Routing/Loop）
+ *       与子 Agent 引用；与 {@code agentSpec} 互斥，只读 {@code saaSpec}。</li>
  * </ul>
  *
  * @param nodeId     已注册节点 ID（SUBGRAPH/AGENT/GENERIC_AGENT 等结构节点也用此字段作为唯一标识）
- * @param category   节点类别：NORMAL/ROUTER/MERGE/HITL/SUBGRAPH/AGENT/GENERIC_AGENT（可选；null 时由注册中心推导）
+ * @param category   节点类别：NORMAL/ROUTER/MERGE/HITL/SUBGRAPH/AGENT/GENERIC_AGENT/SAA_WORKFLOW（可选；null 时由注册中心推导）
  * @param config     节点配置属性
  * @param x          画布横坐标（可选）
  * @param y          画布纵坐标（可选）
@@ -27,6 +29,7 @@ import java.util.Map;
  * @param subgraphRef 引用的目录图 ID（仅 SUBGRAPH 节点使用，可选；与 subgraph 二选一）
  * @param agent      agent 循环配置（仅 AGENT 节点使用，可选）
  * @param agentSpec  通用 agent 节点元数据（仅 GENERIC_AGENT 节点使用，可选）
+ * @param saaSpec    SAA 高阶工作流规格（仅 SAA_WORKFLOW 节点使用，可选）
  */
 @JsonIgnoreProperties(ignoreUnknown = true)
 public record NodeRef(
@@ -38,12 +41,13 @@ public record NodeRef(
         GraphDefinition subgraph,
         String subgraphRef,
         AgentConfig agent,
-        GenericAgentSpec agentSpec
+        GenericAgentSpec agentSpec,
+        SaaWorkflowSpec saaSpec
 ) {
 
     /** 向后兼容：仅含 nodeId/config/x/y 的构造（测试与旧 JSON 用） */
     public NodeRef(String nodeId, Map<String, Object> config, Double x, Double y) {
-        this(nodeId, null, config, x, y, null, null, null, null);
+        this(nodeId, null, config, x, y, null, null, null, null, null);
     }
 
     /**
@@ -69,6 +73,15 @@ public record NodeRef(
     @com.fasterxml.jackson.annotation.JsonIgnore
     public boolean hasAgentSpec() {
         return "GENERIC_AGENT".equals(category) || agentSpec != null;
+    }
+
+    /**
+     * 是否 SAA 高阶工作流节点（类别或携带 saaSpec 任一满足）。
+     * 同理避免与 saaSpec 组件冲突，命名为 hasSaaSpec()。
+     */
+    @com.fasterxml.jackson.annotation.JsonIgnore
+    public boolean hasSaaSpec() {
+        return "SAA_WORKFLOW".equals(category) || saaSpec != null;
     }
 
     /**
