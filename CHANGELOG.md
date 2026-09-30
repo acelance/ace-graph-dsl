@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **可组合记忆写意图 `memoryWrites`**：`GenericAgentSpec` / JSON 支持
+  `WRITE_USER` | `WRITE_ASSISTANT_THINKING` | `WRITE_ASSISTANT_MAIN_TEXT`。
+  有 `memoryWrites`（含空列表）时优先生效；未配置时仍由旧 `memoryMode` 推导。
+- **`MemoryWriteFlag` + Ordered Advisor `writeAssistant`**：THINKING 仅进
+  `LessoSessionThinkingBuffer`（不 drain、不单独 add ASSISTANT）；MAIN_TEXT 节点
+  drain + 写 1 条 ASSISTANT（content+thinking_content）。出口节点自动剥离 `WRITE_USER`。
+
+### Changed
+
+- **多节点推荐配置（ztc-service-agent v1.0.9）**：
+  intent=`[]`；biz=`[WRITE_USER, WRITE_ASSISTANT_THINKING]`；
+  out_put=`[WRITE_ASSISTANT_MAIN_TEXT]` → 一轮 remote 仅 **1 USER + 1 ASSISTANT**。
+- **文档**：`history-ui-and-write-file-rootcause.md` §2.1/B4；记忆落盘约定 rule；
+  设计稿 MemoryMode 段补充 `memoryWrites`。
+
 ## [1.1.3] — 2026-09-24
 
 ### Fixed

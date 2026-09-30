@@ -426,7 +426,18 @@ public class CsAssistantController {
 | `ace.graph.dsl.conversationId` | 业务入口（= sessionId） | Context → Advisor params | **仅**会话 ID；≠ runId |
 | userId / bizKey | 业务 `BusinessContext` | 业务 Store / 观测 Filter | 产品不认识 |
 
-**MemoryMode（节点 Spec，默认 NONE）**：`NONE` | `READ_ONLY` | `READ_WRITE`。多节点勿多个 `READ_WRITE` 同回合写 ASSISTANT。
+**MemoryMode（节点 Spec，默认 NONE，兼容）**：`NONE` | `READ_ONLY` | `READ_WRITE`。  
+无 `memoryWrites` 时：`READ_WRITE` = 三 flag 全开（单节点场景）；多节点勿多个 `READ_WRITE` 同回合各写 ASSISTANT。
+
+**memoryWrites（优先，可组合）**：显式列表（含空）优先生效：
+
+| Flag | 节点完成时 |
+|------|------------|
+| `WRITE_USER` | remote add USER |
+| `WRITE_ASSISTANT_THINKING` | SSE/Buffer 累积思考；**不**单独 add ASSISTANT |
+| `WRITE_ASSISTANT_MAIN_TEXT` | remote add ASSISTANT（drain Buffer → thinking_content） |
+
+多节点推荐：biz=`WRITE_USER`+`WRITE_ASSISTANT_THINKING`，out_put=`WRITE_ASSISTANT_MAIN_TEXT` → 一轮 **1 USER + 1 ASSISTANT**。落盘按节点即时，**禁止**图尾统一 persist。
 
 **SPI 形态**：
 
@@ -435,12 +446,17 @@ public static final String ACE_CONVERSATION_ID_KEY = "ace.graph.dsl.conversation
 
 public enum MemoryMode { NONE, READ_ONLY, READ_WRITE }
 
+public enum MemoryWriteFlag {
+    WRITE_USER, WRITE_ASSISTANT_THINKING, WRITE_ASSISTANT_MAIN_TEXT
+}
+
 public interface ChatClientAdvisorProvider {
     ChatClientAdvisorBundle provide(ChatClientAdvisorRequest request);
 }
 
 public record ChatClientAdvisorRequest(
         LlmRequestContext ctx, MemoryMode memoryMode,
+        Set<MemoryWriteFlag> memoryWrites,
         boolean streaming, boolean hasTools) {}
 
 public record ChatClientAdvisorBundle(
@@ -451,11 +467,11 @@ public record ChatClientAdvisorBundle(
 }
 ```
 
-**Template 约定**：与 `ToolCallAdvisor` 同挂 ChatClient；`mode==NONE` 或 conversationId 空或无 Provider → 跳过记忆 Advisor；关键日志打印 mode/conversationId/advisor 数。
+**Template 约定**：与 `ToolCallAdvisor` 同挂 ChatClient；`mode==NONE` 且 writes 空、或 conversationId 空、或无 Provider → 跳过记忆 Advisor；关键日志打印 mode/writes/conversationId/advisor 数。
 
 **明确不做**：图尾统一 persistMemory 作主路径；官方 `MessageChatMemoryAdvisor` 不强制（业务可用自研 Ordered Advisor）；Catalog/Resolver 读写记忆。
 
-**怎么验收**：业务 Provider 挂上后多轮可读历史；无 Bean 时行为与今日一致。
+**怎么验收**：业务 Provider 挂上后多轮可读历史；无 Bean 时行为与今日一致；多节点图一轮 remote 仅 1 USER + 1 ASSISTANT。
 
 ### 4.3 Resolver 接口（运行期：此时 key 已经有了）
 

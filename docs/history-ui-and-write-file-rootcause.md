@@ -74,10 +74,16 @@ AceGraphExecutionController : IllegalStateException: No ToolCallback found for t
 
 ### 2.1 目标语义（对齐 Vertical 角色，不齐落盘时机）
 
+> **定案（可组合 `memoryWrites`）**：落盘按节点即时生效；一轮 remote 仅 **1 USER + 1 ASSISTANT**（thinking+正文同条）。  
+> 旧三态 `memoryMode` 在无 `memoryWrites` 时仍兼容；有 `memoryWrites`（含空列表）时以 flags 为准。详见 `.cursor/rules/ace-graph-memory-persist.mdc`。
+
 ```
-intent:  NONE（或不写记忆）；SSE thinking=true → 意图文案进思考气泡
-biz:     READ_WRITE → 节点完成即写 USER(真问题) + ASSISTANT(业务结果，extras.thinking=过程)
-out_put: READ_WRITE + writeUser=false → 只写 ASSISTANT 定稿
+intent:  memoryWrites=[] / memoryMode=NONE
+         SSE thinking=true → 意图文案可进思考气泡（本节点不写 remote）
+biz:     memoryWrites=[WRITE_USER, WRITE_ASSISTANT_THINKING]
+         → 节点完成即写 USER(真问题)；thinking 进 SessionThinkingBuffer（不单独 add ASSISTANT）
+out_put: memoryWrites=[WRITE_ASSISTANT_MAIN_TEXT]
+         → 立刻 add 1 条 ASSISTANT（content=定稿，drain Buffer → thinking_content）
 ```
 
 历史回放应读：
@@ -124,7 +130,7 @@ flowchart TD
 | `thinking_content` = 步骤 / 思考 | buffer 空 → extras 空或错 |
 | `content` = 定稿（链接等） | content = 多轮步骤拼接 |
 
-出口 `writeUser=false` 日志正确；问题在 **biz 写入的 ASSISTANT 形态**。
+出口无假 USER（MAIN_TEXT 且剥离 WRITE_USER）日志正确；问题在 **biz 若误写完整 ASSISTANT** 或 THINKING/MAIN 拆成两次 add。
 
 ### 2.3 实时「当前样式」为何看起来还能忍
 
@@ -140,7 +146,8 @@ flowchart TD
 | **A3** | 历史接口确认：USER 优先 `display_content`；ASSISTANT 拆 `thinking_content` vs `content` | 业务 / 前端 | 截图 C/D 验收 | 待做；后端字段空则先修后端 |
 | **B1** | `bizParam` 解析失败 WARN 带上 `interpreterId`/`raw`/`enable`；对 `agent:` 前缀 nodeId 做 definition 回退 | Lesso SSE + 框架 Helper | §2.2(1) | **已完成（代码）**：Adapter 增强 WARN；接受 `lesso:sse-frame` 别名；`AceGraphNodeHelper` 支持 `agent:` 去前缀查找；attrs 中 Map 型 raw 转 JSON |
 | **B2** | 校验 echo 落盘路径 `display_content` 是否仍在 UserMessage；必要时 remote 侧打 content 长度 vs display 长度 | Lesso 记忆 | §2.2(3)、截图 C | **已完成（代码）**：Template 挂 `display_content` + 材料注记兜底剥离 + 观测日志；Advisor `forMemoryStorage` / codec `encodeContent` 优先 display，无则剥 `[material]` |
-| **B3** | 仅 `bizParam.thinking=true` 的增量进 `LessoSessionThinkingBuffer`；写 ASSISTANT 时 drain → remote `thinking_content`；若正文与思考同源则 `content` 置空 | Lesso 记忆 | §2.2(1)(4)、历史接口字段 | **已完成（代码）**：SSE 仅 thinking:true→Buffer；每 READ_WRITE 节点 drain；`attachThinking` 同源置空 + 后缀/前缀去重终答 + merge 已有 THINKING；发版后冒烟确认 remote `thinking_content` |
+| **B3** | 仅 `bizParam.thinking=true` 的增量进 `LessoSessionThinkingBuffer`；**仅** `WRITE_ASSISTANT_MAIN_TEXT` 节点 drain → remote `thinking_content`；若正文与思考同源则 `content` 置空 | Lesso 记忆 | §2.2(1)(4)、历史接口字段 | **已完成（代码）**：SSE 仅 thinking:true→Buffer；THINKING 节点 `writeAssistant=false` 不 drain；MAIN_TEXT 节点 drain + `attachThinking`（同源置空 + 后缀/前缀去重 + merge）；发版冒烟 remote `thinking_content` |
+| **B4** | Spec `memoryWrites` 可组合 flags；ztc：biz=`WRITE_USER`+`WRITE_ASSISTANT_THINKING`，out_put=`WRITE_ASSISTANT_MAIN_TEXT`；出口剥离 `WRITE_USER` | 框架 Spec + Lesso Provider | §2.1、假 USER / 双 ASSISTANT | **已完成（代码）**：`MemoryWriteFlag`；Ordered Advisor `writeAssistant`；旧 `memoryMode` 无 flags 时仍推导三 flag |
 | **C2** | 工具轮中间文本：不进 `visible`/content，改走 thinking/progress，或仅终答轮进 content | 框架 Template | §2.2(2)、截图 D | **已完成（代码）**：`streamCallWithTools` 仅无 toolCalls 终答轮进 `visible`；中间轮仍 SSE live emit（thinking:true→思考气泡/Buffer），不进记忆 content |
 | **C3** | 材料注记只进 LLM user，**禁止**进记忆 USER（单测钉死） | 框架 + Lesso | §2.2(3)、截图 C | **已完成（代码）**：`MediaMaterialSupport.stripMaterialNotes` + Template 兜底；Lesso codec/Advisor 双保险；单测覆盖 encode / writeUser |
 
@@ -171,7 +178,7 @@ flowchart TD
 | USER 展示正文 | `MemoryDisplayUserTextResolver` SPI | KeyList（user_query）+ B2/C3 |
 | extras.thinking | 不硬编码业务协议 | Buffer + Advisor + remote codec（B3） |
 | 工具轮中间文本是否进 content | Template 仅终答轮进 visible（C2 **已做**） | SSE attrs 决定中间轮进思考气泡 |
-| 落盘时机 | 每节点完成可写 | Provider 按节点 READ_WRITE；**禁止**改回图尾 |
+| 落盘时机 | 每节点 `memoryWrites` / `memoryMode` 即时生效 | Provider 按 flags：`WRITE_USER` / THINKING Buffer / MAIN_TEXT drain+add；**禁止**改回图尾 |
 
 ---
 
@@ -186,11 +193,13 @@ flowchart TD
 
 ## 5. 决策清单（仅剩问题二）
 
-问题一 D1（软降级）已落地；问题二 **A1 配置 + B1/B2/B3/C2/C3 代码已完成**。
+问题一 D1（软降级）已落地；问题二 **A1 配置 + B1/B2/B3/B4/C2/C3 代码已完成**。
 
 - [x] **D3 配置侧（→ A1）** 发布图 biz 已设 `lesso.sse-frame` + `{"thinking":true,"nodeDisplay":"业务处理"}`  
 - [x] **D3 代码侧（→ B1）** Adapter WARN / `lesso:sse-frame` 别名 / `agent:` nodeId 回退（Helper）  
 - [x] **D2（→ C2）** 工具轮中间文本：仅终答轮进 visible；中间轮 SSE emit、不进记忆 content  
 - [x] **D4（→ B2/C3）** display_content：Template 挂元数据 + 材料剥离兜底；codec/Advisor 落库剥 `[material]`  
+- [x] **D5（→ B4）** `memoryWrites` 可组合：biz 写 USER+THINKING Buffer，out_put 写 1 条 ASSISTANT（thinking+正文）  
 
-下一步：**发版冒烟**（A1/B1/B2/B3/C2/C3）+ **A3** 前后端历史字段验收。
+下一步：**发版冒烟**（含一轮 remote 仅 1 USER + 1 ASSISTANT）+ **A3** 前后端历史字段验收。  
+待做（可选）：USER skill 展示回显、images/files 持久化。

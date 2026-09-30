@@ -186,15 +186,15 @@ P3.6 ResourceKeyValidator 接线（任意空隙，建议 C）
 | 项 | 落点 | 状态 |
 |---|---|---|
 | 保留键 `ace.graph.dsl.conversationId` + `LlmRequestContext.conversationId` | core | ✅ |
-| 节点 `MemoryMode`（NONE / READ_ONLY / READ_WRITE）→ Spec / `LlmCallRequest` | core + ai | ✅ |
+| 节点 `MemoryMode` + `memoryWrites`（可组合 flags）→ Spec / `LlmCallRequest` / `ChatClientAdvisorRequest` | core + ai | ✅ |
 | `ChatClientAdvisorProvider` + Bundle/Request | ai | ✅ |
 | `StreamingLlmTemplate` sync/stream 统一 `prepareSpec` 挂载业务 Advisor + `ChatMemory.CONVERSATION_ID` | Template | ✅ |
 | `LlmResolvers` / 自动配置可选注入 Provider（null=空操作） | starter/ai | ✅ |
-| 单测：假 Advisor 验证透传与 mode=NONE 跳过 | ai/test | ✅ |
+| 单测：假 Advisor 验证透传与 mode=NONE / writes=[] 跳过；`MemoryWriteFlagTest` | ai/core test | ✅ |
 
 **不做**：ChatMemory Store、userId/bizKey、图尾 persistMemory、认识 Lesso BusinessContext。
 
-**验收**：业务 Provider 挂上后，call/stream 均能读到 CONVERSATION_ID；无 Provider / NONE 行为与今日一致。
+**验收**：业务 Provider 挂上后，call/stream 均能读到 CONVERSATION_ID；无 Provider / NONE / 空 writes 行为与今日一致；多节点一轮 remote 仅 1 USER + 1 ASSISTANT。
 
 **出口后业务下一步**：真 UI 浏览器 E2E 收口（评估 §14.1.1）；Catalog 过滤搁置（§14.3）；增强批可缓。
 
@@ -339,13 +339,13 @@ P3.6 ResourceKeyValidator 接线（任意空隙，建议 C）
 
 | 项 | 说明 | 状态 |
 |---|---|---|
-| 实现 `ChatClientAdvisorProvider`：按 MemoryMode 返回 Ordered / ReadOnly Advisor | 复用 lesso-ai-memory / `PlatformChatMemorySupport` | ✅ |
+| 实现 `ChatClientAdvisorProvider`：按 `memoryWrites` / MemoryMode 返回 Ordered / ReadOnly Advisor | 复用 lesso-ai-memory / `PlatformChatMemorySupport`（含 `writeAssistant`） | ✅ |
 | 入口写 `ACE_CONVERSATION_ID_KEY`=sessionId + `BusinessContext`(userId/sessionId/bizKey) | conversationId **≠** 三字段拼接 | ✅（Biz.0） |
-| 节点 Spec 配置 `memoryMode`（主对话 READ_WRITE；旁路 NONE/READ_ONLY） | 禁止多节点同回合多写 ASSISTANT | ✅ 冒烟 `READ_WRITE` |
-| `PlatformChatMemorySupport` 补 `createOrdered` / `createReadOnly` | 评估 §12 | ✅ |
+| 节点 Spec：`memoryWrites` 优先；兼容 `memoryMode`（单节点 READ_WRITE=三 flag） | 多节点：biz USER+THINKING，out_put MAIN_TEXT；禁止同回合多次 ASSISTANT add | ✅ ztc v1.0.9 |
+| `PlatformChatMemorySupport` 补 `createOrdered(writeUser, writeAssistant)` / `createReadOnly` | 评估 §12 | ✅ |
 | `GenericAgentNode` 将 `user_query` 等写入 USER（供记忆落库） | 产品小修，随 P3.8/Biz.8 | ✅ |
 
-**验收**：同 sessionId 多轮能读到历史；USER/ASSISTANT 由 Advisor 落库；关键日志带齐身份键。
+**验收**：同 sessionId 多轮能读到历史；一轮 remote 仅 1 USER + 1 ASSISTANT（thinking+正文）；关键日志带齐身份键与 writes。
 
 ### Biz.9 — Langfuse 观测接入（业务定制；**不**做产品 Langfuse UI）· ✅
 
