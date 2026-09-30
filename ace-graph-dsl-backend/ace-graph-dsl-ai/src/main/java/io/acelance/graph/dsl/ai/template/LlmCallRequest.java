@@ -7,14 +7,16 @@ import io.acelance.graph.dsl.ai.tool.ToolConflictPolicy;
 import io.acelance.graph.dsl.ai.tool.ToolDeduper;
 import io.acelance.graph.dsl.llm.LlmRequestContext;
 import io.acelance.graph.dsl.llm.MemoryMode;
+import io.acelance.graph.dsl.llm.MemoryWriteFlag;
 import io.acelance.graph.dsl.runtime.ModelOverride;
 
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 
 /**
- * 请求级 LLM 调用参数（含工具、冲突策略、mediaInputKey、memoryMode、deepThinking）。
+ * 请求级 LLM 调用参数（含工具、冲突策略、mediaInputKey、memoryMode/memoryWrites、deepThinking）。
  */
 public record LlmCallRequest(
         LlmRequestContext context,
@@ -30,6 +32,7 @@ public record LlmCallRequest(
         String mediaInputKey,
         ToolConflictPolicy conflictPolicy,
         MemoryMode memoryMode,
+        Set<MemoryWriteFlag> memoryWrites,
         boolean deepThinking,
         Map<String, Object> streamAttrs
 ) {
@@ -46,6 +49,9 @@ public record LlmCallRequest(
         mediaInputKey = mediaInputKey == null || mediaInputKey.isBlank() ? null : mediaInputKey.trim();
         conflictPolicy = conflictPolicy == null ? ToolDeduper.DEFAULT_POLICY : conflictPolicy;
         memoryMode = memoryMode == null ? MemoryMode.NONE : memoryMode;
+        memoryWrites = memoryWrites == null
+                ? MemoryWriteFlag.fromLegacyMode(memoryMode)
+                : Set.copyOf(memoryWrites);
         streamAttrs = (streamAttrs == null || streamAttrs.isEmpty()) ? Map.of() : Map.copyOf(streamAttrs);
     }
 
@@ -67,6 +73,7 @@ public record LlmCallRequest(
         private String mediaInputKey;
         private ToolConflictPolicy conflictPolicy;
         private MemoryMode memoryMode = MemoryMode.NONE;
+        private Set<MemoryWriteFlag> memoryWrites;
         private boolean deepThinking;
         private Map<String, Object> streamAttrs = Map.of();
 
@@ -132,9 +139,15 @@ public record LlmCallRequest(
             return this;
         }
 
-        /** 节点记忆模式；默认 NONE */
+        /** 节点记忆模式（兼容旧三态）；默认 NONE */
         public Builder memoryMode(MemoryMode memoryMode) {
             this.memoryMode = memoryMode;
+            return this;
+        }
+
+        /** 可组合写意图；null 时由 memoryMode 推导 */
+        public Builder memoryWrites(Set<MemoryWriteFlag> memoryWrites) {
+            this.memoryWrites = memoryWrites;
             return this;
         }
 
@@ -158,7 +171,7 @@ public record LlmCallRequest(
         public LlmCallRequest build() {
             return new LlmCallRequest(context, systemTemplate, userMessage, variables,
                     outputKey, streaming, streamResponseKind, inlineModel, modelOverride, tools,
-                    mediaInputKey, conflictPolicy, memoryMode, deepThinking, streamAttrs);
+                    mediaInputKey, conflictPolicy, memoryMode, memoryWrites, deepThinking, streamAttrs);
         }
     }
 }

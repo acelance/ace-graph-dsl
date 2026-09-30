@@ -183,7 +183,7 @@ public class GenericAgentNodeController {
                     prompt, inputKeys, outputKey, streamResponseKind, null,
                     true, List.of(), false, null, false, List.of(),
                     false, List.of(), Map.of(), false, List.of(),
-                    io.acelance.graph.dsl.llm.MemoryMode.NONE, false,
+                    io.acelance.graph.dsl.llm.MemoryMode.NONE, null, false,
                     false, null, null);
         }
 
@@ -221,7 +221,7 @@ public class GenericAgentNodeController {
                     prompt, inputKeys, outputKey, null, null,
                     true, List.of(), false, null, false, List.of(),
                     false, List.of(), Map.of(), false, List.of(),
-                    io.acelance.graph.dsl.llm.MemoryMode.NONE, false,
+                    io.acelance.graph.dsl.llm.MemoryMode.NONE, null, false,
                     false, null, null);
         }
     }

@@ -28,7 +28,7 @@ class AceGraphNodeHelperNodeIdAliasTest {
                 false, List.of(), false, null,
                 false, List.of(), false, List.of(), Map.of(),
                 false, List.of(),
-                MemoryMode.NONE, false,
+                MemoryMode.NONE, null, false,
                 true, "lesso.sse-frame",
                 "{\"thinking\":true,\"nodeDisplay\":\"业务处理\"}");
         NodeRef node = new NodeRef(

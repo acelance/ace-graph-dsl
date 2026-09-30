@@ -21,6 +21,7 @@ import io.acelance.graph.dsl.ai.tool.ToolConflictPolicy;
 import io.acelance.graph.dsl.ai.tool.ToolDeduper;
 import io.acelance.graph.dsl.llm.LlmRequestContext;
 import io.acelance.graph.dsl.llm.MemoryMode;
+import io.acelance.graph.dsl.llm.MemoryWriteFlag;
 import io.acelance.graph.dsl.media.MediaRef;
 import io.acelance.graph.dsl.media.MediaRefs;
 import io.acelance.graph.dsl.prompt.PromptContentResolver;
@@ -412,7 +413,7 @@ public class StreamingLlmTemplate {
                 && ctx.conversationId() != null && !ctx.conversationId().isBlank()
                 && advisorProvider != null) {
             mem = advisorProvider.provide(new ChatClientAdvisorRequest(
-                    ctx, mode, req.streaming(), hasTools));
+                    ctx, mode, req.memoryWrites(), req.streaming(), hasTools));
             if (mem == null) {
                 mem = ChatClientAdvisorBundle.empty();
             }
@@ -624,7 +625,8 @@ public class StreamingLlmTemplate {
                                               String assistantText,
                                               LlmCallRequest req) {
         MemoryMode mode = req.memoryMode() == null ? MemoryMode.NONE : req.memoryMode();
-        if (mode == MemoryMode.NONE || advisorProvider == null) {
+        Set<MemoryWriteFlag> writes = req.memoryWrites() == null ? Set.of() : req.memoryWrites();
+        if ((mode == MemoryMode.NONE && writes.isEmpty()) || advisorProvider == null) {
             return;
         }
         LlmRequestContext ctx = req.context();
@@ -646,6 +648,7 @@ public class StreamingLlmTemplate {
                     .mediaInputKey(req.mediaInputKey())
                     .conflictPolicy(req.conflictPolicy())
                     .memoryMode(mode)
+                    .memoryWrites(writes)
                     .deepThinking(req.deepThinking())
                     .streamAttrs(req.streamAttrs())
                     .build();

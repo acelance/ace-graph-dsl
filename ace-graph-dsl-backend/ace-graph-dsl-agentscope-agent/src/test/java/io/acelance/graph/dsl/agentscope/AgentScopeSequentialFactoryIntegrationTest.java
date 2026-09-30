@@ -122,7 +122,7 @@ class AgentScopeSequentialFactoryIntegrationTest {
                 "user_query", "agent_result", "BIZ", null,
                 false, List.of(), false, null,
                 false, List.of(), false, List.of(), Map.of(),
-                false, List.of(), MemoryMode.NONE, false,
+                false, List.of(), MemoryMode.NONE, null, false,
                 false, null, null);
         return new GraphBoundAgentNode() {
             @Override

@@ -19,7 +19,7 @@ class GenericAgentSpecOverrideTest {
                 null, "out", null, null,
                 true, List.of(), false, null, false, List.of(),
                 false, List.of(), Map.of(), false, List.of(),
-                io.acelance.graph.dsl.llm.MemoryMode.NONE, false,
+                io.acelance.graph.dsl.llm.MemoryMode.NONE, null, false,
                     false, null, null);
 
         ModelOverride ov = new ModelOverride("gpt-4o", "https://other", "sk-xyz");
@@ -28,7 +28,7 @@ class GenericAgentSpecOverrideTest {
         assertEquals("gpt-4o", r.modelId());
         assertEquals("https://other", r.modelBaseUrl());
         assertEquals("sk-xyz", r.modelApiKey());
-        assertFalse(r.apiKeyMasked(), "覆盖的 apiKey 视为明文");
+        assertFalse(r.apiKeyMasked(), "overridden apiKey should be plaintext");
         assertEquals("p", r.prompt());
         assertEquals("out", r.effectiveOutputKey());
     }
@@ -40,7 +40,7 @@ class GenericAgentSpecOverrideTest {
                 null, "out", null, null,
                 true, List.of(), false, null, false, List.of(),
                 false, List.of(), Map.of(), false, List.of(),
-                io.acelance.graph.dsl.llm.MemoryMode.NONE, false,
+                io.acelance.graph.dsl.llm.MemoryMode.NONE, null, false,
                     false, null, null);
         assertSame(base, base.withOverride(null));
     }

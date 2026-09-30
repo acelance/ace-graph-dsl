@@ -13,7 +13,9 @@ import java.util.Set;
  * 通用 agent 节点元数据（P0.5 D3：旧单 key / tools / 内联 skill·mcp 已删除）。
  *
  * <p>{@code prompt} 仅为节点特化追加；资源走 enable* + *Keys + mcpToolWhitelist。
- * {@code memoryMode} 见 P3.8 / 设计 §4.2.2。
+ * {@code memoryMode} 见 P3.8 / 设计 §4.2.2（旧三态，兼容）。
+ * {@code memoryWrites}：可组合写意图（{@link io.acelance.graph.dsl.llm.MemoryWriteFlag}）；
+ * 非 null 时优先生效（含空列表=本节点不写）。
  * {@code applyDeepThinking}：是否允许应用请求级深度思考（与 state
  * {@link LlmRequestContext#ACE_DEEP_THINKING_KEY} AND）。
  * {@code enableBizParams}/{@code bizParamInterpreterId}/{@code bizParamRaw}：业务附加参数（框架只存
@@ -42,6 +44,7 @@ public record GenericAgentSpec(
         boolean enableSkill,
         List<String> skillKeys,
         MemoryMode memoryMode,
+        List<String> memoryWrites,
         boolean applyDeepThinking,
         boolean enableBizParams,
         String bizParamInterpreterId,
@@ -63,6 +66,8 @@ public record GenericAgentSpec(
         skillKeys = skillKeys == null ? List.of() : List.copyOf(skillKeys);
         mcpToolWhitelist = mcpToolWhitelist == null ? Map.of() : Map.copyOf(mcpToolWhitelist);
         memoryMode = memoryMode == null ? MemoryMode.NONE : memoryMode;
+        // null = 未配置，回退 memoryMode；空列表 = 显式不写
+        memoryWrites = memoryWrites == null ? null : List.copyOf(memoryWrites);
         if (enableBizParams) {
             if (bizParamInterpreterId == null || bizParamInterpreterId.isBlank()) {
                 bizParamInterpreterId = DefaultStringBizParamInterpreter.ID;
@@ -77,7 +82,7 @@ public record GenericAgentSpec(
         this(modelBaseUrl, modelApiKey, false, modelId, prompt,
                 null, DEFAULT_OUTPUT_KEY, null, null,
                 true, List.of(), false, null, false, List.of(),
-                false, List.of(), Map.of(), false, List.of(), MemoryMode.NONE, false,
+                false, List.of(), Map.of(), false, List.of(), MemoryMode.NONE, null, false,
                 false, null, null);
     }
 
@@ -97,7 +102,18 @@ public record GenericAgentSpec(
     }
 
     public MemoryMode effectiveMemoryMode() {
+        // 显式 memoryWrites（含空）时：有写意图 → READ_WRITE 参与 Advisor；否则 NONE
+        if (memoryWrites != null) {
+            return effectiveMemoryWrites().isEmpty() ? MemoryMode.NONE : MemoryMode.READ_WRITE;
+        }
         return memoryMode == null ? MemoryMode.NONE : memoryMode;
+    }
+
+    /**
+     * 可组合写意图：{@code memoryWrites} 非 null 时优先生效；否则由 {@code memoryMode} 推导。
+     */
+    public java.util.Set<io.acelance.graph.dsl.llm.MemoryWriteFlag> effectiveMemoryWrites() {
+        return io.acelance.graph.dsl.llm.MemoryWriteFlag.resolveFlexible(memoryWrites, memoryMode);
     }
 
     public Set<String> inputKeySet() {
@@ -157,7 +173,7 @@ public record GenericAgentSpec(
                 kind, mediaInputKey,
                 enablePrompt, promptKeys, enableModel, modelConfigKey,
                 enableLocalTools, localToolKeys, enableMcp, mcpKeys, mcpToolWhitelist,
-                enableSkill, skillKeys, memoryMode, applyDeepThinking,
+                enableSkill, skillKeys, memoryMode, memoryWrites, applyDeepThinking,
                 enableBizParams, bizParamInterpreterId, bizParamRaw);
     }
 }

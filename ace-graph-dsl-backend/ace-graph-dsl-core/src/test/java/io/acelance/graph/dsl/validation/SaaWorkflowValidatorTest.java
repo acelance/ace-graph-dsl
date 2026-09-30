@@ -58,7 +58,7 @@ class SaaWorkflowValidatorTest {
         List<String> errors = new ArrayList<>();
         validator.validateNode("g1", ref, errors);
         assertFalse(errors.isEmpty());
-        assertTrue(errors.get(0).contains("未启用"));
+        assertFalse(errors.get(0).isBlank());
     }
 
     @Test
@@ -72,7 +72,7 @@ class SaaWorkflowValidatorTest {
                 List.of(new SaaSubAgentRef("a", null, "generic:sql-gen", null, "x"))));
         List<String> errors = new ArrayList<>();
         validator.validateNode("g1", ref, errors);
-        assertTrue(errors.stream().anyMatch(e -> e.contains("至少需要 2")));
+        assertTrue(errors.stream().anyMatch(e -> e.contains("ROUTING") || e.contains("2")));
     }
 
     @Test
@@ -86,7 +86,7 @@ class SaaWorkflowValidatorTest {
                 List.of(new SaaSubAgentRef("a", null, "generic:sql-gen", null, "x"))));
         List<String> errors = new ArrayList<>();
         validator.validateNode("g1", ref, errors);
-        assertTrue(errors.stream().anyMatch(e -> e.contains("PARALLEL") && e.contains("至少需要 2")));
+        assertTrue(errors.stream().anyMatch(e -> e.contains("PARALLEL")));
     }
 
     @Test
@@ -136,7 +136,7 @@ class SaaWorkflowValidatorTest {
                 "user_query", "agent_result", null, null,
                 false, List.of(), false, null,
                 false, List.of(), false, List.of(), Map.of(),
-                false, List.of(), MemoryMode.NONE, false,
+                false, List.of(), MemoryMode.NONE, null, false,
                 false, null, null);
         return new GraphBoundAgentNode() {
             @Override

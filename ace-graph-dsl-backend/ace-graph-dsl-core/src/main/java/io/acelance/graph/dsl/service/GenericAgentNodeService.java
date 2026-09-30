@@ -260,6 +260,7 @@ public class GenericAgentNodeService {
                 incoming.enableLocalTools(), incoming.localToolKeys(),
                 incoming.enableMcp(), incoming.mcpKeys(), incoming.mcpToolWhitelist(),
                 incoming.enableSkill(), incoming.skillKeys(), incoming.effectiveMemoryMode(),
+                incoming.memoryWrites(),
                 incoming.applyDeepThinking(),
                 incoming.enableBizParams(), incoming.bizParamInterpreterId(), incoming.bizParamRaw());
     }

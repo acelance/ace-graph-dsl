@@ -245,6 +245,7 @@ public class GenericAgentNode implements GraphBoundAgentNode {
                     .tools(namedTools)
                     .mediaInputKey(spec.mediaInputKey())
                     .memoryMode(spec.effectiveMemoryMode())
+                    .memoryWrites(spec.effectiveMemoryWrites())
                     .deepThinking(deepThinking)
                     .streamAttrs(streamAttrs)
                     .build());
