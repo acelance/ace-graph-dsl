@@ -2,7 +2,7 @@
   "graphId": "saa-sequential-sql-quality",
   "displayName": "SAA Sequential：SQL 生成与评分",
   "version": "1.0.0",
-  "description": "M1 样例：单节点 SAA_WORKFLOW(SEQUENTIAL)，子 Agent 引用已注册 GENERIC_AGENT（generic:sql-gen / generic:sql-rater）。需引入 ace-graph-dsl-saa-agent，并先注册 agent-nodes.json 中的两个通用 Agent。",
+  "description": "M1 样例：单节点 SAA_WORKFLOW(SEQUENTIAL)。子 Agent 引用设计器入库的通用 Agent（nodeId 须 agent: 前缀）：generic:agent:sql-gen / generic:agent:sql-rater。需引入 ace-graph-dsl-saa-agent。",
   "keyStrategies": {
     "user_query": "REPLACE",
     "sql": "REPLACE",
@@ -25,14 +25,14 @@
           {
             "name": "sql_generator",
             "impl": "GENERIC_AGENT",
-            "ref": "generic:sql-gen",
+            "ref": "generic:agent:sql-gen",
             "instruction": "{user_query}",
             "outputKey": "sql"
           },
           {
             "name": "sql_rater",
             "impl": "GENERIC_AGENT",
-            "ref": "generic:sql-rater",
+            "ref": "generic:agent:sql-rater",
             "instruction": "SQL:\n{sql}\n请求:\n{user_query}",
             "outputKey": "score"
           }

@@ -25,14 +25,14 @@
           {
             "name": "view_alpha",
             "impl": "GENERIC_AGENT",
-            "ref": "generic:view-alpha",
+            "ref": "generic:agent:view-alpha",
             "instruction": "从业务视角回答：{user_query}",
             "outputKey": "out_a"
           },
           {
             "name": "view_beta",
             "impl": "GENERIC_AGENT",
-            "ref": "generic:view-beta",
+            "ref": "generic:agent:view-beta",
             "instruction": "从技术视角回答：{user_query}",
             "outputKey": "out_b"
           }

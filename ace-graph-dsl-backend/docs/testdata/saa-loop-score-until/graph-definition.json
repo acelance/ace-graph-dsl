@@ -28,7 +28,7 @@
           {
             "name": "scorer",
             "impl": "GENERIC_AGENT",
-            "ref": "generic:sql-rater",
+            "ref": "generic:agent:sql-rater",
             "instruction": "对以下需求打分到 0~1：{user_query}",
             "outputKey": "score"
           }

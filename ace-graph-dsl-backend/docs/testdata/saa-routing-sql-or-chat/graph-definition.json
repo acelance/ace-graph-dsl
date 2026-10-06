@@ -26,14 +26,14 @@
           {
             "name": "sql_generator",
             "impl": "GENERIC_AGENT",
-            "ref": "generic:sql-gen",
+            "ref": "generic:agent:sql-gen",
             "instruction": "{user_query}",
             "outputKey": "sql_out"
           },
           {
             "name": "chat_helper",
             "impl": "GENERIC_AGENT",
-            "ref": "generic:chat-helper",
+            "ref": "generic:agent:chat-helper",
             "instruction": "{user_query}",
             "outputKey": "chat_out"
           }

@@ -55,6 +55,7 @@ export default {
     saveFailed: 'Save failed: {msg}',
     validateSuccess: 'Validation passed',
     validateFailed: 'Validation failed, {count} error(s)',
+    validateRequestFailed: 'Validation request failed: {msg}',
     previewSuccess: 'PlantUML generated — see property panel',
     previewFailed: 'Preview failed: {msg}',
     publishConfirm: 'Publish current version? This will switch the runtime graph.',

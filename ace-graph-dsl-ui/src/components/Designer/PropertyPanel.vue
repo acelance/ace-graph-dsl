@@ -50,6 +50,16 @@ watch(() => editor.keyStrategies, (ks) => {
   keyStrategyRows.value = Object.entries(ks || {}).map(([k, v]) => ({ key: k, strategy: v }))
 }, { immediate: true, deep: true })
 
+watch(
+  () => editor.validationErrors,
+  (errs) => {
+    if (Array.isArray(errs) && errs.length) {
+      activeTab.value = 'validation'
+    }
+  },
+  { deep: true }
+)
+
 const STRUCTURAL_DESCRIPTORS = {
   SUBGRAPH: { nodeId: '', displayName: 'Subgraph', category: 'SUBGRAPH', origin: 'STRUCTURAL', inputKeys: [], outputKeys: [], configurableProps: {} },
   AGENT: { nodeId: '', displayName: 'Agent', category: 'AGENT', origin: 'STRUCTURAL', inputKeys: [], outputKeys: [], configurableProps: {} },

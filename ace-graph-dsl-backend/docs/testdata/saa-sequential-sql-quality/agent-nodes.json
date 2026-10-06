@@ -1,6 +1,6 @@
 [
   {
-    "nodeId": "sql-gen",
+    "nodeId": "agent:sql-gen",
     "displayName": "SQL 生成器",
     "description": "样例子 Agent：根据 user_query 生成 SQL（Stub/真实模型均可）",
     "version": "1.0.0",
@@ -16,7 +16,7 @@
     }
   },
   {
-    "nodeId": "sql-rater",
+    "nodeId": "agent:sql-rater",
     "displayName": "SQL 评分器",
     "description": "样例子 Agent：对 SQL 打分到 [0,1]",
     "version": "1.0.0",

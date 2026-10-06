@@ -55,6 +55,7 @@ export default {
     saveFailed: '保存失败: {msg}',
     validateSuccess: '校验通过',
     validateFailed: '校验失败，{count} 个错误',
+    validateRequestFailed: '校验请求失败: {msg}',
     previewSuccess: 'PlantUML 已生成，查看属性面板',
     previewFailed: '预览失败: {msg}',
     publishConfirm: '确认发布当前版本？发布后将切换运行时 Graph。',

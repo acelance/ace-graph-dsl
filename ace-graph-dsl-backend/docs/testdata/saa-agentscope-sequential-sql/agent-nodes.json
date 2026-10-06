@@ -1,6 +1,6 @@
 [
   {
-    "nodeId": "sql-gen",
+    "nodeId": "agent:sql-gen",
     "displayName": "SQL 生成器",
     "description": "M3 AGENTSCOPE 样例：仍注册为 GENERIC_AGENT Spec，执行引擎由 impl 切换",
     "version": "1.0.0",
@@ -16,7 +16,7 @@
     }
   },
   {
-    "nodeId": "sql-rater",
+    "nodeId": "agent:sql-rater",
     "displayName": "SQL 评分器",
     "description": "M3 AGENTSCOPE 样例：评分器",
     "version": "1.0.0",

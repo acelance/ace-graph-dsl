@@ -13,7 +13,7 @@
 ## 设计器短说明
 
 1. 节点面板拖入「高阶多智能体」→ 配置 pattern 与子 Agent 表。  
-2. 子 Agent `ref` 指向已入库通用 Agent（`generic:` / `agentscope:`）。  
+2. 子 Agent `ref` 指向已入库通用 Agent（设计器 Node ID 须 `agent:` 前缀，故 ref 为 `generic:agent:{id}` / `agentscope:agent:{id}`）。  
 3. **试运行**后，若节点 state 含 `ace.graph.dsl.saa.subSteps`，轨迹面板会展示子步骤树。  
 4. 图边 vs 高阶节点：见仓库 `docs/ACE-Graph-DSL-何时用图边何时用高阶节点.md`。
 

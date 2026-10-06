@@ -1,6 +1,6 @@
 [
   {
-    "nodeId": "view-alpha",
+    "nodeId": "agent:view-alpha",
     "displayName": "业务视角",
     "description": "PARALLEL 样例子 Agent A",
     "version": "1.0.0",
@@ -16,7 +16,7 @@
     }
   },
   {
-    "nodeId": "view-beta",
+    "nodeId": "agent:view-beta",
     "displayName": "技术视角",
     "description": "PARALLEL 样例子 Agent B",
     "version": "1.0.0",

@@ -1,6 +1,6 @@
 [
   {
-    "nodeId": "sql-gen",
+    "nodeId": "agent:sql-gen",
     "displayName": "SQL 生成器",
     "description": "ROUTING 候选：生成 SQL",
     "version": "1.0.0",
@@ -16,7 +16,7 @@
     }
   },
   {
-    "nodeId": "chat-helper",
+    "nodeId": "agent:chat-helper",
     "displayName": "闲聊助手",
     "description": "ROUTING 候选：普通对话",
     "version": "1.0.0",

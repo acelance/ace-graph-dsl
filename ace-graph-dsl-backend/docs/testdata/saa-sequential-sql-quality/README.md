@@ -7,8 +7,8 @@
 ```text
 __START__ → sql_quality(SAA_WORKFLOW / SEQUENTIAL) → __END__
                  │
-                 ├─ sql_generator  ref=generic:sql-gen   → outputKey=sql
-                 └─ sql_rater      ref=generic:sql-rater → outputKey=score
+                 ├─ sql_generator  ref=generic:agent:sql-gen   → outputKey=sql
+                 └─ sql_rater      ref=generic:agent:sql-rater → outputKey=score
                                                              父 outputKey=sql_score（取最后子键）
 ```
 
@@ -22,8 +22,8 @@ __START__ → sql_quality(SAA_WORKFLOW / SEQUENTIAL) → __END__
 ## 前置
 
 1. 宿主依赖 **`ace-graph-dsl-saa-agent`**（否则校验/编译报「模块未启用」）。
-2. 将 `agent-nodes.json` 中的节点经「节点面板 → 通用 Agent」创建入库（或调用 `/api/graph/agents`）。
-3. 导入/保存 `graph-definition.json`。
+2. 将 `agent-nodes.json` 中的节点经「节点面板 → 通用 Agent」创建入库（Node ID 必须是 `agent:sql-gen` / `agent:sql-rater`）。
+3. 导入/保存 `graph-definition.json`（ref 已是 `generic:agent:…`，与设计器下拉一致）。
 
 ## 自动化验证
 

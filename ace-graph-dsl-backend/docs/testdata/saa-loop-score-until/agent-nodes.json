@@ -1,6 +1,6 @@
 [
   {
-    "nodeId": "sql-rater",
+    "nodeId": "agent:sql-rater",
     "displayName": "评分器",
     "description": "LOOP 样例子 Agent：输出 0~1 分数",
     "version": "1.0.0",

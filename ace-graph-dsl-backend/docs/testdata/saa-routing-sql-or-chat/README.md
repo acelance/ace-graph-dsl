@@ -2,8 +2,8 @@
 
 ```text
 __START__ → router_node(SAA_WORKFLOW / ROUTING) → __END__
-                 ├─ sql_generator (generic:sql-gen) → sql_out
-                 └─ chat_helper   (generic:chat-helper) → chat_out
+                 ├─ sql_generator (generic:agent:sql-gen) → sql_out
+                 └─ chat_helper   (generic:agent:chat-helper) → chat_out
                       路由器 ChatModel ← modelConfigKey=models:default
 ```
 

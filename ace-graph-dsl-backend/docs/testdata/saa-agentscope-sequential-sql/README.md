@@ -4,8 +4,8 @@
 
 ```text
 __START__ → sql_quality(SEQUENTIAL) → __END__
-                 ├─ sql_generator  impl=AGENTSCOPE  ref=agentscope:sql-gen → sql
-                 └─ sql_rater      impl=AGENTSCOPE  ref=agentscope:sql-rater → score
+                 ├─ sql_generator  impl=AGENTSCOPE  ref=agentscope:agent:sql-gen → sql
+                 └─ sql_rater      impl=AGENTSCOPE  ref=agentscope:agent:sql-rater → score
 ```
 
 ## 前置
