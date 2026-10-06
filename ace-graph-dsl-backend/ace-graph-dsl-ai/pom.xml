@@ -1,4 +1,4 @@
-Ôªø<?xml version="1.0" encoding="UTF-8"?>
+<?xml version="1.0" encoding="UTF-8"?>
 <project xmlns="http://maven.apache.org/POM/4.0.0"
          xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
          xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
@@ -7,19 +7,19 @@
     <parent>
         <groupId>io.acelance</groupId>
         <artifactId>ace-graph-dsl-backend</artifactId>
-        <version>1.1.3</version>
+        <version>1.1.4</version>
     </parent>
 
     <artifactId>ace-graph-dsl-ai</artifactId>
     <name>ace-graph-dsl-ai</name>
-    <description>LLM / Agent Ê®°ÂûãÂ±ÇÔºöGenericAgentNode„ÄÅStreamingLlmTemplate„ÄÅToolCallback Á≠â</description>
+    <description>LLM / Agent ƒ£–Õ≤„£∫GenericAgentNode°¢StreamingLlmTemplate°¢ToolCallback µ»</description>
 
     <dependencies>
         <dependency>
             <groupId>io.acelance</groupId>
             <artifactId>ace-graph-dsl-core</artifactId>
         </dependency>
-        <!-- ÂéüÁîü Spring AI ChatClient / ToolCallbackÔºõcore ÂàªÊÑè‰∏çÂºïÂÖ• -->
+        <!-- ‘≠…˙ Spring AI ChatClient / ToolCallback£ªcore øÃ“‚≤ª“˝»Î -->
         <dependency>
             <groupId>org.springframework.ai</groupId>
             <artifactId>spring-ai-client-chat</artifactId>

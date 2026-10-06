@@ -1,4 +1,4 @@
-ï»¿<?xml version="1.0" encoding="UTF-8"?>
+<?xml version="1.0" encoding="UTF-8"?>
 <project xmlns="http://maven.apache.org/POM/4.0.0"
          xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
          xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
@@ -7,7 +7,7 @@
     <parent>
         <groupId>io.acelance</groupId>
         <artifactId>ace-graph-dsl-backend</artifactId>
-        <version>1.1.3</version>
+        <version>1.1.4</version>
     </parent>
 
     <artifactId>ace-graph-dsl-script-qlexpress</artifactId>
@@ -32,7 +32,7 @@
 
     <build>
         <plugins>
-            <!-- çˆ¶ POM é»˜è®¤ skipTests=trueï¼ˆå‘å¸ƒåœºæ™¯ï¼‰ï¼›æœ¬æ¨¡å—å•å…ƒæµ‹è¯•éœ€æ‰§è¡Œ -->
+            <!-- ¸¸ POM Ä¬ÈÏ skipTests=true£¨·¢²¼³¡¾°£©£»±¾Ä£¿éµ¥Ôª²âÊÔÐèÖ´ÐÐ -->
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-surefire-plugin</artifactId>

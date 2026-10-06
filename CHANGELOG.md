@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.4] — 2026-10-06
+
 ### Added
 
 - **可组合记忆写意图 `memoryWrites`**：`GenericAgentSpec` / JSON 支持

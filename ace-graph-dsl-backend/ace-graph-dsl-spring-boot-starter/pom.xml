@@ -1,4 +1,4 @@
-ï»¿<?xml version="1.0" encoding="UTF-8"?>
+<?xml version="1.0" encoding="UTF-8"?>
 <project xmlns="http://maven.apache.org/POM/4.0.0"
          xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
          xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
@@ -7,7 +7,7 @@
     <parent>
         <groupId>io.acelance</groupId>
         <artifactId>ace-graph-dsl-backend</artifactId>
-        <version>1.1.3</version>
+        <version>1.1.4</version>
     </parent>
 
     <artifactId>ace-graph-dsl-spring-boot-starter</artifactId>
@@ -39,13 +39,13 @@
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-data-redis</artifactId>
         </dependency>
-        <!-- Redisson ç”¨äºŽå†…ç½® Redis checkpoint saverï¼ˆå¯é€‰ï¼Œç”± @ConditionalOnClass å®ˆæŠ¤ï¼Œä¸ä¼ é€’ç»™æ¶ˆè´¹ç«¯ï¼‰ -->
+        <!-- Redisson ÓÃÓÚÄÚÖÃ Redis checkpoint saver£¨¿ÉÑ¡£¬ÓÉ @ConditionalOnClass ÊØ»¤£¬²»´«µÝ¸øÏû·Ñ¶Ë£© -->
         <dependency>
             <groupId>org.redisson</groupId>
             <artifactId>redisson</artifactId>
             <optional>true</optional>
         </dependency>
-        <!-- å¯é€‰è„šæœ¬å¼•æ“Žæ‰©å±•ï¼šä¸ä¼ é€’ç»™æ¶ˆè´¹ç«¯ï¼Œç”± @ConditionalOnClass å®ˆæŠ¤ï¼Œå®¿ä¸»æ˜¾å¼å¼•å…¥åŽæ‰åŠ è½½ -->
+        <!-- ¿ÉÑ¡½Å±¾ÒýÇæÀ©Õ¹£º²»´«µÝ¸øÏû·Ñ¶Ë£¬ÓÉ @ConditionalOnClass ÊØ»¤£¬ËÞÖ÷ÏÔÊ½ÒýÈëºó²Å¼ÓÔØ -->
         <dependency>
             <groupId>io.acelance</groupId>
             <artifactId>ace-graph-dsl-script-qlexpress</artifactId>
@@ -70,7 +70,7 @@
 
     <build>
         <plugins>
-            <!-- çˆ¶ POM é»˜è®¤ skipTests=trueï¼›starter è£…é…æµ‹è¯•éœ€æ‰§è¡Œ -->
+            <!-- ¸¸ POM Ä¬ÈÏ skipTests=true£»starter ×°Åä²âÊÔÐèÖ´ÐÐ -->
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-surefire-plugin</artifactId>
