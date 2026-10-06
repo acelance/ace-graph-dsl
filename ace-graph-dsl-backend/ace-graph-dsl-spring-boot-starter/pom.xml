@@ -7,7 +7,7 @@
     <parent>
         <groupId>io.acelance</groupId>
         <artifactId>ace-graph-dsl-backend</artifactId>
-        <version>1.1.4</version>
+        <version>1.1.5</version>
     </parent>
 
     <artifactId>ace-graph-dsl-spring-boot-starter</artifactId>
@@ -39,13 +39,13 @@
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-data-redis</artifactId>
         </dependency>
-        <!-- Redisson ÓÃÓÚÄÚÖÃ Redis checkpoint saver£¨¿ÉÑ¡£¬ÓÉ @ConditionalOnClass ÊØ»¤£¬²»´«µÝ¸øÏû·Ñ¶Ë£© -->
+        <!-- Redisson ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ Redis checkpoint saverï¿½ï¿½ï¿½ï¿½Ñ¡ï¿½ï¿½ï¿½ï¿½ @ConditionalOnClass ï¿½Ø»ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ý¸ï¿½ï¿½ï¿½ï¿½Ñ¶Ë£ï¿½ -->
         <dependency>
             <groupId>org.redisson</groupId>
             <artifactId>redisson</artifactId>
             <optional>true</optional>
         </dependency>
-        <!-- ¿ÉÑ¡½Å±¾ÒýÇæÀ©Õ¹£º²»´«µÝ¸øÏû·Ñ¶Ë£¬ÓÉ @ConditionalOnClass ÊØ»¤£¬ËÞÖ÷ÏÔÊ½ÒýÈëºó²Å¼ÓÔØ -->
+        <!-- ï¿½ï¿½Ñ¡ï¿½Å±ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Õ¹ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ý¸ï¿½ï¿½ï¿½ï¿½Ñ¶Ë£ï¿½ï¿½ï¿½ @ConditionalOnClass ï¿½Ø»ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ê½ï¿½ï¿½ï¿½ï¿½ï¿½Å¼ï¿½ï¿½ï¿½ -->
         <dependency>
             <groupId>io.acelance</groupId>
             <artifactId>ace-graph-dsl-script-qlexpress</artifactId>
@@ -70,7 +70,7 @@
 
     <build>
         <plugins>
-            <!-- ¸¸ POM Ä¬ÈÏ skipTests=true£»starter ×°Åä²âÊÔÐèÖ´ÐÐ -->
+            <!-- ï¿½ï¿½ POM Ä¬ï¿½ï¿½ skipTests=trueï¿½ï¿½starter ×°ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ö´ï¿½ï¿½ -->
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-surefire-plugin</artifactId>

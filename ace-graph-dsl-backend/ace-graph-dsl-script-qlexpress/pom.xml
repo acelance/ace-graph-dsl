@@ -7,7 +7,7 @@
     <parent>
         <groupId>io.acelance</groupId>
         <artifactId>ace-graph-dsl-backend</artifactId>
-        <version>1.1.4</version>
+        <version>1.1.5</version>
     </parent>
 
     <artifactId>ace-graph-dsl-script-qlexpress</artifactId>
@@ -32,7 +32,7 @@
 
     <build>
         <plugins>
-            <!-- ¸¸ POM Ä¬ÈÏ skipTests=true£¨·¢²¼³¡¾°£©£»±¾Ä£¿éµ¥Ôª²âÊÔÐèÖ´ÐÐ -->
+            <!-- ï¿½ï¿½ POM Ä¬ï¿½ï¿½ skipTests=trueï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ä£ï¿½éµ¥Ôªï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ö´ï¿½ï¿½ -->
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-surefire-plugin</artifactId>

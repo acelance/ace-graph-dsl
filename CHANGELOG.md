@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.5] — 2026-10-06
+
+### Fixed
+
+- **`DynamicGraphBuilder` 启动失败**：类上存在两个构造器且未标注 `@Autowired` 时，
+  Spring 回退查找无参构造导致 `NoSuchMethodException: DynamicGraphBuilder.<init>()`；
+  已在完整依赖构造器上标注 `@Autowired`。
+
 ## [1.1.4] — 2026-10-06
 
 ### Added

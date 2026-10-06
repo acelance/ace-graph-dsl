@@ -7,7 +7,7 @@
     <parent>
         <groupId>io.acelance</groupId>
         <artifactId>ace-graph-dsl-backend</artifactId>
-        <version>1.1.4</version>
+        <version>1.1.5</version>
     </parent>
 
     <artifactId>ace-graph-dsl-core</artifactId>
@@ -19,7 +19,7 @@
             <groupId>com.alibaba.cloud.ai</groupId>
             <artifactId>spring-ai-alibaba-graph-core</artifactId>
         </dependency>
-        <!-- Á÷Ê½Êä³öÇÅ½Ó£¨GraphStreamBridge£©ÐèÒª reactor£»graph-core ½«ÆäÉùÃ÷Îª optional£¬¹Ê´Ë´¦ÏÔÊ½ÉùÃ÷ -->
+        <!-- ï¿½ï¿½Ê½ï¿½ï¿½ï¿½ï¿½Å½Ó£ï¿½GraphStreamBridgeï¿½ï¿½ï¿½ï¿½Òª reactorï¿½ï¿½graph-core ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Îª optionalï¿½ï¿½ï¿½Ê´Ë´ï¿½ï¿½ï¿½Ê½ï¿½ï¿½ï¿½ï¿½ -->
         <dependency>
             <groupId>io.projectreactor</groupId>
             <artifactId>reactor-core</artifactId>
@@ -53,7 +53,7 @@
 
     <build>
         <plugins>
-            <!-- ¸¸ POM Ä¬ÈÏ skipTests=true£¨·¢²¼³¡¾°£©£»core Ä£¿éµÄµ¥Ôª²âÊÔÎÞÍâ²¿ÒÀÀµ£¬Ê¼ÖÕÖ´ÐÐ -->
+            <!-- ï¿½ï¿½ POM Ä¬ï¿½ï¿½ skipTests=trueï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½core Ä£ï¿½ï¿½Äµï¿½Ôªï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½â²¿ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ê¼ï¿½ï¿½Ö´ï¿½ï¿½ -->
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-surefire-plugin</artifactId>

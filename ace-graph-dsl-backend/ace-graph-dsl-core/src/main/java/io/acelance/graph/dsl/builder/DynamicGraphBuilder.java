@@ -48,6 +48,7 @@ import com.alibaba.cloud.ai.graph.state.strategy.ReplaceStrategy;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.ApplicationContext;
 import org.springframework.stereotype.Component;
 
@@ -120,6 +121,10 @@ public class DynamicGraphBuilder {
                 definitionRepository, agentNodeFactory, null);
     }
 
+    /**
+     * Spring 注入入口。类上有两个构造时必须标 {@link Autowired}，否则会回退找无参构造而启动失败。
+     */
+    @Autowired
     public DynamicGraphBuilder(GraphNodeRegistry nodeRegistry,
                                EdgeDispatcherRegistry dispatcherRegistry,
                                GraphValidator validator,

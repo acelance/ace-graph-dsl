@@ -7,19 +7,19 @@
     <parent>
         <groupId>io.acelance</groupId>
         <artifactId>ace-graph-dsl-backend</artifactId>
-        <version>1.1.4</version>
+        <version>1.1.5</version>
     </parent>
 
     <artifactId>ace-graph-dsl-ai</artifactId>
     <name>ace-graph-dsl-ai</name>
-    <description>LLM / Agent Ä£ÐÍ²ã£ºGenericAgentNode¡¢StreamingLlmTemplate¡¢ToolCallback µÈ</description>
+    <description>LLM / Agent Ä£ï¿½Í²ã£ºGenericAgentNodeï¿½ï¿½StreamingLlmTemplateï¿½ï¿½ToolCallback ï¿½ï¿½</description>
 
     <dependencies>
         <dependency>
             <groupId>io.acelance</groupId>
             <artifactId>ace-graph-dsl-core</artifactId>
         </dependency>
-        <!-- Ô­Éú Spring AI ChatClient / ToolCallback£»core ¿ÌÒâ²»ÒýÈë -->
+        <!-- Ô­ï¿½ï¿½ Spring AI ChatClient / ToolCallbackï¿½ï¿½core ï¿½ï¿½ï¿½â²»ï¿½ï¿½ï¿½ï¿½ -->
         <dependency>
             <groupId>org.springframework.ai</groupId>
             <artifactId>spring-ai-client-chat</artifactId>
