@@ -45,9 +45,16 @@ const embedCtx = inject(ACE_GRAPH_EMBED_KEY, computed(() => ({})))
 
 const activeTab = ref('node')
 const keyStrategyRows = ref([])
+let keyRowUid = 0
+const flushingKeyStrategies = ref(false)
 
 watch(() => editor.keyStrategies, (ks) => {
-  keyStrategyRows.value = Object.entries(ks || {}).map(([k, v]) => ({ key: k, strategy: v }))
+  if (flushingKeyStrategies.value) return
+  keyStrategyRows.value = Object.entries(ks || {}).map(([k, v]) => ({
+    uid: ++keyRowUid,
+    key: k,
+    strategy: v
+  }))
 }, { immediate: true, deep: true })
 
 watch(
@@ -477,12 +484,32 @@ function onAgentSpecToggle(field, enabled) {
   editor.updateSelectedAgentSpec({ ...s, [field]: !!enabled })
 }
 
-function addKey() {
-  editor.keyStrategies[`custom_${Date.now()}`] = 'REPLACE'
+function flushKeyStrategies() {
+  flushingKeyStrategies.value = true
+  const next = {}
+  for (const row of keyStrategyRows.value) {
+    const k = (row.key || '').trim()
+    if (!k) continue
+    if (Object.prototype.hasOwnProperty.call(next, k)) {
+      ElMessage.warning(t('propertyPanel.duplicateKey', { key: k }))
+      continue
+    }
+    next[k] = row.strategy === 'APPEND' ? 'APPEND' : 'REPLACE'
+  }
+  Object.keys(editor.keyStrategies).forEach((k) => delete editor.keyStrategies[k])
+  Object.assign(editor.keyStrategies, next)
+  nextTick(() => {
+    flushingKeyStrategies.value = false
+  })
 }
 
-function removeKey(k) {
-  delete editor.keyStrategies[k]
+function addKey() {
+  keyStrategyRows.value.push({ uid: ++keyRowUid, key: '', strategy: 'REPLACE' })
+}
+
+function removeKey(row) {
+  keyStrategyRows.value = keyStrategyRows.value.filter((r) => r.uid !== row.uid)
+  flushKeyStrategies()
 }
 
 /* ───────── 条件边编辑区 ───────── */
@@ -1234,11 +1261,21 @@ function onStreamingChange(val) {
       </el-tab-pane>
 
       <el-tab-pane :label="t('propertyPanel.tabKeys')" name="keys">
+        <p class="key-strategy-hint">{{ t('propertyPanel.keyStrategyHint') }}</p>
         <el-table :data="keyStrategyRows" size="small" max-height="400">
-          <el-table-column prop="key" :label="t('propertyPanel.stateKey')" min-width="120" />
+          <el-table-column :label="t('propertyPanel.stateKey')" min-width="140">
+            <template #default="{ row }">
+              <el-input
+                v-model="row.key"
+                size="small"
+                :placeholder="t('propertyPanel.keyPlaceholder')"
+                @change="flushKeyStrategies"
+              />
+            </template>
+          </el-table-column>
           <el-table-column :label="t('propertyPanel.strategy')" width="110">
             <template #default="{ row }">
-              <el-select v-model="row.strategy" size="small">
+              <el-select v-model="row.strategy" size="small" @change="flushKeyStrategies">
                 <el-option label="REPLACE" value="REPLACE" />
                 <el-option label="APPEND" value="APPEND" />
               </el-select>
@@ -1246,7 +1283,7 @@ function onStreamingChange(val) {
           </el-table-column>
           <el-table-column label="" width="50">
             <template #default="{ row }">
-              <el-button type="danger" size="small" link @click="removeKey(row.key)">X</el-button>
+              <el-button type="danger" size="small" link @click="removeKey(row)">X</el-button>
             </template>
           </el-table-column>
         </el-table>
@@ -1319,6 +1356,12 @@ function onStreamingChange(val) {
 
 <style scoped>
 .property-panel { padding: 12px; }
+.key-strategy-hint {
+  margin: 0 0 8px;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--agd-color-text-secondary, #909399);
+}
 .mp-loading {
   display: flex;
   align-items: center;

@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.8] — 2026-10-06
+
+### Fixed
+
+- **Generic Agent 内联 API Key**：落库与注册保留完整 Key；HTTP 读回仍脱敏。更新时若提交 `****` 占位则保留原明文，历史已裁剪行须重新填写完整 Key。
+
 ## [1.1.7] — 2026-10-06
 
 ### Fixed

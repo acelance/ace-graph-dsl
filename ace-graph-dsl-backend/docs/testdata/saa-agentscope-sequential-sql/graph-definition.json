@@ -7,7 +7,9 @@
     "user_query": "REPLACE",
     "sql": "REPLACE",
     "score": "REPLACE",
-    "sql_score": "REPLACE"
+    "sql_score": "REPLACE",
+    "ace.graph.dsl.saa.subSteps": "REPLACE",
+    "ace.graph.dsl.saa.subStepsMeta": "REPLACE"
   },
   "nodes": [
     {

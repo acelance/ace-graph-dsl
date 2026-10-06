@@ -6,7 +6,9 @@
   "keyStrategies": {
     "user_query": "REPLACE",
     "score": "REPLACE",
-    "final_score": "REPLACE"
+    "final_score": "REPLACE",
+    "ace.graph.dsl.saa.subSteps": "REPLACE",
+    "ace.graph.dsl.saa.subStepsMeta": "REPLACE"
   },
   "nodes": [
     {

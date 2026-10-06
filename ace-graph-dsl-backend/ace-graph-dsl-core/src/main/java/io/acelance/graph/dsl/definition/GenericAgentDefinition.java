@@ -25,7 +25,7 @@ import java.util.Set;
  * @param displayName    展示名（设计器节点面板显示）
  * @param description    描述
  * @param version        版本，默认 1.0.0
- * @param spec           agent 执行元数据（落库前 api-key 已掩码）
+ * @param spec           agent 执行元数据（内联 api-key 明文落库；HTTP 读回再脱敏）
  * @param permissionTags 权限标签
  * @param createdBy      创建人
  * @param createdAt      创建时间
@@ -87,7 +87,7 @@ public record GenericAgentDefinition(
                 spec, permissionTags, createdBy, createdAt, updatedAt, enabled);
     }
 
-    /** 落库脱敏副本：api-key 仅留后 4 位 */
+    /** HTTP 回显脱敏副本：api-key 仅留后 4 位，不得写回仓库 */
     public GenericAgentDefinition masked() {
         return withSpec(spec.masked());
     }

@@ -350,7 +350,7 @@ function buildBody() {
     : parseMcpWhitelist(form.value.mcpToolWhitelistText)
   const spec = {
     modelBaseUrl: form.value.modelBaseUrl || null,
-    modelApiKey: form.value.modelApiKey || null,
+    modelApiKey: form.value.apiKeyMasked ? null : (form.value.modelApiKey || null),
     apiKeyMasked: form.value.apiKeyMasked,
     modelId: form.value.modelId,
     prompt: form.value.prompt || null,

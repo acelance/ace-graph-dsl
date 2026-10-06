@@ -7,7 +7,9 @@
     "user_query": "REPLACE",
     "sql_out": "REPLACE",
     "chat_out": "REPLACE",
-    "route_out": "REPLACE"
+    "route_out": "REPLACE",
+    "ace.graph.dsl.saa.subSteps": "REPLACE",
+    "ace.graph.dsl.saa.subStepsMeta": "REPLACE"
   },
   "nodes": [
     {

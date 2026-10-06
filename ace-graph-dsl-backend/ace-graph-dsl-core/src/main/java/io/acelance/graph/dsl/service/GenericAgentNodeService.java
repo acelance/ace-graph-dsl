@@ -30,9 +30,9 @@ import java.util.Objects;
  * 定义由 {@link GenericAgentDefinitionRepository} 持久化，注册由
  * {@link GraphNodeRegistry} 承担，执行装配由 {@link GenericAgentNode} 承担。</p>
  *
- * <p><b>api-key 处理</b>：落库与注册的实例统一使用掩码 spec（仅留后 4 位），
- * 真实 key 在运行时由 {@code SecretResolver} 按 {@code graphId/nodeId} 还原，
- * 与图内联通道（{@code AgentSecretMasking}）的语义保持一致。</p>
+ * <p><b>api-key 处理</b>：落库与注册保留完整内联 key（{@code apiKeyMasked=false}），
+ * 否则无 {@code SecretResolver} 时运行期只能拿到 {@code ****} 后四位，调用模型必 401。
+ * HTTP 回显由控制器 {@link GenericAgentDefinition#masked()} 脱敏。</p>
  */
 public class GenericAgentNodeService {
 
@@ -101,11 +101,14 @@ public class GenericAgentNodeService {
         if (nodeRegistry.contains(input.nodeId())) {
             throw new IllegalArgumentException("节点 ID 已被占用: " + input.nodeId());
         }
+        rejectMaskedInlineApiKey(input.spec());
         validateSpec(input.spec());
         Instant now = Instant.now();
         GenericAgentDefinition saved = persistAndRegister(
                 normalize(input, input.createdBy(), now, now));
         audit(GraphAuditActions.AGENT_NODE_CREATE, saved, "通用 agent 节点创建");
+        log.info("通用 agent 节点已创建, nodeId={}, inlineApiKeyMaskedOnDisk={}",
+                saved.nodeId(), saved.spec() != null && saved.spec().apiKeyMasked());
         return saved;
     }
 
@@ -115,6 +118,7 @@ public class GenericAgentNodeService {
         GenericAgentDefinition existing = repository.findById(nodeId)
                 .orElseThrow(() -> new IllegalArgumentException("通用 agent 节点不存在: " + nodeId));
         GenericAgentSpec merged = mergeSpec(existing.spec(), input.spec());
+        rejectMaskedInlineApiKey(merged);
         validateSpec(merged);
         GenericAgentDefinition saved = persistAndRegister(normalize(
                 input.withNodeId(nodeId).withSpec(merged),
@@ -214,7 +218,7 @@ public class GenericAgentNodeService {
                 def.displayName(), def.description(), def.version(), def.permissionTags());
     }
 
-    /** 归一化：补时间戳、强制启用位与掩码 */
+    /** 归一化：补时间戳与启用位。内联 apiKey 原样落库，供运行期直接使用。 */
     private GenericAgentDefinition normalize(GenericAgentDefinition input,
                                              String createdBy,
                                              Instant createdAt,
@@ -224,7 +228,7 @@ public class GenericAgentNodeService {
                 input.effectiveDisplayName(),
                 input.description(),
                 input.version(),
-                input.spec().masked(),
+                persistableSpec(input.spec()),
                 input.permissionTags(),
                 createdBy,
                 createdAt,
@@ -245,11 +249,14 @@ public class GenericAgentNodeService {
         if (existing == null) {
             return incoming;
         }
-        boolean incomingKeyIsPlaceholder = incoming.apiKeyMasked()
-                || isBlank(incoming.modelApiKey())
-                || (incoming.modelApiKey() != null && incoming.modelApiKey().startsWith("****"));
+        boolean incomingKeyIsPlaceholder = isBlank(incoming.modelApiKey())
+                || GenericAgentSpec.looksLikeMaskedApiKey(incoming.modelApiKey());
         if (!incomingKeyIsPlaceholder) {
-            return incoming;
+            // 完整内联 key：强制明文落库，忽略客户端误传的 apiKeyMasked=true
+            return incoming.withResolvedApiKey(incoming.modelApiKey());
+        }
+        if (GenericAgentSpec.looksLikeMaskedApiKey(existing.modelApiKey()) || existing.apiKeyMasked()) {
+            log.warn("更新通用 agent 时库内内联 apiKey 仍为脱敏占位, nodeId 将沿用旧值；INLINE 运行期会 401，请重新填入完整 Key");
         }
         return new GenericAgentSpec(
                 incoming.modelBaseUrl(), existing.modelApiKey(), existing.apiKeyMasked(), incoming.modelId(),
@@ -284,6 +291,33 @@ public class GenericAgentNodeService {
                     action, def.nodeId(), def.version(), def.createdBy(), true, detail));
         } catch (Exception e) {
             log.warn("审计记录失败, action={}, nodeId={}", action, def.nodeId(), e);
+        }
+    }
+
+    /**
+     * 落库前：有明文则清掉掩码标记。脱敏占位不得伪装成可调用 key。
+     */
+    private static GenericAgentSpec persistableSpec(GenericAgentSpec spec) {
+        if (spec == null || isBlank(spec.modelApiKey())) {
+            return spec;
+        }
+        if (GenericAgentSpec.looksLikeMaskedApiKey(spec.modelApiKey())) {
+            return spec;
+        }
+        return spec.apiKeyMasked() ? spec.withResolvedApiKey(spec.modelApiKey()) : spec;
+    }
+
+    /**
+     * 拒绝把 HTTP 脱敏串当内联 Key 写入。
+     * 历史已裁剪的行在未提交完整 Key 前禁止更新，避免继续用占位串跑 INLINE。
+     */
+    private static void rejectMaskedInlineApiKey(GenericAgentSpec spec) {
+        if (spec == null) {
+            return;
+        }
+        if (GenericAgentSpec.looksLikeMaskedApiKey(spec.modelApiKey())) {
+            throw new IllegalArgumentException(
+                    "内联 API Key 不能是脱敏占位（****）。请重新填写完整 Key 后再保存；接口回显脱敏不代表库内被裁剪。");
         }
     }
 

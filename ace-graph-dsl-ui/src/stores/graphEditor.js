@@ -6,6 +6,7 @@ import { canonicalContent, bumpPatchVersion, maxSemver, compareSemver } from '..
 import { validateEdgeParamReachability } from '../utils/edgeParamValidation'
 import { validateTopology } from '../utils/topologyValidation'
 import { graphDefinitionToMermaid } from '../utils/generateMermaid'
+import { SAA_SUB_STEPS_KEY, SAA_SUB_STEPS_META_KEY } from '../utils/saaSubSteps'
 
 export const useGraphEditorStore = defineStore('aceGraphEditor', () => {
   /** 子图最大下钻深度（与后端 GraphValidator/DynamicGraphBuilder 一致） */
@@ -28,6 +29,8 @@ export const useGraphEditorStore = defineStore('aceGraphEditor', () => {
   const baselineCanonical = ref('')
   const baselineVersion = ref('')
   const saving = ref(false)
+  /** 最近一次已落盘草稿中的画布节点（不含 START/END）；仅 load/save 时刷新，不跟画布实时同步 */
+  const savedGraphNodes = ref([])
   const publishing = ref(false)
   const selectedNode = ref(null)
   const selectedLfNodeId = ref(null)
@@ -132,6 +135,25 @@ export const useGraphEditorStore = defineStore('aceGraphEditor', () => {
       nodes: normalizedNodes,
       edges: [...normalEdges, ...conditionalByKey.values()]
     }
+  }
+
+  /**
+   * 刷新「当前图」页签快照。只应在加载已保存定义或保存草稿成功后调用，
+   * 避免画布未保存的增删立刻出现在节点面板。
+   */
+  function captureSavedGraphNodes(def) {
+    const list = (def && def.nodes) ? def.nodes : []
+    savedGraphNodes.value = list
+      .filter((n) => {
+        const id = n && n.nodeId
+        return id && id !== '__START__' && id !== '__END__' && id !== '__ERROR__'
+      })
+      .map((n) => ({
+        nodeId: n.nodeId,
+        category: n.category || '',
+        displayName: (n.config && n.config.label) || n.nodeId
+      }))
+    console.info('[graphEditor] 当前图节点快照已更新', graphId.value, savedGraphNodes.value.length)
   }
 
   function snapshotBaseline(def) {
@@ -246,7 +268,37 @@ export const useGraphEditorStore = defineStore('aceGraphEditor', () => {
     for (const k of allOutputKeys) {
       if (!keyStrategies[k]) keyStrategies[k] = 'REPLACE'
     }
+    ensureSaaKeyStrategies()
     refreshEdgeParamValidation(nodeDescriptors)
+  }
+
+  /**
+   * SAA 节点会写子步骤轨迹键；校验器要求 keyStrategies 声明它们。
+   * 框架内部键，设计器自动补 REPLACE，无需用户点「新增 Key」。
+   */
+  function ensureSaaKeyStrategies() {
+    const hasSaa = (nodes.value || []).some(n => n.category === 'SAA_WORKFLOW' || n.saaSpec)
+    if (!hasSaa) return
+    const add = (k) => {
+      const key = (k || '').trim()
+      if (key && !keyStrategies[key]) keyStrategies[key] = 'REPLACE'
+    }
+    add(SAA_SUB_STEPS_KEY)
+    add(SAA_SUB_STEPS_META_KEY)
+    for (const n of nodes.value || []) {
+      const spec = n.saaSpec
+      if (!spec) continue
+      add(spec.outputKey)
+      for (const sub of spec.subAgents || []) {
+        add(sub.outputKey)
+      }
+      const raw = spec.inputKeys
+      if (typeof raw === 'string') {
+        raw.split(',').forEach(add)
+      } else if (Array.isArray(raw)) {
+        raw.forEach(add)
+      }
+    }
   }
 
   function refreshEdgeParamValidation(nodeDescriptors) {
@@ -259,6 +311,7 @@ export const useGraphEditorStore = defineStore('aceGraphEditor', () => {
 
   /** 构建完整的 GraphDefinition 对象 */
   function buildDefinition() {
+    ensureSaaKeyStrategies()
     return normalizeDefinition({
       graphId: graphId.value,
       displayName: displayName.value,
@@ -289,10 +342,12 @@ export const useGraphEditorStore = defineStore('aceGraphEditor', () => {
       const def = buildDefinition()
       const result = await saveDraft(graphId.value, def, baselineVersion.value || def.version)
       if (!result.changed) {
+        captureSavedGraphNodes(def)
         return { ok: true, unchanged: true, result, collapsedToRoot }
       }
       baselineVersion.value = def.version
       snapshotBaseline(result.definition || def)
+      captureSavedGraphNodes(result.definition || def)
       await fetchVersions()
       defCache.clear()
       return { ok: true, unchanged: false, result, collapsedToRoot }
@@ -364,6 +419,7 @@ export const useGraphEditorStore = defineStore('aceGraphEditor', () => {
         enabledVersion.value = def.version
         baselineVersion.value = def.version
         snapshotBaseline(def)
+        captureSavedGraphNodes(def)
         await fetchVersions()
       }
       return result
@@ -399,6 +455,7 @@ export const useGraphEditorStore = defineStore('aceGraphEditor', () => {
     topologyIssues.value = []
     groups.value = []
     scopeStack.value = []
+    savedGraphNodes.value = []
   }
 
   async function loadLatest() {
@@ -413,6 +470,7 @@ export const useGraphEditorStore = defineStore('aceGraphEditor', () => {
       return null
     }
     const normalized = applyDefinition(def)
+    captureSavedGraphNodes(normalized)
     try {
       await fetchVersions()
     } catch (e) {
@@ -446,6 +504,7 @@ export const useGraphEditorStore = defineStore('aceGraphEditor', () => {
     scopeStack.value = []
     Object.keys(keyStrategies).forEach(k => delete keyStrategies[k])
     snapshotBaseline(buildDefinition())
+    captureSavedGraphNodes(buildDefinition())
   }
 
   function resetEditor() {
@@ -466,6 +525,7 @@ export const useGraphEditorStore = defineStore('aceGraphEditor', () => {
     minimapVisible.value = true
     groups.value = []
     scopeStack.value = []
+    savedGraphNodes.value = []
     Object.keys(keyStrategies).forEach(k => delete keyStrategies[k])
   }
 
@@ -575,6 +635,7 @@ export const useGraphEditorStore = defineStore('aceGraphEditor', () => {
     const normalized = applyDefinition(def)
     baselineVersion.value = normalized.version
     snapshotBaseline(normalized)
+    captureSavedGraphNodes(normalized)
     return normalized
   }
 
@@ -914,6 +975,7 @@ export const useGraphEditorStore = defineStore('aceGraphEditor', () => {
     graphId, version, displayName, description, keyStrategies,
     nodes, edges, interruptBefore, saver,
     validationErrors, edgeParamIssues, plantUmlContent, versions, enabledVersion, baselineVersion,
+    savedGraphNodes,
     saving, publishing,     selectedNode, selectedLfNodeId, selectedEdge, edgeEditCommand, edgeConvertCommand,
     canUndo, canRedo, conditionalDrawMode, topologyIssues, minimapVisible, groups,
     scopeStack, rerenderToken, graphIds, subgraphLoading,

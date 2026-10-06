@@ -134,6 +134,9 @@ public record GenericAgentSpec(
                 .toList();
     }
 
+    /**
+     * HTTP 回显脱敏：仅改副本，不得用于落库。
+     */
     public GenericAgentSpec masked() {
         if (apiKeyMasked || modelApiKey == null || modelApiKey.isBlank()) {
             return this;
@@ -142,6 +145,16 @@ public record GenericAgentSpec(
                 ? "****"
                 : "****" + modelApiKey.substring(modelApiKey.length() - 4);
         return copyWithApiKey(masked, true);
+    }
+
+    /**
+     * 是否为脱敏占位（{@code ****} / {@code ****xxxx}）。此类值不能作为可调用的内联 Key。
+     */
+    public static boolean looksLikeMaskedApiKey(String modelApiKey) {
+        if (modelApiKey == null || modelApiKey.isBlank()) {
+            return false;
+        }
+        return modelApiKey.trim().startsWith("****");
     }
 
     public GenericAgentSpec withResolvedApiKey(String realKey) {

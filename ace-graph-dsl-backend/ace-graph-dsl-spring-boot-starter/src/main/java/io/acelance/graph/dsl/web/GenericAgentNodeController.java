@@ -54,12 +54,14 @@ public class GenericAgentNodeController {
 
     @GetMapping("/definitions")
     public List<GenericAgentDefinition> listDefinitions() {
-        return agentNodeService.listDefinitions();
+        return agentNodeService.listDefinitions().stream()
+                .map(GenericAgentDefinition::masked)
+                .toList();
     }
 
     @GetMapping("/definitions/{nodeId}")
     public GenericAgentDefinition getDefinition(@PathVariable String nodeId) {
-        return agentNodeService.getDefinition(nodeId);
+        return agentNodeService.getDefinition(nodeId).masked();
     }
 
     @GetMapping("/references")
@@ -78,6 +80,7 @@ public class GenericAgentNodeController {
                 .collect(Collectors.toSet());
         return agentNodeService.listDefinitions().stream()
                 .filter(def -> !referenced.contains(def.nodeId()))
+                .map(GenericAgentDefinition::masked)
                 .toList();
     }
 
@@ -86,7 +89,7 @@ public class GenericAgentNodeController {
         requireManage();
         rejectRemovedFields(body);
         AgentNodeRequest req = objectMapper.convertValue(body, AgentNodeRequest.class);
-        return agentNodeService.create(req.toDefinition());
+        return agentNodeService.create(req.toDefinition()).masked();
     }
 
     @PutMapping("/{nodeId}")
@@ -94,7 +97,7 @@ public class GenericAgentNodeController {
         requireManage();
         rejectRemovedFields(body);
         AgentNodeRequest req = objectMapper.convertValue(body, AgentNodeRequest.class);
-        return agentNodeService.update(nodeId, req.toDefinition());
+        return agentNodeService.update(nodeId, req.toDefinition()).masked();
     }
 
     @DeleteMapping("/{nodeId}")

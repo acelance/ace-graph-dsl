@@ -2,6 +2,7 @@
 import { ref, computed, onMounted, watch } from 'vue'
 import { ElMessageBox, ElMessage } from 'element-plus'
 import { ArrowLeft, ArrowRight } from '@element-plus/icons-vue'
+import { useGraphEditorStore } from '../../stores/graphEditor'
 import { useNodeRegistryStore } from '../../stores/nodeRegistry'
 import { usePermissionStore, MENU } from '../../stores/permissions'
 import { useI18n } from '../../i18n'
@@ -11,6 +12,7 @@ import ScriptNodeEditor from './ScriptNodeEditor.vue'
 import AgentNodeEditor from './AgentNodeEditor.vue'
 
 const nodeStore = useNodeRegistryStore()
+const editor = useGraphEditorStore()
 const perm = usePermissionStore()
 const { t } = useI18n()
 
@@ -23,7 +25,7 @@ const editingAgent = ref(null)
 /** 打开 Agent 编辑器时的 Catalog 会话（图入口 / 节点面板入口） */
 const agentCatalogSession = ref({ fromGraph: false })
 const props = defineProps({ embedded: { type: Boolean, default: false } })
-const emit = defineEmits(['node-drag'])
+const emit = defineEmits(['node-drag', 'node-locate'])
 // P3 UX：节点面板可折叠为抽屉；默认不折叠（向后兼容既有页面）
 const collapsed = defineModel('collapsed', { type: Boolean, default: false })
 
@@ -44,14 +46,32 @@ watch(showAgentEditor, (open) => {
   }
 })
 
+const isCurrentGraphTab = computed(() => activeTab.value === 'CURRENT')
+
 const filteredNodes = computed(() => {
+  const kw = keyword.value.toLowerCase()
+  const matchKw = (name, id) =>
+    (name || '').toLowerCase().includes(kw) || (id || '').toLowerCase().includes(kw)
+
+  if (activeTab.value === 'CURRENT') {
+    return (editor.savedGraphNodes || [])
+      .map((saved) => {
+        const catalog = nodeStore.nodes.find((n) => n.nodeId === saved.nodeId)
+        if (catalog) return catalog
+        return {
+          nodeId: saved.nodeId,
+          displayName: saved.displayName || saved.nodeId,
+          category: saved.category || '',
+          origin: undefined
+        }
+      })
+      .filter((n) => matchKw(n.displayName, n.nodeId))
+  }
+
   let list = nodeStore.nodes
     // 隐藏 agent:script（代码岛节点 toAction 会抛异常，拖入画布会崩溃；已搁置）
     .filter(n => n.category !== 'AGENT')
-    .filter(n =>
-      (n.displayName || '').toLowerCase().includes(keyword.value.toLowerCase()) ||
-      n.nodeId.toLowerCase().includes(keyword.value.toLowerCase())
-    )
+    .filter(n => matchKw(n.displayName, n.nodeId))
   if (activeTab.value !== 'ALL') {
     list = list.filter(n => {
       if (activeTab.value === 'AGENT') return n.origin === 'GENERIC_AGENT'
@@ -60,6 +80,10 @@ const filteredNodes = computed(() => {
   }
   return list
 })
+
+const emptyDescription = computed(() =>
+  isCurrentGraphTab.value ? t('nodePanel.emptyCurrentGraph') : t('nodePanel.empty')
+)
 
 /** 结构型节点（不在注册表中）：子图，从面板拖入画布。
  * 注意：通用 Agent 走「定义→入库→复用」注册式流程（AGENT tab 入口）；
@@ -71,8 +95,20 @@ const structuralNodes = computed(() => ([
 ]))
 
 function onDragStart(e, n) {
+  if (isCurrentGraphTab.value) {
+    e.preventDefault()
+    return
+  }
   e.dataTransfer.effectAllowed = 'copy'
   e.dataTransfer.setData('application/node', JSON.stringify(n))
+  emit('node-drag', n)
+}
+
+function onNodeActivate(n) {
+  if (isCurrentGraphTab.value) {
+    emit('node-locate', n.nodeId)
+    return
+  }
   emit('node-drag', n)
 }
 
@@ -209,6 +245,7 @@ async function onDelete(node) {
     <el-alert :title="t('nodePanel.canvasHint')" type="info" :closable="false" show-icon class="canvas-hint" />
     <el-input v-model="keyword" :placeholder="t('nodePanel.search')" clearable size="small" style="margin-bottom: 8px;" />
     <el-tabs v-model="activeTab" size="small" style="margin-bottom: 8px;">
+      <el-tab-pane :label="t('nodePanel.currentGraph')" name="CURRENT" />
       <el-tab-pane :label="t('nodePanel.all')" name="ALL" />
       <el-tab-pane :label="t('nodePanel.builtin')" name="BUILTIN" />
       <el-tab-pane :label="t('nodePanel.script')" name="SCRIPT">
@@ -226,9 +263,9 @@ async function onDelete(node) {
       v-for="n in filteredNodes"
       :key="n.nodeId"
       class="node-item"
-      draggable="true"
+      :draggable="!isCurrentGraphTab"
       @dragstart="onDragStart($event, n)"
-      @click="emit('node-drag', n)"
+      @click="onNodeActivate(n)"
     >
       <div class="node-row node-row--top">
         <div class="node-info">
@@ -249,7 +286,7 @@ async function onDelete(node) {
         </div>
       </div>
     </div>
-    <el-empty v-if="filteredNodes.length === 0" :description="t('nodePanel.empty')" :image-size="40" />
+    <el-empty v-if="filteredNodes.length === 0" :description="emptyDescription" :image-size="40" />
     <ScriptNodeEditor v-model:visible="showScriptEditor" :edit-node="editingNode" @created="onScriptCreated" />
     <AgentNodeEditor
       v-model:visible="showAgentEditor"

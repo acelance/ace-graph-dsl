@@ -44,4 +44,13 @@ class GenericAgentSpecOverrideTest {
                     false, null, null);
         assertSame(base, base.withOverride(null));
     }
+
+    @Test
+    void looksLikeMaskedApiKey_detectsHttpPlaceholder() {
+        org.junit.jupiter.api.Assertions.assertTrue(GenericAgentSpec.looksLikeMaskedApiKey("****1de1"));
+        org.junit.jupiter.api.Assertions.assertTrue(GenericAgentSpec.looksLikeMaskedApiKey("****"));
+        org.junit.jupiter.api.Assertions.assertFalse(GenericAgentSpec.looksLikeMaskedApiKey("sk-test-full-key-1de1"));
+        org.junit.jupiter.api.Assertions.assertFalse(GenericAgentSpec.looksLikeMaskedApiKey(null));
+        org.junit.jupiter.api.Assertions.assertFalse(GenericAgentSpec.looksLikeMaskedApiKey(""));
+    }
 }

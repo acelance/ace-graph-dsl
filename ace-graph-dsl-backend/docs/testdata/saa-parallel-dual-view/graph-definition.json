@@ -7,7 +7,9 @@
     "user_query": "REPLACE",
     "out_a": "REPLACE",
     "out_b": "REPLACE",
-    "merged": "REPLACE"
+    "merged": "REPLACE",
+    "ace.graph.dsl.saa.subSteps": "REPLACE",
+    "ace.graph.dsl.saa.subStepsMeta": "REPLACE"
   },
   "nodes": [
     {
