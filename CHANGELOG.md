@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.7] — 2026-10-06
+
+### Fixed
+
+- **流式无工具节点记忆**：`stream().content()` 不再依赖 Advisor 聚合 after；与工具路径一样终答后 echo 落盘（修复历史缺 ASSISTANT 思考/正文）。
+
 ## [1.1.6] — 2026-10-06
 
 ### Added

@@ -321,6 +321,7 @@ public class StreamingLlmTemplate {
         boolean wantStream = req.streaming() && ctx.runId() != null && !ctx.runId().isBlank();
         if (wantStream && modelTools.isEmpty()) {
             full = streamCall(model, messages, modelTools, req, ctx, req.streamResponseKind());
+            persistMemoryAfterToolStream(messages, full, req);
         } else if (wantStream) {
             log.info("节点 {} 流式+工具：ChatClient.stream().chatResponse() 真流式（通道 A）", ctx.nodeId());
             full = streamCallWithTools(model, messages, modelTools, req, ctx, req.streamResponseKind());
@@ -421,8 +422,9 @@ public class StreamingLlmTemplate {
         }
 
         ChatClientAdvisorBundle mem = ChatClientAdvisorBundle.empty();
-        // 流式+工具手动多轮：中间轮不挂记忆；终答后由 persistMemoryAfterToolStream echo 落盘。
-        boolean allowMemory = !(hasTools && req.streaming());
+        // 所有流式路径都不挂记忆 Advisor：stream().content() 的聚合 after 可能不落 ASSISTANT。
+        // 终答后由 persistMemoryAfterToolStream echo 落盘（与流式+工具同一条）。
+        boolean allowMemory = !req.streaming();
         if (allowMemory
                 && mode != MemoryMode.NONE
                 && ctx.conversationId() != null && !ctx.conversationId().isBlank()
@@ -633,7 +635,7 @@ public class StreamingLlmTemplate {
     }
 
     /**
-     * 流式+工具多轮不挂记忆 Advisor；终答后用 Echo 模型触发 Advisor before/after 落盘，
+     * 流式路径不挂记忆 Advisor；终答后用 Echo 模型触发 Advisor before/after 落盘，
      * 不二次调用真实 LLM。
      */
     private void persistMemoryAfterToolStream(List<Message> seedMessages,
@@ -670,7 +672,7 @@ public class StreamingLlmTemplate {
             ChatModel echo = new EchoAssistantChatModel(assistantText == null ? "" : assistantText);
             ChatClient.ChatClientRequestSpec spec = prepareSpec(echo, seedMessages, List.of(), echoReq);
             spec.call().content();
-            log.info("节点 {} 流式+工具终答记忆已 echo 落盘: chars={}", ctx.nodeId(),
+            log.info("节点 {} 流式终答记忆已 echo 落盘: chars={}", ctx.nodeId(),
                     assistantText == null ? 0 : assistantText.length());
         }
         catch (RuntimeException ex) {
