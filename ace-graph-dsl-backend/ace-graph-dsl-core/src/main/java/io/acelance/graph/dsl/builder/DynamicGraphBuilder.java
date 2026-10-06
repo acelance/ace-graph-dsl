@@ -82,6 +82,7 @@ public class DynamicGraphBuilder {
     private static final List<String> RESERVED_STATE_KEYS = List.of(
             LlmRequestContext.ACE_AGENT_CODE_KEY,
             LlmRequestContext.ACE_FORCE_SKILLS_KEY,
+            LlmRequestContext.ACE_FORCE_SKILL_LABELS_KEY,
             LlmRequestContext.ACE_CONVERSATION_ID_KEY,
             LlmRequestContext.ACE_DEEP_THINKING_KEY,
             ModelOverrideSpec.ACE_RUN_ID_KEY,

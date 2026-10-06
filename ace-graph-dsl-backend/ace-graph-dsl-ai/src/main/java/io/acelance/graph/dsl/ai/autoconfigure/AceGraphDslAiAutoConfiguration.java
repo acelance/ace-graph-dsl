@@ -11,6 +11,7 @@ import io.acelance.graph.dsl.ai.advisor.ChatClientAdvisorProvider;
 import io.acelance.graph.dsl.ai.media.DefaultMediaRefResolver;
 import io.acelance.graph.dsl.ai.media.MediaRefResolver;
 import io.acelance.graph.dsl.ai.memory.MemoryDisplayUserTextResolver;
+import io.acelance.graph.dsl.ai.memory.MemoryUserPersistMetadataResolver;
 import io.acelance.graph.dsl.ai.model.CachingChatModelFactory;
 import io.acelance.graph.dsl.ai.model.ChatModelFactory;
 import io.acelance.graph.dsl.ai.model.ModelEndpointResolver;
@@ -220,14 +221,19 @@ public class AceGraphDslAiAutoConfiguration {
     public StreamingLlmTemplate streamingLlmTemplate(LlmResolvers llmResolvers,
                                                      ObjectProvider<GraphStreamBridge> streamBridge,
                                                      ObjectProvider<MemoryDisplayUserTextResolver> memoryDisplayUserTexts,
+                                                     ObjectProvider<MemoryUserPersistMetadataResolver> memoryUserPersistMetas,
                                                      AceGraphDslLlmProperties llmProperties) {
         MemoryDisplayUserTextResolver display = memoryDisplayUserTexts.getIfAvailable();
+        MemoryUserPersistMetadataResolver persist = memoryUserPersistMetas.getIfAvailable();
         StreamingLlmTemplate template = new StreamingLlmTemplate(
                 llmResolvers, streamBridge.getIfAvailable(), display);
+        template.setMemoryUserPersistMetadataResolver(persist);
         int maxRounds = llmProperties.resolvedStreamToolMaxRounds();
         template.setStreamToolMaxRounds(maxRounds);
-        log.info("注册 StreamingLlmTemplate ← LlmResolvers, memoryDisplayUserTextResolver={}, streamToolMaxRounds={}",
-                display != null ? display.getClass().getSimpleName() : "null", maxRounds);
+        log.info("注册 StreamingLlmTemplate ← LlmResolvers, memoryDisplayUserTextResolver={}, memoryUserPersistMetadataResolver={}, streamToolMaxRounds={}",
+                display != null ? display.getClass().getSimpleName() : "null",
+                persist != null ? persist.getClass().getSimpleName() : "null",
+                maxRounds);
         return template;
     }
 }

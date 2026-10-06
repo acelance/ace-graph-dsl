@@ -63,6 +63,27 @@ public final class ForceSkills {
     }
 
     /**
+     * 技能展示名列表（入口写入的 forceSkillLabels；缺省回退 forceSkills code）。
+     */
+    public static List<String> readLabels(OverAllState state, String nodeId) {
+        if (state == null) {
+            return List.of();
+        }
+        Object raw;
+        try {
+            raw = state.value(LlmRequestContext.ACE_FORCE_SKILL_LABELS_KEY).orElse(null);
+        } catch (RuntimeException e) {
+            log.warn("节点 {} 读取 forceSkillLabels 失败: {}", nodeId, e.getMessage());
+            return List.of();
+        }
+        List<String> labels = normalize(raw, nodeId);
+        if (!labels.isEmpty()) {
+            return labels;
+        }
+        return read(state, nodeId);
+    }
+
+    /**
      * 规范化任意写入形态为 List&lt;String&gt;。
      */
     public static List<String> normalize(Object raw, String nodeId) {

@@ -311,11 +311,15 @@ public class GenericAgentNode implements GraphBoundAgentNode {
                 optionalBean(io.acelance.graph.dsl.ai.advisor.ChatClientAdvisorProvider.class, null);
         io.acelance.graph.dsl.ai.memory.MemoryDisplayUserTextResolver displayUser =
                 optionalBean(io.acelance.graph.dsl.ai.memory.MemoryDisplayUserTextResolver.class, null);
-        log.info("节点 {} 本地装配 StreamingLlmTemplate（含 Skill/Media/记忆 Advisor SPI 兜底）: advisorProvider={}, displayUserResolver={}",
-                nodeId, advisors != null, displayUser != null);
-        return new StreamingLlmTemplate(
+        io.acelance.graph.dsl.ai.memory.MemoryUserPersistMetadataResolver persistUser =
+                optionalBean(io.acelance.graph.dsl.ai.memory.MemoryUserPersistMetadataResolver.class, null);
+        log.info("节点 {} 本地装配 StreamingLlmTemplate（含 Skill/Media/记忆 Advisor SPI 兜底）: advisorProvider={}, displayUserResolver={}, persistMetadataResolver={}",
+                nodeId, advisors != null, displayUser != null, persistUser != null);
+        StreamingLlmTemplate template = new StreamingLlmTemplate(
                 renderer, endpointResolver, cmf, bridge, catalog, content, resources, media, prompts, advisors,
                 null, displayUser);
+        template.setMemoryUserPersistMetadataResolver(persistUser);
+        return template;
     }
 
     private String readRunId(OverAllState state) {

@@ -8,6 +8,8 @@ import io.acelance.graph.dsl.ai.media.DefaultMediaRefResolver;
 import io.acelance.graph.dsl.ai.media.MediaMaterialSupport;
 import io.acelance.graph.dsl.ai.media.MediaRefResolver;
 import io.acelance.graph.dsl.ai.memory.MemoryDisplayUserTextResolver;
+import io.acelance.graph.dsl.ai.memory.MemoryUserPersistMeta;
+import io.acelance.graph.dsl.ai.memory.MemoryUserPersistMetadataResolver;
 import io.acelance.graph.dsl.ai.model.ChatModelFactory;
 import io.acelance.graph.dsl.ai.model.InlineModel;
 import io.acelance.graph.dsl.ai.model.ModelEndpoint;
@@ -90,6 +92,8 @@ public class StreamingLlmTemplate {
     private final LlmChatOptionsCustomizer optionsCustomizer;
     /** 可选：业务侧决定记忆 USER 展示正文从哪些 state key 取 */
     private final MemoryDisplayUserTextResolver memoryDisplayUserTextResolver;
+    /** 可选：业务侧把中性落盘载荷映射为记忆 extras 键 */
+    private MemoryUserPersistMetadataResolver memoryUserPersistMetadataResolver;
     /** 流式+工具手动多轮上限，默认 30；可用 {@code ace.graph.dsl.llm.stream-tool-max-rounds} 配置 */
     private int streamToolMaxRounds = 30;
 
@@ -216,6 +220,13 @@ public class StreamingLlmTemplate {
     }
 
     /**
+     * 注入记忆 extras 映射 SPI。未设置时不往 USER metadata 写协议键。
+     */
+    public void setMemoryUserPersistMetadataResolver(MemoryUserPersistMetadataResolver resolver) {
+        this.memoryUserPersistMetadataResolver = resolver;
+    }
+
+    /**
      * 设置流式+工具多轮上限（默认 30）。&lt;=0 回退 30。
      */
     public void setStreamToolMaxRounds(int streamToolMaxRounds) {
@@ -273,6 +284,9 @@ public class StreamingLlmTemplate {
         }
 
         MediaRefResolver.ResolveResult mediaResult = resolveMedia(ctx, req.mediaInputKey());
+        List<MediaRef> mediaRefs = MediaRefs.readFrom(ctx.state(), req.mediaInputKey());
+        MemoryUserPersistMeta.SplitUrls persistUrls = MemoryUserPersistMeta.splitUrls(mediaRefs);
+        List<String> skillLabels = ForceSkills.readLabels(ctx.state(), ctx.nodeId());
         if (!mediaResult.materialNotes().isEmpty() || !mediaResult.skippedNotes().isEmpty()) {
             StringBuilder footnote = new StringBuilder(user);
             for (String note : mediaResult.materialNotes()) {
@@ -301,7 +315,8 @@ public class StreamingLlmTemplate {
                 req.memoryMode(), ctx.conversationId());
 
         List<Message> messages = buildMessages(system, user, forced, mediaResult.medias(),
-                resolveMemoryDisplayUserText(ctx, req.variables(), user));
+                resolveMemoryDisplayUserText(ctx, req.variables(), user),
+                persistUrls, skillLabels, ctx);
         String full;
         boolean wantStream = req.streaming() && ctx.runId() != null && !ctx.runId().isBlank();
         if (wantStream && modelTools.isEmpty()) {
@@ -718,7 +733,7 @@ public class StreamingLlmTemplate {
 
     /**
      * 记忆 USER 展示正文：委托业务 {@link MemoryDisplayUserTextResolver}；
-     * 未注册 SPI 时返回 null（不写 display_content，落库用 LLM user 全文）。
+     * 未注册 SPI 时返回 null（展示正文不分离，落库用 LLM user 全文）。
      */
     private String resolveMemoryDisplayUserText(LlmRequestContext ctx,
                                                 Map<String, Object> variables,
@@ -733,16 +748,19 @@ public class StreamingLlmTemplate {
                 return resolved.trim();
             }
         } catch (RuntimeException ex) {
-            log.warn("节点 {} MemoryDisplayUserTextResolver 失败，跳过 display_content: {}",
+            log.warn("节点 {} MemoryDisplayUserTextResolver 失败，跳过展示正文: {}",
                     ctx != null ? ctx.nodeId() : "?", ex.toString());
         }
         return null;
     }
 
-    private static List<Message> buildMessages(String system, String user,
-                                               List<ForceSkillActivator.ActivatedSkill> forced,
-                                               List<Media> medias,
-                                               String displayUserText) {
+    private List<Message> buildMessages(String system, String user,
+                                        List<ForceSkillActivator.ActivatedSkill> forced,
+                                        List<Media> medias,
+                                        String displayUserText,
+                                        MemoryUserPersistMeta.SplitUrls persistUrls,
+                                        List<String> skillLabels,
+                                        LlmRequestContext ctx) {
         List<Message> messages = new ArrayList<>();
         if (system != null && !system.isBlank()) {
             messages.add(new SystemMessage(system));
@@ -754,6 +772,7 @@ public class StreamingLlmTemplate {
             }
         }
         String userText = user == null || user.isBlank() ? " " : user;
+        String nodeId = ctx != null ? ctx.nodeId() : "?";
         // SPI 优先；若无 SPI 但含材料注记，则剥注记作为展示正文（C3）
         String display = displayUserText != null && !displayUserText.isBlank()
                 ? displayUserText.trim()
@@ -764,11 +783,11 @@ public class StreamingLlmTemplate {
                 display = stripped;
             }
         }
-        Map<String, Object> meta = new LinkedHashMap<>();
-        if (display != null && !display.isBlank() && !display.equals(userText)) {
-            // 与 lesso LessoChatMemoryExtras.DISPLAY_CONTENT 同名，避免框架依赖 memory 模块
-            meta.put("display_content", display);
-        }
+        MemoryUserPersistMeta.SplitUrls urls = persistUrls == null
+                ? MemoryUserPersistMeta.SplitUrls.empty()
+                : persistUrls;
+        String persistDisplay = display != null && !display.equals(userText) ? display : null;
+        Map<String, Object> meta = resolvePersistMetadata(ctx, persistDisplay, urls, skillLabels, nodeId);
         var builder = UserMessage.builder().text(userText);
         if (!meta.isEmpty()) {
             builder.metadata(meta);
@@ -777,15 +796,57 @@ public class StreamingLlmTemplate {
             builder.media(medias);
         }
         messages.add(builder.build());
-        if (meta.containsKey("display_content")) {
-            log.info("记忆 USER display_content 已挂: displayChars={}, llmUserChars={}",
-                    display.length(), userText.length());
+        if (persistDisplay != null && !meta.isEmpty()) {
+            log.info("记忆 USER 展示正文已交 extras SPI: nodeId={}, displayChars={}, llmUserChars={}, metaKeys={}",
+                    nodeId, persistDisplay.length(), userText.length(), meta.keySet());
         }
-        else if (userText.contains(MediaMaterialSupport.MATERIAL_NOTE_PREFIX)) {
-            log.warn("LLM user 含材料注记但未挂 display_content，历史 USER 可能被污染: llmUserChars={}",
-                    userText.length());
+        else if (userText.contains(MediaMaterialSupport.MATERIAL_NOTE_PREFIX) && meta.isEmpty()) {
+            log.warn("LLM user 含材料注记但 persist metadata 为空，历史 USER 可能被污染: nodeId={}, llmUserChars={}",
+                    nodeId, userText.length());
         }
         return messages;
+    }
+
+    /**
+     * 委托业务 SPI 把中性载荷写成 extras；框架不写协议键名。
+     */
+    private Map<String, Object> resolvePersistMetadata(LlmRequestContext ctx,
+                                                       String displayUserText,
+                                                       MemoryUserPersistMeta.SplitUrls urls,
+                                                       List<String> skillLabels,
+                                                       String nodeId) {
+        int imageCount = urls == null ? 0 : urls.images().size();
+        int fileCount = urls == null ? 0 : urls.files().size();
+        int labelCount = skillLabels == null ? 0 : skillLabels.size();
+        boolean hasPayload = (displayUserText != null && !displayUserText.isBlank())
+                || imageCount > 0 || fileCount > 0 || labelCount > 0;
+        if (!hasPayload) {
+            return Map.of();
+        }
+        if (memoryUserPersistMetadataResolver == null) {
+            log.warn("未注册 MemoryUserPersistMetadataResolver，跳过记忆 extras: nodeId={}, imageUrls={}, fileUrls={}, skillLabels={}",
+                    nodeId, imageCount, fileCount, labelCount);
+            return Map.of();
+        }
+        try {
+            Map<String, Object> meta = memoryUserPersistMetadataResolver.resolve(
+                    new MemoryUserPersistMetadataResolver.MemoryUserPersistMetadataRequest(
+                            ctx,
+                            displayUserText,
+                            urls == null ? List.of() : urls.images(),
+                            urls == null ? List.of() : urls.files(),
+                            skillLabels == null ? List.of() : skillLabels));
+            if (meta == null || meta.isEmpty()) {
+                return Map.of();
+            }
+            log.info("记忆 USER persist metadata 已挂: nodeId={}, keys={}, imageUrls={}, fileUrls={}, skillLabels={}",
+                    nodeId, meta.keySet(), imageCount, fileCount, labelCount);
+            return meta;
+        } catch (RuntimeException ex) {
+            log.warn("节点 {} MemoryUserPersistMetadataResolver 失败，跳过 extras: {}",
+                    nodeId, ex.toString());
+            return Map.of();
+        }
     }
 
     private static String nullToEmpty(String s) {

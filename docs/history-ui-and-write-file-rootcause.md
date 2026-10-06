@@ -201,5 +201,6 @@ flowchart TD
 - [x] **D4（→ B2/C3）** display_content：Template 挂元数据 + 材料剥离兜底；codec/Advisor 落库剥 `[material]`  
 - [x] **D5（→ B4）** `memoryWrites` 可组合：biz 写 USER+THINKING Buffer，out_put 写 1 条 ASSISTANT（thinking+正文）  
 
-下一步：**发版冒烟**（含一轮 remote 仅 1 USER + 1 ASSISTANT）+ **A3** 前后端历史字段验收。  
-待做（可选）：USER skill 展示回显、images/files 持久化。
+下一步：**发版冒烟**（含一轮 remote 仅 1 USER + 1 ASSISTANT）+ **A3** 前后端历史字段验收。
+
+**历史 USER 附件 / 技能标签（已实现）**：实时气泡读本次请求；历史读 remote extras。Excel 不进 `UserMessage.media`，框架只拆 URL 与技能展示名；Lesso Adapter 的 `MemoryUserPersistMetadataResolver` 写成 extras `images`/`files`/`guide`/`display_content`。旧会话当时未落 extras，无法回填。

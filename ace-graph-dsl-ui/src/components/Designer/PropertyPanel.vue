@@ -27,6 +27,11 @@ import {
 import MermaidPreview from './MermaidPreview.vue'
 import SaaWorkflowForm from './SaaWorkflowForm.vue'
 import { normalizeSaaSpec } from '../../utils/saaWorkflow'
+import {
+  MEMORY_WRITE_FLAGS,
+  isMemoryWritesConfigured,
+  normalizeMemoryWrites
+} from '../../utils/memoryWrites'
 
 const props = defineProps({
   /** 嵌入左侧目录时使用紧凑布局 */
@@ -244,6 +249,18 @@ function onAgentSpecField(field, value) {
   if (!s) return
   const next = { ...s, [field]: value }
   editor.updateSelectedAgentSpec(next)
+}
+
+/** 是否已显式配置 memoryWrites（含空列表）；未配置则回退 memoryMode。 */
+const memoryWritesConfigured = computed(() => isMemoryWritesConfigured(currentAgentSpec.value?.memoryWrites))
+
+function onMemoryWritesEnabled(enabled) {
+  onAgentSpecField('memoryWrites', enabled ? normalizeMemoryWrites(currentAgentSpec.value?.memoryWrites) : null)
+}
+
+function onMemoryWritesChange(vals) {
+  // 选择任一 flag 即视为显式配置，写入 memoryWrites（覆盖 memoryMode）
+  onAgentSpecField('memoryWrites', normalizeMemoryWrites(vals))
 }
 
 /** API Key 输入：掩码态下留空表示保持原值；输入非空值则覆盖并清除掩码标记 */
@@ -833,9 +850,36 @@ function onStreamingChange(val) {
               </el-form-item>
 
               <el-divider content-position="left">{{ t('propertyPanel.agentSpec.memoryMode') }}</el-divider>
-              <el-form-item :label="t('propertyPanel.agentSpec.memoryMode')">
+              <el-form-item :label="t('propertyPanel.agentSpec.memoryWrites')">
+                <el-select
+                  :model-value="normalizeMemoryWrites(currentAgentSpec.memoryWrites)"
+                  multiple
+                  collapse-tags
+                  collapse-tags-tooltip
+                  style="width: 100%;"
+                  :placeholder="t('propertyPanel.agentSpec.memoryWritesPlaceholder')"
+                  @update:model-value="onMemoryWritesChange"
+                >
+                  <el-option
+                    v-for="flag in MEMORY_WRITE_FLAGS"
+                    :key="flag"
+                    :label="t(`propertyPanel.agentSpec.memoryWriteFlag.${flag}`)"
+                    :value="flag"
+                  />
+                </el-select>
+                <span class="hint" style="display:block; margin-top:4px;">{{ t('propertyPanel.agentSpec.memoryWritesHint') }}</span>
+              </el-form-item>
+              <el-form-item :label="t('propertyPanel.agentSpec.memoryWritesEnabled')">
+                <el-switch
+                  :model-value="memoryWritesConfigured"
+                  @update:model-value="onMemoryWritesEnabled"
+                />
+                <span class="hint" style="display:block; margin-top:4px;">{{ t('propertyPanel.agentSpec.memoryWritesEnabledHint') }}</span>
+              </el-form-item>
+              <el-form-item :label="t('propertyPanel.agentSpec.memoryModeLegacy')">
                 <el-select
                   :model-value="currentAgentSpec.memoryMode || 'NONE'"
+                  :disabled="memoryWritesConfigured"
                   @update:model-value="onAgentSpecField('memoryMode', $event || 'NONE')"
                   style="width: 100%;"
                 >
@@ -843,7 +887,11 @@ function onStreamingChange(val) {
                   <el-option :label="t('propertyPanel.agentSpec.memoryModeReadOnly')" value="READ_ONLY" />
                   <el-option :label="t('propertyPanel.agentSpec.memoryModeReadWrite')" value="READ_WRITE" />
                 </el-select>
-                <span class="hint" style="display:block; margin-top:4px;">{{ t('propertyPanel.agentSpec.memoryModeHint') }}</span>
+                <span class="hint" style="display:block; margin-top:4px;">{{
+                  memoryWritesConfigured
+                    ? t('propertyPanel.agentSpec.memoryModeIgnoredHint')
+                    : t('propertyPanel.agentSpec.memoryModeHint')
+                }}</span>
               </el-form-item>
 
               <el-divider content-position="left">{{ t('propertyPanel.agentSpec.deepThinking') }}</el-divider>

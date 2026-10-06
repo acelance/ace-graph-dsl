@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.6] — 2026-10-06
+
+### Added
+
+- **设计器对话记忆 UI**：属性面板 / Agent 编辑器支持 `memoryWrites` 开关与三 flag 多选
+  （`WRITE_USER` / `WRITE_ASSISTANT_THINKING` / `WRITE_ASSISTANT_MAIN_TEXT`）；
+  开启后覆盖 `memoryMode`（含空列表=本节点不写），关闭则回退旧三态。
+- **历史 USER 附件/技能标签**：框架只拆 URL / 技能展示名，经 `MemoryUserPersistMetadataResolver` 由业务写成 extras（Lesso：`images`/`files`/`guide`/`display_content`）。
+
 ## [1.1.5] — 2026-10-06
 
 ### Fixed

@@ -21,6 +21,11 @@ import {
 } from '../../embed/context'
 import { usePermissionStore, MENU } from '../../stores/permissions'
 import { useI18n } from '../../i18n'
+import {
+  MEMORY_WRITE_FLAGS,
+  isMemoryWritesConfigured,
+  normalizeMemoryWrites
+} from '../../utils/memoryWrites'
 
 const perm = usePermissionStore()
 const { t } = useI18n()
@@ -70,6 +75,8 @@ const defaultForm = () => ({
   mediaInputKey: '',
   streamResponseKind: '',
   memoryMode: 'NONE',
+  memoryWritesEnabled: false,
+  memoryWrites: [],
   enablePrompt: false,
   promptKeysText: '',
   enableModel: false,
@@ -234,6 +241,8 @@ function applyDefinition(def) {
   form.value.mediaInputKey = s.mediaInputKey || ''
   form.value.streamResponseKind = s.streamResponseKind || ''
   form.value.memoryMode = s.memoryMode || 'NONE'
+  form.value.memoryWritesEnabled = isMemoryWritesConfigured(s.memoryWrites)
+  form.value.memoryWrites = normalizeMemoryWrites(s.memoryWrites)
   form.value.enablePrompt = !!s.enablePrompt
   form.value.promptKeysText = csvOf(s.promptKeys)
   form.value.enableModel = !!s.enableModel
@@ -350,6 +359,9 @@ function buildBody() {
     mediaInputKey: form.value.mediaInputKey || null,
     streamResponseKind: form.value.streamResponseKind || null,
     memoryMode: form.value.memoryMode || 'NONE',
+    memoryWrites: form.value.memoryWritesEnabled
+      ? normalizeMemoryWrites(form.value.memoryWrites)
+      : null,
     enablePrompt: form.value.enablePrompt,
     promptKeys,
     enableModel: form.value.enableModel,
@@ -495,13 +507,43 @@ async function onSubmit() {
       </el-form-item>
 
       <el-divider content-position="left">{{ t('propertyPanel.agentSpec.memoryMode') }}</el-divider>
-      <el-form-item :label="t('propertyPanel.agentSpec.memoryMode')">
-        <el-select v-model="form.memoryMode" style="width:100%;">
+      <el-form-item :label="t('propertyPanel.agentSpec.memoryWrites')">
+        <el-select
+          v-model="form.memoryWrites"
+          multiple
+          collapse-tags
+          collapse-tags-tooltip
+          style="width:100%;"
+          :placeholder="t('propertyPanel.agentSpec.memoryWritesPlaceholder')"
+          @change="() => { form.memoryWritesEnabled = true }"
+        >
+          <el-option
+            v-for="flag in MEMORY_WRITE_FLAGS"
+            :key="flag"
+            :label="t(`propertyPanel.agentSpec.memoryWriteFlag.${flag}`)"
+            :value="flag"
+          />
+        </el-select>
+        <span class="hint" style="display:block; margin-top:4px;">{{ t('propertyPanel.agentSpec.memoryWritesHint') }}</span>
+      </el-form-item>
+      <el-form-item :label="t('propertyPanel.agentSpec.memoryWritesEnabled')">
+        <el-switch
+          v-model="form.memoryWritesEnabled"
+          @change="(on) => { if (!on) form.memoryWrites = [] }"
+        />
+        <span class="hint" style="display:block; margin-top:4px;">{{ t('propertyPanel.agentSpec.memoryWritesEnabledHint') }}</span>
+      </el-form-item>
+      <el-form-item :label="t('propertyPanel.agentSpec.memoryModeLegacy')">
+        <el-select v-model="form.memoryMode" :disabled="form.memoryWritesEnabled" style="width:100%;">
           <el-option :label="t('propertyPanel.agentSpec.memoryModeNone')" value="NONE" />
           <el-option :label="t('propertyPanel.agentSpec.memoryModeReadOnly')" value="READ_ONLY" />
           <el-option :label="t('propertyPanel.agentSpec.memoryModeReadWrite')" value="READ_WRITE" />
         </el-select>
-        <span class="hint" style="display:block; margin-top:4px;">{{ t('propertyPanel.agentSpec.memoryModeHint') }}</span>
+        <span class="hint" style="display:block; margin-top:4px;">{{
+          form.memoryWritesEnabled
+            ? t('propertyPanel.agentSpec.memoryModeIgnoredHint')
+            : t('propertyPanel.agentSpec.memoryModeHint')
+        }}</span>
       </el-form-item>
 
       <el-divider content-position="left">{{ t('propertyPanel.agentSpec.deepThinking') }}</el-divider>
