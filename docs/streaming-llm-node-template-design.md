@@ -1447,7 +1447,7 @@ state.put(ACE_FORCE_SKILLS_KEY, forceSkills);
 |---|---|
 | 元素含义 | 与 UI `skillKeys`、L1 的 `code` **同一套 key**（例如 `skill.refund`） |
 | 有序 | 按列表顺序依次 `load_skill`，先激活的先回灌 |
-| 不在白名单 | **跳过该 code** + **info** 日志（多节点场景很常见，不要打成 error）；**不删** state 里的列表，留给后续节点 |
+| 不在设计器勾选 | **不再静默跳过**：有效白名单 = 节点 `skillKeys` ∪ 本轮 `forceSkills`（口令/点选视为显式授权）；state 列表仍不删 |
 | 空 / 缺键 | 不强制激活，走模型自选即可 |
 | 写入时机 | 建议在 **图执行入口** 写入初始 state（与 `runId` / `agentCode` 一起）；整次 run 内随 `OverAllState` 往后传，**中间节点不要清掉** |
 | 多节点传递 | **能传到第 N 个节点**（见 §6.3.2） |
@@ -1456,9 +1456,9 @@ state.put(ACE_FORCE_SKILLS_KEY, forceSkills);
 
 ```text
 读 ACE_FORCE_SKILLS_KEY
-  → 对每个 code（∈ 本节点 skillKeys）先 load_skill，正文进 messages
-  → 不在本节点白名单的 code：跳过 + 日志（不删 state 里的列表）
-  → 再进入正常 ChatClient 轮次（模型仍可再 load 其它白名单 skill）
+  → 有效白名单 = skillKeys ∪ forceSkills
+  → 对每个 forceSkills code 先 load_skill，正文进 messages
+  → 再进入正常 ChatClient 轮次（模型仍可再 load 其它有效白名单 skill）
 ```
 
 #### 不同项目聊天口令不一样时，怎么激活？（必读）
@@ -1630,10 +1630,10 @@ List<String> forceSkills = Optional.ofNullable(state.value(LlmRequestContext.ACE
         })
         .orElse(List.of());
 
+List<String> effective = ForceSkills.effectiveSkillKeys(state, nodeId, binding.skillKeys());
 for (String code : forceSkills) {
-    if (!binding.skillKeys().contains(code)) {
-        // 多节点场景很常见：意图留给后面的节点，本节点白名单故意不含 → info 而非 error
-        log.info("节点 {} 的 forceSkills 含 {}，但不在本节点白名单，跳过加载（保留键仍留给后续节点）",
+    if (!effective.contains(code)) {
+        log.info("节点 {} 的 forceSkills 含 {}，不在有效白名单，跳过加载（保留键仍留给后续节点）",
                 nodeId, code);
         continue;
     }
@@ -1671,10 +1671,10 @@ for (String code : forceSkills) {
 #### 怎么验收
 
 1. 入口写入 `forceSkills=["skill.refund"]` 且节点白名单含该项 → 进模型前日志有「强制激活 skill.refund」，且 messages 中已有 L2 正文  
-2. 写入不在白名单的 code → 跳过 + 日志，节点不整体失败；**state 中 forceSkills 仍保留**，可供后续节点使用  
+2. 口令写入的 code 即使设计器未勾选 `skillKeys`，仍并入有效白名单并可 `load_skill`；**state 中 forceSkills 仍保留**  
 3. 用户只说自然语言、业务未写 forceSkills → 不报错，靠模型自选 `load_skill`  
 4. 业务自己做了 `/skill` 解析并写入 forceSkills → 行为与方式 B 相同  
-5. **多节点**：入口写入后，仅第 N 个节点勾选该 skill → 前序节点跳过（info）、第 N 个强制激活（§6.3.2）
+5. **多节点**：`forceSkills` 随 state 传递；**任意**执行 GenericAgent 的节点都会把 force 并入有效白名单（不再因未勾选而静默跳过）
 
 ### 6.4 Resolver 职责划分
 

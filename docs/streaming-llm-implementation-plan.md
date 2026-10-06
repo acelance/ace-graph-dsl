@@ -294,7 +294,7 @@ P3.6 ResourceKeyValidator 接线（任意空隙，建议 C）
 | `LessoNacosSkillStore`：L1 Catalog / L2 Content / L3 Resource | 包 `LessoSkillCatalog` + `LessoSkillWorkspace` | ✅ |
 | 与框架 `InMemorySkillStore` 共存：业务 Bean `@Primary`；产品自动配置「已有 CatalogResolver 则跳过空仓」 | 避免注入歧义 | ✅ |
 | 入口 / inputs 写入 `ACE_FORCE_SKILLS_KEY`（冒烟已验证） | 框架只认保留键 | ✅ 联调路径 |
-| 用户口令 → forceSkills 自动解析 | 产品化增强 | 未开始 |
+| 用户口令 → forceSkills 自动解析 | `AceGraphPlatformRequestMapper` 解析 `/{{code\|name}}`，写 `forceSkills`+labels，并清洗 `user_query`；原文进 `user_query_raw` 供记忆展示 | ✅（1.1.6 宿主） |
 | 路径安全、按 agentCode 范围 | SkillPathSafety | 沿用 SDK |
 
 **验收**：白名单 L1 进 system；forceSkills 预激活 L2；`load_skill` 可拉正文（冒烟已验 L2 + 一句话摘要）。
@@ -432,7 +432,7 @@ P3.6 ResourceKeyValidator 接线（任意空隙，建议 C）
 | **Biz.1** | ✅ 主路径 | Validator / 列表鉴权可选 |
 | **Biz.2** | ✅ 主路径 | 热刷新见 Biz.R；Fernet/specRef 已踩通 |
 | **Biz.3** | ✅ 主路径 | session 关闭已做；热刷新见 Biz.R |
-| **Biz.4** | ✅ 主路径 | 口令→forceSkills 可增强 |
+| **Biz.4** | ✅ 主路径 | 口令→forceSkills 已解析；有效白名单=`skillKeys ∪ forceSkills` |
 | **Biz.5～7** | 未开始 | 增强批，可缓 |
 | **Biz.8** | ✅ 主路径 | Provider + 冒烟 `memoryMode=READ_WRITE`；两轮同 session 验收 |
 | **Biz.9** | ✅ | 现有 Langfuse 控制台 Generation 已核对（产品不做 Langfuse 页面） |
