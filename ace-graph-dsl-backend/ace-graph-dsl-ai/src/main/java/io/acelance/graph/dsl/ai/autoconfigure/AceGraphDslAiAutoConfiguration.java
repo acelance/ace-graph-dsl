@@ -8,6 +8,7 @@ import io.acelance.graph.dsl.agent.SecretResolver;
 import io.acelance.graph.dsl.agent.SkillRegistry;
 import io.acelance.graph.dsl.ai.advisor.ChatClientAdvisorBundle;
 import io.acelance.graph.dsl.ai.advisor.ChatClientAdvisorProvider;
+import io.acelance.graph.dsl.ai.advisor.ChatClientAdvisorRequest;
 import io.acelance.graph.dsl.ai.media.DefaultMediaRefResolver;
 import io.acelance.graph.dsl.ai.media.MediaRefResolver;
 import io.acelance.graph.dsl.ai.memory.MemoryDisplayUserTextResolver;
@@ -37,6 +38,7 @@ import io.acelance.graph.dsl.streamkind.StreamResponseKindResolver;
 import io.acelance.graph.dsl.streaming.GraphStreamBridge;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.ai.chat.messages.Message;
 import org.springframework.ai.chat.prompt.ChatOptions;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
@@ -44,6 +46,8 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.ApplicationContext;
 import org.springframework.context.annotation.Bean;
+
+import java.util.List;
 
 /**
  * ace-graph-dsl-ai 自动配置：Agent 工厂 + LlmResolvers / Template / Skill / 模型解析默认 Bean。
@@ -192,14 +196,29 @@ public class AceGraphDslAiAutoConfiguration {
                                      ObjectProvider<ChatClientAdvisorProvider> advisorProviders,
                                      ObjectProvider<LlmChatOptionsCustomizer> optionsCustomizers) {
         // 延迟解析：业务 Provider 可能在用户 @Configuration 中晚于本 Bean 定义注册，
-        // 但实际 provide() 时再 getIfAvailable，避免启动瞬间固化 null。
-        ChatClientAdvisorProvider deferred = request -> {
-            ChatClientAdvisorProvider live = advisorProviders.getIfAvailable();
-            if (live == null) {
-                return ChatClientAdvisorBundle.empty();
+        // 但实际 provide()/merge 时再 getIfAvailable，避免启动瞬间固化 null。
+        // 必须用匿名类（勿用 @FunctionalInterface lambda）：lambda 只实现 provide，
+        // mergeHistoryForPrompt 会落在接口 default no-op，导致流式前永不读历史（R4b）。
+        ChatClientAdvisorProvider deferred = new ChatClientAdvisorProvider() {
+            @Override
+            public ChatClientAdvisorBundle provide(ChatClientAdvisorRequest request) {
+                ChatClientAdvisorProvider live = advisorProviders.getIfAvailable();
+                if (live == null) {
+                    return ChatClientAdvisorBundle.empty();
+                }
+                ChatClientAdvisorBundle bundle = live.provide(request);
+                return bundle == null ? ChatClientAdvisorBundle.empty() : bundle;
             }
-            ChatClientAdvisorBundle bundle = live.provide(request);
-            return bundle == null ? ChatClientAdvisorBundle.empty() : bundle;
+
+            @Override
+            public List<Message> mergeHistoryForPrompt(ChatClientAdvisorRequest request,
+                                                       List<Message> seedMessages) {
+                ChatClientAdvisorProvider live = advisorProviders.getIfAvailable();
+                if (live == null) {
+                    return seedMessages == null ? List.of() : seedMessages;
+                }
+                return live.mergeHistoryForPrompt(request, seedMessages);
+            }
         };
         LlmChatOptionsCustomizer deferredOptions = (base, req) -> {
             LlmChatOptionsCustomizer live = optionsCustomizers.getIfAvailable();

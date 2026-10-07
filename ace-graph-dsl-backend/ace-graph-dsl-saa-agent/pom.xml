@@ -7,14 +7,14 @@
     <parent>
         <groupId>io.acelance</groupId>
         <artifactId>ace-graph-dsl-backend</artifactId>
-        <version>1.1.9</version>
+        <version>1.1.10</version>
     </parent>
 
     <artifactId>ace-graph-dsl-saa-agent</artifactId>
     <name>ace-graph-dsl-saa-agent</name>
     <description>
-        可选模块：�?SAA Agent Framework 高阶模式（Sequential/Parallel/Routing/Loop�?
-        �?NodeAction（方�?A）挂�?ACE StateGraph。core 不强制依赖本模块�?
+        可选模块：�?SAA Agent Framework 高阶模式（Sequential/Parallel/Routing/Loop�?
+        �?NodeAction（方�?A）挂�?ACE StateGraph。core 不强制依赖本模块�?
     </description>
 
     <dependencies>
@@ -22,12 +22,12 @@
             <groupId>io.acelance</groupId>
             <artifactId>ace-graph-dsl-core</artifactId>
         </dependency>
-        <!-- 复用 GenericAgentNode 执行路径（Q2 官方 Agent 包装内部委托�?-->
+        <!-- 复用 GenericAgentNode 执行路径（Q2 官方 Agent 包装内部委托�?-->
         <dependency>
             <groupId>io.acelance</groupId>
             <artifactId>ace-graph-dsl-ai</artifactId>
         </dependency>
-        <!-- �?graph-core �?BOM；M0 起引入，验证 SequentialAgent 挂载 -->
+        <!-- �?graph-core �?BOM；M0 起引入，验证 SequentialAgent 挂载 -->
         <dependency>
             <groupId>com.alibaba.cloud.ai</groupId>
             <artifactId>spring-ai-alibaba-agent-framework</artifactId>

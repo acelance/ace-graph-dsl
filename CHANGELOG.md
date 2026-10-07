@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.10] — 2026-10-07
+
+### Fixed
+
+- **R4b：deferred Provider 未转发 mergeHistoryForPrompt**：`AceGraphDslAiAutoConfiguration` 用
+  `@FunctionalInterface` lambda 包装业务 Provider 时，仅实现 `provide`，流式前 `mergeHistoryForPrompt`
+  落在接口 default no-op，续轮仍不读历史。改为匿名类同时转发 `provide` + `merge`；去掉接口上的
+  `@FunctionalInterface`。见 `history-attachment-replay-fix-plan.md` R4b。
+
 ## [1.1.9] — 2026-10-07
 
 ### Fixed
