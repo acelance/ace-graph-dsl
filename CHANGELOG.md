@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.9] — 2026-10-07
+
+### Fixed
+
+- **流式路径续轮读历史（R4）**：`StreamingLlmTemplate` 在 `streamCall` / `streamCallWithTools` **调模型前**调用
+  `ChatClientAdvisorProvider.mergeHistoryForPrompt` 合并历史进 Prompt；流式仍不挂记忆 Advisor（写 ASSISTANT 继续 echo）。
+  工具多轮只 merge **一次**，echo 落盘仍用原始 seed（禁止把拼好的 Prompt 当 USER 持久化）。
+  业务侧见 lesso-ai-project `docs/history-attachment-replay-fix-plan.md` §2 R4 / §7。
+
+### Added
+
+- `ChatClientAdvisorProvider#mergeHistoryForPrompt`（默认 no-op）：流式前只读合并历史。
+
 ## [1.1.8] — 2026-10-06
 
 ### Fixed

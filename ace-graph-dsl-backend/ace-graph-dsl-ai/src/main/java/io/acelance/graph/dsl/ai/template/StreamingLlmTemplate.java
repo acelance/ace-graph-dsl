@@ -320,7 +320,9 @@ public class StreamingLlmTemplate {
         String full;
         boolean wantStream = req.streaming() && ctx.runId() != null && !ctx.runId().isBlank();
         if (wantStream && modelTools.isEmpty()) {
-            full = streamCall(model, messages, modelTools, req, ctx, req.streamResponseKind());
+            // 流式不挂记忆 Advisor：调模型前读历史进 Prompt；echo 仍用原始 seed 落盘
+            List<Message> promptMessages = mergeHistoryForStreamingPrompt(messages, req, false);
+            full = streamCall(model, promptMessages, modelTools, req, ctx, req.streamResponseKind());
             persistMemoryAfterToolStream(messages, full, req);
         } else if (wantStream) {
             log.info("节点 {} 流式+工具：ChatClient.stream().chatResponse() 真流式（通道 A）", ctx.nodeId());
@@ -422,10 +424,10 @@ public class StreamingLlmTemplate {
         }
 
         ChatClientAdvisorBundle mem = ChatClientAdvisorBundle.empty();
-        // 所有流式路径都不挂记忆 Advisor：stream().content() 的聚合 after 可能不落 ASSISTANT。
-        // 终答后由 persistMemoryAfterToolStream echo 落盘（与流式+工具同一条）。
-        boolean allowMemory = !req.streaming();
-        if (allowMemory
+        // 流式路径不挂记忆 Advisor（stream after 可能丢 ASSISTANT）；读历史已在
+        // mergeHistoryForStreamingPrompt 前置。写 ASSISTANT 仍由 echo（streaming=false）触发。
+        boolean allowMemoryAdvisor = !req.streaming();
+        if (allowMemoryAdvisor
                 && mode != MemoryMode.NONE
                 && ctx.conversationId() != null && !ctx.conversationId().isBlank()
                 && advisorProvider != null) {
@@ -549,7 +551,10 @@ public class StreamingLlmTemplate {
                                        LlmRequestContext ctx, String kind) {
         ToolCallingManager toolManager = new StreamingToolCallMergingManager(
                 DefaultToolCallingManager.builder().build());
-        List<Message> conversation = new ArrayList<>(messages);
+        // seed 仅用于 echo 落盘；Prompt 在循环外合并历史一次，避免工具多轮重复读 remote
+        List<Message> seedForPersist = messages;
+        List<Message> conversation = new ArrayList<>(
+                mergeHistoryForStreamingPrompt(messages, req, true));
         StringBuilder visible = new StringBuilder();
         Map<String, Object> attrs = req.streamAttrs();
         final int maxRounds = streamToolMaxRounds;
@@ -614,12 +619,72 @@ public class StreamingLlmTemplate {
                         ctx.nodeId(), round + 1, conversation.size(), requestedNames);
             }
             // 终答已推完：用 Echo ChatModel + 记忆 Advisor 走一遍 call，落 USER/ASSISTANT（含 thinking drain）
-            persistMemoryAfterToolStream(messages, visible.toString(), req);
+            persistMemoryAfterToolStream(seedForPersist, visible.toString(), req);
         } finally {
             emitFinished(ctx, kind, attrs);
             log.info("节点 {} 流式+工具完成: chars={}, kind={}", ctx.nodeId(), visible.length(), kind);
         }
         return visible.toString();
+    }
+
+    /**
+     * 流式调模型前读历史进 Prompt（只调用一次）。不落盘。
+     *
+     * @param seed     本轮种子消息（echo 落盘仍用此列表）
+     * @param hasTools 是否流式+工具（仅打日志）
+     */
+    private List<Message> mergeHistoryForStreamingPrompt(List<Message> seed, LlmCallRequest req,
+                                                         boolean hasTools) {
+        if (seed == null) {
+            return List.of();
+        }
+        if (advisorProvider == null) {
+            return seed;
+        }
+        MemoryMode mode = req.memoryMode() == null ? MemoryMode.NONE : req.memoryMode();
+        Set<MemoryWriteFlag> writes = req.memoryWrites() == null ? Set.of() : req.memoryWrites();
+        LlmRequestContext ctx = req.context();
+        if ((mode == MemoryMode.NONE && writes.isEmpty())
+                || ctx.conversationId() == null || ctx.conversationId().isBlank()) {
+            return seed;
+        }
+        ChatClientAdvisorRequest advisorReq = new ChatClientAdvisorRequest(
+                ctx, mode, writes, true, hasTools);
+        List<Message> merged;
+        try {
+            merged = advisorProvider.mergeHistoryForPrompt(advisorReq, seed);
+        }
+        catch (RuntimeException ex) {
+            log.warn("节点 {} 流式前合并历史失败，回退 seed: {}", ctx.nodeId(), ex.toString());
+            return seed;
+        }
+        if (merged == null || merged.isEmpty()) {
+            return seed;
+        }
+        int materialNotes = countMaterialNotes(merged);
+        log.info("节点 {} 流式前已合并历史消息: seedCount={}, mergedCount={}, materialNotes={}, "
+                        + "hasTools={}, conversationId={}",
+                ctx.nodeId(), seed.size(), merged.size(), materialNotes, hasTools, ctx.conversationId());
+        return merged;
+    }
+
+    private static int countMaterialNotes(List<Message> messages) {
+        if (messages == null || messages.isEmpty()) {
+            return 0;
+        }
+        int n = 0;
+        String prefix = MediaMaterialSupport.MATERIAL_NOTE_PREFIX;
+        for (Message m : messages) {
+            if (m == null || m.getText() == null || !m.getText().contains(prefix)) {
+                continue;
+            }
+            for (String line : m.getText().split("\n", -1)) {
+                if (line != null && line.trim().startsWith(prefix)) {
+                    n++;
+                }
+            }
+        }
+        return n;
     }
 
     /**
@@ -635,8 +700,8 @@ public class StreamingLlmTemplate {
     }
 
     /**
-     * 流式路径不挂记忆 Advisor；终答后用 Echo 模型触发 Advisor before/after 落盘，
-     * 不二次调用真实 LLM。
+     * 流式路径不挂记忆 Advisor（读已前置 merge）；终答后用 Echo 模型触发 Advisor before/after 落盘，
+     * 不二次调用真实 LLM。{@code seedMessages} 须为本轮原始种子，禁止传入已拼历史的 Prompt。
      */
     private void persistMemoryAfterToolStream(List<Message> seedMessages,
                                               String assistantText,
