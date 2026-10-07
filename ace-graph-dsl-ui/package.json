@@ -13,8 +13,8 @@
     "url": "https://github.com/acelance/ace-graph-dsl/issues"
   },
   "publishConfig": {
-    "registry": "https://npm.pkg.github.com",
-    "@acelance:registry": "https://npm.pkg.github.com"
+    "access": "public",
+    "registry": "https://registry.npmjs.org"
   },
   "type": "module",
   "main": "./dist/index.js",
