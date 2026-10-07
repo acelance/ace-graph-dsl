@@ -4,6 +4,7 @@ import io.acelance.graph.dsl.definition.GraphDefinition;
 import io.acelance.graph.dsl.definition.GraphDefinitionContentComparator;
 
 import java.util.List;
+import java.util.Objects;
 import java.util.function.Function;
 
 /**
@@ -19,6 +20,19 @@ public final class DraftSaveValidator {
         String base = resolveBase(baseVersion, def.version());
         GraphDefinition baseDef = loadByVersion.apply(base);
         return baseDef != null && GraphDefinitionContentComparator.sameContent(baseDef, def);
+    }
+
+    /** 图级元信息（displayName / description）是否一致。 */
+    public static boolean sameMeta(GraphDefinition a, GraphDefinition b) {
+        if (a == null || b == null) {
+            return a == b;
+        }
+        return Objects.equals(nullToEmpty(a.displayName()), nullToEmpty(b.displayName()))
+                && Objects.equals(nullToEmpty(a.description()), nullToEmpty(b.description()));
+    }
+
+    private static String nullToEmpty(String s) {
+        return s == null ? "" : s;
     }
 
     /**

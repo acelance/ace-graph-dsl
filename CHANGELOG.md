@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.11] — 2026-10-07
+
+### Fixed
+
+- **草稿仅改 displayName 被 SKIP**：`saveDraft` 在可执行内容与 base 相同时，若图级元信息
+  （`displayName` / `description`）有变仍应插入新行；仅内容与元信息皆不变才 SKIP。
+  `DraftSaveValidator.sameMeta` + `DraftSaveSupport`；单测见 `DraftSaveValidatorTest`。
+
 ### Documentation
 
 - 同步流式记忆 R4/R4b 交叉引用（设计 §4.2.2、implementation-plan P3.8）。

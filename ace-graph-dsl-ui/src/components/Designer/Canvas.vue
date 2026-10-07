@@ -97,6 +97,63 @@ watch(() => {
   }
 }, { deep: true })
 
+/** 就地更新 LF 节点文案（避免整图重渲染丢选中） */
+function patchSelectedLfText(text) {
+  const id = editor.selectedLfNodeId
+  if (!lf || !id) return
+  const value = text == null ? '' : String(text)
+  if (typeof lf.updateText === 'function') {
+    lf.updateText(id, value)
+    return
+  }
+  const model = lf.getNodeModelById(id)
+  if (model && typeof model.updateText === 'function') model.updateText(value)
+}
+
+/** 属性面板改显示名：同步 LF properties + 画布文案，不整图重建 */
+watch(() => {
+  const sel = editor.selectedNode
+  if (!sel) return null
+  const meta = editor.nodes.find(n => n.nodeId === sel.nodeId)
+  if (!meta) return null
+  return meta.displayName ?? ''
+}, (displayName) => {
+  if (!lf || !editor.selectedLfNodeId || displayName == null) return
+  const model = lf.getNodeModelById(editor.selectedLfNodeId)
+  if (!model) return
+  const nodeId = editor.selectedNode?.nodeId || model.properties?.nodeId || ''
+  const label = displayName || undefined
+  const nextConfig = { ...(model.properties?.config || {}) }
+  if (label) nextConfig.label = label
+  else delete nextConfig.label
+  suppressSync = true
+  try {
+    lf.setProperties(editor.selectedLfNodeId, {
+      ...model.properties,
+      displayName: displayName || '',
+      config: nextConfig
+    })
+    patchSelectedLfText(displayName || nodeId)
+  } finally {
+    suppressSync = false
+  }
+})
+
+/** 属性面板改节点 ID：仅更新 LF properties.nodeId（LF 元素 id 保持不变） */
+watch(() => editor.selectedNode?.nodeId, (nodeId) => {
+  if (!lf || !editor.selectedLfNodeId || !nodeId) return
+  const model = lf.getNodeModelById(editor.selectedLfNodeId)
+  if (!model || model.properties?.nodeId === nodeId) return
+  const displayName = model.properties?.displayName || ''
+  suppressSync = true
+  try {
+    lf.setProperties(editor.selectedLfNodeId, { ...model.properties, nodeId })
+    if (!displayName) patchSelectedLfText(nodeId)
+  } finally {
+    suppressSync = false
+  }
+})
+
 watch(() => editor.edgeParamIssues, () => {
   applyEdgeValidationStyles()
 }, { deep: true })
@@ -592,10 +649,10 @@ function renderFromDefinition(def) {
       type: resolveNodeType(category),
       x: px,
       y: py,
-      text: n.displayName || desc?.displayName || n.nodeId,
+      text: n.displayName || n.config?.label || desc?.displayName || n.nodeId,
       properties: baseProperties({
         nodeId: n.nodeId,
-        displayName: n.displayName || desc?.displayName || '',
+        displayName: n.displayName || n.config?.label || desc?.displayName || '',
         category,
         config: n.config || {},
         inputKeys: desc?.inputKeys || [],

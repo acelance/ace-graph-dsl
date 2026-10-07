@@ -88,9 +88,29 @@ export const useGraphEditorStore = defineStore('aceGraphEditor', () => {
     return RESERVED_NODE_IDS.has(nodeId)
   }
 
+  /**
+   * 节点显示名双向同步：UI 用顶层 displayName，落库用 config.label（NodeRef 无 displayName 字段）。
+   */
+  function hydrateNodeDisplayName(n) {
+    if (!n) return n
+    const label = (n.displayName && String(n.displayName).trim())
+      || (n.config && n.config.label && String(n.config.label).trim())
+      || ''
+    const config = { ...(n.config || {}) }
+    if (label) config.label = label
+    else delete config.label
+    return { ...n, displayName: label, config }
+  }
+
+  function withPersistedNodeLabels(nodeList) {
+    return (nodeList || []).map(hydrateNodeDisplayName)
+  }
+
   /** 清洗 DSL：去掉误入的业务节点，统一 START/END 保留字，去重条件边 */
   function normalizeDefinition(def) {
-    const normalizedNodes = (def.nodes || []).filter(n => !isReservedNodeId(n.nodeId))
+    const normalizedNodes = withPersistedNodeLabels(
+      (def.nodes || []).filter(n => !isReservedNodeId(n.nodeId))
+    )
 
     const normalEdges = []
     const conditionalByKey = new Map()
@@ -197,10 +217,10 @@ export const useGraphEditorStore = defineStore('aceGraphEditor', () => {
       .map(n => {
         const nodeId = n.properties?.nodeId || n.id
         nodeIdMap[n.id] = nodeId
-        return {
+        return hydrateNodeDisplayName({
           nodeId,
           category: n.properties?.category || 'NORMAL',
-          displayName: n.properties?.displayName || '',
+          displayName: n.properties?.displayName || n.properties?.config?.label || '',
           subgraphRef: n.properties?.subgraphRef || '',
           subgraph: n.properties?.subgraph || null,
           agentSpec: n.properties?.agentSpec || null,
@@ -208,7 +228,7 @@ export const useGraphEditorStore = defineStore('aceGraphEditor', () => {
           config: n.properties?.config || {},
           x: n.x,
           y: n.y
-        }
+        })
       })
       .filter(n => !isReservedNodeId(n.nodeId))
     if (startNode) nodeIdMap[startNode.id] = '__START__'
@@ -865,11 +885,16 @@ export const useGraphEditorStore = defineStore('aceGraphEditor', () => {
 
   /** 修改子图节点的元信息（名称 / 引用 / 内联模式）。
    *  切模式本身不做破坏性 mutation（不清空 subgraph/subgraphRef），避免触发画布重渲染导致选中丢失；
-   *  真正清空内联子图发生在用户**显式选择**引用目标后。 */
+   *  真正清空内联子图发生在用户**显式选择**引用目标后。
+   *  displayName / 引用切换均不 requestRerender：整图重建会 clearSelectedNode，输入一键即失焦。 */
   function updateSubgraphNodeMeta({ nodeId, displayName, subgraphRef, mode }) {
     const node = nodes.value.find(n => n.nodeId === nodeId)
     if (!node) return
-    if (displayName !== undefined) node.displayName = displayName
+    if (displayName !== undefined) {
+      node.displayName = displayName
+      node.config = { ...(node.config || {}), label: displayName || undefined }
+      if (!displayName && node.config) delete node.config.label
+    }
     if (mode === 'reference') {
       // 仅在显式传入非空 subgraphRef 时覆盖引用；保留已有值，避免切 radio 就丢选择
       if (subgraphRef) {
@@ -891,10 +916,10 @@ export const useGraphEditorStore = defineStore('aceGraphEditor', () => {
         }
       }
     }
-    requestRerender()
   }
 
-  /** 重命名当前选中的结构型节点（子图 / Agent），同步更新相关边 */
+  /** 重命名当前选中的结构型节点（子图 / Agent），同步更新相关边。
+   *  不 requestRerender：LF 节点 id 不变，仅 properties.nodeId 由 Canvas watcher 就地同步。 */
   function renameSelectedNode(newId) {
     if (!selectedNode.value) return
     const oldId = selectedNode.value.nodeId
@@ -911,7 +936,6 @@ export const useGraphEditorStore = defineStore('aceGraphEditor', () => {
       }
     })
     selectedNode.value = { ...selectedNode.value, nodeId: newId }
-    requestRerender()
   }
 
   async function loadGraphIds() {

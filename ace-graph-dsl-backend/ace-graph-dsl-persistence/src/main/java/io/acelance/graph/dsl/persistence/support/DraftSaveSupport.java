@@ -21,10 +21,15 @@ public final class DraftSaveSupport {
                                             Function<String, GraphDefinition> loadByVersion,
                                             Supplier<List<String>> existingVersionStrings,
                                             Runnable insertAction) {
+        String base = DraftSaveValidator.resolveBase(baseVersion, def.version());
+        GraphDefinition baseDef = loadByVersion.apply(base);
         if (DraftSaveValidator.unchanged(def, baseVersion, loadByVersion)) {
-            String base = DraftSaveValidator.resolveBase(baseVersion, def.version());
-            GraphDefinition baseDef = loadByVersion.apply(base);
-            return SaveDraftResult.skip(baseDef);
+            // 可执行内容未变时：仅 displayName/description 变更仍应落库（同版本追加一行）
+            if (baseDef != null && DraftSaveValidator.sameMeta(baseDef, def)) {
+                return SaveDraftResult.skip(baseDef);
+            }
+            insertAction.run();
+            return SaveDraftResult.insert(def);
         }
         DraftSaveValidator.requireInsertableVersion(
                 def, baseVersion, loadByVersion, existingVersionStrings.get());
