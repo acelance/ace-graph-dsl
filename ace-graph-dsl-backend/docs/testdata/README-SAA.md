@@ -1,6 +1,7 @@
 # SAA 高阶节点样例索引（M1～M4）
 
-本目录下 SAA 相关可导入样例。宿主需引入 `ace-graph-dsl-saa-agent`；AgentScope 样例额外引入 `ace-graph-dsl-agentscope-agent`。
+本目录下 SAA 相关可导入样例。宿主需引入 `ace-graph-dsl-saa-agent`；AgentScope 样例额外引入 `ace-graph-dsl-agentscope-agent`。  
+宿主检查清单：`lesso-ai-platform-agent-server/docs/ace-graph-agentscope-host.md`。
 
 | 目录 | pattern / impl | 说明 |
 |------|----------------|------|

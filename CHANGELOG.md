@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Documentation
+
+- 同步流式记忆 R4/R4b 交叉引用（设计 §4.2.2、implementation-plan P3.8）。
+- SAA 高阶节点文档：§12 验收清单与「M0～M4 已落地」对齐；链宿主 `ace-graph-agentscope-host.md`。
+- 补记：可选模块 `ace-graph-dsl-agentscope-agent`（M3 / Q4 `starter-agentscope`）见设计附录 A.4（2026-09-28 已交付，此前 CHANGELOG 未单列）。
+
 ## [1.1.10] — 2026-10-07
 
 ### Fixed

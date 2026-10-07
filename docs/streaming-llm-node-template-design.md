@@ -439,39 +439,32 @@ public class CsAssistantController {
 
 多节点推荐：biz=`WRITE_USER`+`WRITE_ASSISTANT_THINKING`，out_put=`WRITE_ASSISTANT_MAIN_TEXT` → 一轮 **1 USER + 1 ASSISTANT**。落盘按节点即时，**禁止**图尾统一 persist。
 
-**SPI 形态**：
+**SPI 形态**（以代码为准；示意）：
 
 ```java
-public static final String ACE_CONVERSATION_ID_KEY = "ace.graph.dsl.conversationId";
-
-public enum MemoryMode { NONE, READ_ONLY, READ_WRITE }
-
-public enum MemoryWriteFlag {
-    WRITE_USER, WRITE_ASSISTANT_THINKING, WRITE_ASSISTANT_MAIN_TEXT
-}
-
 public interface ChatClientAdvisorProvider {
     ChatClientAdvisorBundle provide(ChatClientAdvisorRequest request);
-}
 
-public record ChatClientAdvisorRequest(
-        LlmRequestContext ctx, MemoryMode memoryMode,
-        Set<MemoryWriteFlag> memoryWrites,
-        boolean streaming, boolean hasTools) {}
-
-public record ChatClientAdvisorBundle(
-        List<Advisor> advisors, Map<String, Object> advisorParams) {
-    public static ChatClientAdvisorBundle empty() {
-        return new ChatClientAdvisorBundle(List.of(), Map.of());
+    /** 流式调模型前只读合并历史；默认 no-op。勿用仅 provide 的 lambda 包装（R4b）。 */
+    default List<Message> mergeHistoryForPrompt(ChatClientAdvisorRequest request,
+                                               List<Message> seedMessages) {
+        return seedMessages;
     }
 }
 ```
 
-**Template 约定**：与 `ToolCallAdvisor` 同挂 ChatClient；`mode==NONE` 且 writes 空、或 conversationId 空、或无 Provider → 跳过记忆 Advisor；关键日志打印 mode/writes/conversationId/advisor 数。
+**Template 约定**：
 
-**明确不做**：图尾统一 persistMemory 作主路径；官方 `MessageChatMemoryAdvisor` 不强制（业务可用自研 Ordered Advisor）；Catalog/Resolver 读写记忆。
+| 路径 | 记忆读 | 记忆写 |
+|------|--------|--------|
+| sync | 挂业务 Advisor（`prepareSpec`） | Advisor after |
+| stream / stream+tools | **循环外**调用一次 `mergeHistoryForPrompt` | **不**挂写 Advisor；终答 echo（`streaming=false`）落盘 |
 
-**怎么验收**：业务 Provider 挂上后多轮可读历史；无 Bean 时行为与今日一致；多节点图一轮 remote 仅 1 USER + 1 ASSISTANT。
+`mode==NONE` 且 writes 空、或 conversationId 空、或无 Provider → 跳过读/写钩子。`LlmResolvers` 延迟包装须转发 `provide` **与** `merge`（dsl ≥1.1.10）。
+
+**明确不做**：图尾统一 persistMemory 作主路径；官方 `MessageChatMemoryAdvisor` 不强制；Catalog/Resolver 读写记忆；把拼好的 Prompt 当 USER 持久化。
+
+**怎么验收**：业务 Provider 挂上后多轮可读历史；流式续轮日志含「流式前已合并历史」且业务侧「记忆 Provider 流式前已合并历史」；无 Bean 时行为与今日一致；多节点图一轮 remote 仅 1 USER + 1 ASSISTANT。根因案例见 lesso `docs/history-attachment-replay-fix-plan.md`。
 
 ### 4.3 Resolver 接口（运行期：此时 key 已经有了）
 
@@ -4191,5 +4184,6 @@ starter **compile 依赖** `ace-graph-dsl-ai`，保证全家桶开箱可用（st
 | 2026-09-10 | **补定 §8.3 原生写回样例**：节点通过 `NodeAction.apply` **return Map** 由引擎按 `KeyStrategy` 合并进 state（非手写 `state.put`）；附原生双节点样例 + 现网 `GenericAgentNode` return `outputKey` 片段；`keyStrategies` 须覆盖输出 key |
 | 2026-09-14 | **补强 §11.1.0 决策溯源**：写入问题 1/2/3 问卷全文、已选 1A+2B+3B 完整含义、否决项及「刻意不选推荐项 2A/3A」说明；明确实现以本文为准、禁止再就 A/B/C 向产品确认；增 §11.1.4 验收 |
 | 2026-09-14 | **定案对话记忆（§4.2.2）= 方案 B**：`conversationId` 保留键 + `MemoryMode` + `ChatClientAdvisorProvider`；Template 挂业务 Advisor 并透传 `ChatMemory.CONVERSATION_ID`。conversationId ≡ sessionId，**不是** userId+sessionId+bizKey 拼接；Store/Ordered·ReadOnly Advisor 在业务。否决图尾 persistMemory 主路径。排期 P3.8 / Biz.8；整合见评估文档 §12 |
+| 2026-10-07 | **§4.2.2 流式读/写分离（R4/R4b）**：`mergeHistoryForPrompt`；流式仍不挂写 Advisor；deferred 须匿名类转发 merge（1.1.9/1.1.10）。业务验收见 `history-attachment-replay-fix-plan.md` |
 | 2026-09-14 | **定案可观测性（§4.6）**：Langfuse 主路径 = 原生 ChatModel Observation + 业务 Filter 定制；产品不造 Langfuse SPI。Biz.2 须挂 ObservationRegistry；Biz.9 入口绑上下文；可选 P3.9 Lifecycle。评估文档 §13。非目标增补：不写 langfuse.*、不实现 ChatMemory Store |
 | 2026-09-10 | **补定 §8.3：ace-graph-dsl 指定 key 赋值**。Agent 写回 key 唯一来源是配置字段 `outputKey`（默认 `agent_result`），整段模型回复进这一个 key。提示词只能约束正文形态（含 JSON），框架不解析、不拆多 key；Structured Output 首期不做。多 key 靠下游解析节点或业务 NodeAction `return` 多 entry |

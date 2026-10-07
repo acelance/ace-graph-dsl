@@ -39,3 +39,9 @@ mvn -pl ace-graph-dsl-agentscope-agent -am "-Dtest=AgentScopeSequentialFactoryIn
 - id 仍指向 ACE 注册 GenericAgent；**不**另建 AgentScope 资源目录
 - 子记忆强制 NONE（Q5）
 - starter **不**传递本模块
+- 设计附录：`docs/ACE-Graph-DSL-SAA高阶模式节点-开发设计与计划.md` **A.4**
+- 宿主清单：`lesso-ai-platform-agent-server/docs/ace-graph-agentscope-host.md`
+
+## 能力探测
+
+引入本模块并启动后：`GET /api/graph/capabilities/saa` 应含 `agentscopeEnabled=true`。

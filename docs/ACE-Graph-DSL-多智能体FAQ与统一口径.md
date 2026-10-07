@@ -439,8 +439,8 @@ Q2（里面）: FlowAgent.subAgents ──官方 Agent 壳──► 内委 Gener
 
 | 路径 | 地位 |
 |------|------|
-| `spring-ai-alibaba-starter-agentscope` | **现行优先（M3）** |
-| 直接 `agentscope-core` + 自写桥 | **仅兜底**（starter 不够用时附录+评审） |
+| `spring-ai-alibaba-starter-agentscope` | **现行优先（M3 已落地，附录 A.4）** |
+| 直接 `agentscope-core` + 自写桥 | **仅兜底**（starter 不够用时附录+评审；M3 **未**采用） |
 | AgentScope Pipeline 替换图边 | **禁止** |
 
 ```text
@@ -449,7 +449,8 @@ subAgents
   AGENTSCOPE    → starter-agentscope 包装 → 仍读 ACE 目录 + 按 key 取资源
 ```
 
-详解：[开发设计与计划 §5.4](./ACE-Graph-DSL-SAA高阶模式节点-开发设计与计划.md)。
+框架模块：`ace-graph-dsl-agentscope-agent`（starter 不传递）。宿主须显式引入；清单见 lesso agent-server `docs/ace-graph-agentscope-host.md`。  
+详解：[开发设计与计划 §5.4 / A.4](./ACE-Graph-DSL-SAA高阶模式节点-开发设计与计划.md)。
 
 ---
 

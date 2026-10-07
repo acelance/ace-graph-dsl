@@ -189,12 +189,13 @@ P3.6 ResourceKeyValidator 接线（任意空隙，建议 C）
 | 节点 `MemoryMode` + `memoryWrites`（可组合 flags）→ Spec / `LlmCallRequest` / `ChatClientAdvisorRequest` | core + ai | ✅ |
 | `ChatClientAdvisorProvider` + Bundle/Request | ai | ✅ |
 | `StreamingLlmTemplate` sync/stream 统一 `prepareSpec` 挂载业务 Advisor + `ChatMemory.CONVERSATION_ID` | Template | ✅ |
-| `LlmResolvers` / 自动配置可选注入 Provider（null=空操作） | starter/ai | ✅ |
-| 单测：假 Advisor 验证透传与 mode=NONE / writes=[] 跳过；`MemoryWriteFlagTest` | ai/core test | ✅ |
+| **流式前** `mergeHistoryForPrompt`（读/写分离；工具循环外一次；1.1.9） | Template + SPI | ✅ |
+| `LlmResolvers` deferred **匿名类**转发 `provide`+`merge`（1.1.10 R4b） | ai autoconfig | ✅ |
+| 单测：假 Advisor / merge / deferred 陷阱；`MemoryWriteFlagTest` | ai/core test | ✅ |
 
 **不做**：ChatMemory Store、userId/bizKey、图尾 persistMemory、认识 Lesso BusinessContext。
 
-**验收**：业务 Provider 挂上后，call/stream 均能读到 CONVERSATION_ID；无 Provider / NONE / 空 writes 行为与今日一致；多节点一轮 remote 仅 1 USER + 1 ASSISTANT。
+**验收**：业务 Provider 挂上后，call/stream 均能读到 CONVERSATION_ID；**流式续轮** Prompt 含历史（日志 `mergedCount>seedCount`）；无 Provider / NONE / 空 writes 行为与今日一致；多节点一轮 remote 仅 1 USER + 1 ASSISTANT。业务案例：`history-attachment-replay-fix-plan.md`。
 
 **出口后业务下一步**：真 UI 浏览器 E2E 收口（评估 §14.1.1）；Catalog 过滤搁置（§14.3）；增强批可缓。
 
@@ -426,7 +427,7 @@ P3.6 ResourceKeyValidator 接线（任意空隙，建议 C）
 | P0～P2.2 | ✅ | — |
 | P2.3 | ⏭ | 等拍板 |
 | **P3.1～P3.7** | ✅ | 框架工具链欠账清完 |
-| **P3.8** | ✅ | 对话记忆 Advisor 钩子已出口；业务可开 Biz.8 |
+| **P3.8** | ✅ | 对话记忆 Advisor 钩子已出口；**1.1.9/1.1.10** 补齐流式前 merge（R4/R4b）；业务可开 Biz.8 |
 | **P3.9** | ⏭ 按需 | 节点级观测上下文刷新 |
 | **Biz.0** | ✅ | 图执行入口 + 冒烟图 |
 | **Biz.1** | ✅ 主路径 | Validator / 列表鉴权可选 |

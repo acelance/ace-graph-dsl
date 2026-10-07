@@ -1,8 +1,8 @@
 # ACE Graph DSL：SAA Agent Framework 高阶模式节点 — 开发设计与计划
 
 > 文档类型：开发设计 + 实施计划  
-> 状态：**M0～M4 已落地**（附录 A.3～A.5）；宿主整合另立  
-> 日期：2026-09-28（回填至 2026-09-28 当晚） 
+> 状态：**M0～M4 已落地**（附录 A.3～A.5）；宿主整合见 agent-server `docs/ace-graph-agentscope-host.md`  
+> 日期：2026-09-28（文档卫生回填 2026-10-07）
 > 范围：`SAA_WORKFLOW` 高阶节点（Sequential / Parallel / Routing / Loop）  
 >  
 > **口径前提（必读）：**  
@@ -798,20 +798,23 @@ M4 轨迹 / 示例图 / 培训文案 / 可运营
 
 ## 12. 验收清单（发布门禁）
 
-- [ ] **挂载为方式 A（NodeAction）**；未在未定案情况下改走 B  
-- [ ] **子 Agent 经官方 Agent 接口包装 GenericAgent**；未将反射/内部 API 作默认可发布路径  
-- [ ] **ROUTING 使用 Framework 自带路由类**；无自研选路主路径；未用图条件边冒充节点内 Routing  
-- [ ] **AgentScope 路径（若启用）优先 `starter-agentscope`**；未默认可发布直接 `agentscope-core` 自研桥；未把 AgentScope 当主编排  
-- [ ] **子 Agent 无 READ_WRITE 记忆主路径（Q5）**；默认 NONE；未引入假 USER / 双记忆源  
-- [ ] **M1 未修改 SSE 协议（Q6）**；子步骤有日志；未让每个子 Agent 各推 OUTPUT  
-- [ ] 未引入 `ace-graph-dsl-saa-agent`：旧图通过；含 `SAA_WORKFLOW` 的图报错清晰  
-- [ ] 引入后：SEQUENTIAL 样例试运行 + 发布成功  
-- [ ] M2：四 pattern 各至少一条样例 + 自动化测试  
-- [ ] 设计器文案区分图级并行/条件 vs 节点内模式  
-- [ ] 子 Agent 仅引用注册目录；改目录配置后重新编译生效  
-- [ ] 资源仍按 key 走宿主 Resolver（不出现框架写死 Nacos API）  
-- [ ] 关键节点日志可排查：编译、子开始/结束、写回 outputKey、失败原因  
-- [ ] 不修改 `ztc-service-agent` 边结构作为迁移样板  
+> 框架侧 M0～M4 已勾选（2026-09-28）；宿主整合 / 线上样例试运行另见宿主文档。
+
+- [x] **挂载为方式 A（NodeAction）**；未在未定案情况下改走 B  
+- [x] **子 Agent 经官方 Agent 接口包装 GenericAgent**；未将反射/内部 API 作默认可发布路径  
+- [x] **ROUTING 使用 Framework 自带路由类**；无自研选路主路径；未用图条件边冒充节点内 Routing  
+- [x] **AgentScope 路径优先 `starter-agentscope`**；未默认可发布直接 `agentscope-core` 自研桥；未把 AgentScope 当主编排（A.4）  
+- [x] **子 Agent 无 READ_WRITE 记忆主路径（Q5）**；默认 NONE；未引入假 USER / 双记忆源  
+- [x] **M1/M4 未修改 SSE 协议（Q6=不扩展）**；子步骤有日志 + DryRun 树；未让每个子 Agent 各推 OUTPUT  
+- [x] 未引入 `ace-graph-dsl-saa-agent`：旧图通过；含 `SAA_WORKFLOW` 的图报错清晰  
+- [x] 引入后：SEQUENTIAL 样例 + 自动化测试（`SequentialSaaWorkflowFactoryIntegrationTest`）  
+- [x] M2：四 pattern 各至少一条样例 + 自动化测试（见 `docs/testdata/README-SAA.md`）  
+- [x] 设计器文案区分图级并行/条件 vs 节点内模式  
+- [x] 子 Agent 仅引用注册目录；改目录配置后重新编译生效  
+- [x] 资源仍按 key 走宿主 Resolver（不出现框架写死 Nacos API）  
+- [x] 关键节点日志可排查：编译、子开始/结束、写回 outputKey、失败原因  
+- [x] 不修改 `ztc-service-agent` 边结构作为迁移样板  
+- [ ] （宿主）测试环境导入 AgentScope 样例图并冒烟（见 `ace-graph-agentscope-host.md`）
 
 ---
 
@@ -842,7 +845,7 @@ M4 轨迹 / 示例图 / 培训文案 / 可运营
 | Routing 类 FQCN（M2 填写） | `com.alibaba.cloud.ai.graph.agent.flow.agent.LlmRoutingAgent`（BOM 1.1.2.2） |
 | AgentScope 桥接（Q4） | **优先 `spring-ai-alibaba-starter-agentscope`**（同 BOM） |
 | AgentScope 实际坐标/版本（M3 填写） | `com.alibaba.cloud.ai:spring-ai-alibaba-starter-agentscope:1.1.2.2`（同 BOM）；包装类 `com.alibaba.cloud.ai.agent.agentscope.AgentScopeAgent` |
-| 是否改用 agentscope-core 兜底 | □ 否（M3 已选否，主路径 starter） □ 是（原因须评审） |
+| 是否改用 agentscope-core 兜底 | **☑ 否**（M3 主路径 starter；见 A.4） □ 是（原因须评审） |
 | 子 Agent 记忆（Q5） | **中期不做 READ_WRITE**；默认 `NONE` |
 | SSE 子步骤（Q6） | **M1 不改协议，只日志**；是否扩展 **M4 再定** |
 | Q6 M4 结论（届时填） | **☑ 不扩展 SSE**（方案甲：试运行 / debug state 的 `ace.graph.dsl.saa.subSteps` + 日志；线上对话 UI 中期不强制实时子步骤） |
@@ -917,3 +920,4 @@ M4 轨迹 / 示例图 / 培训文案 / 可运营
 | 2026-09-28 | **M1/M2 落地**：四 pattern Factory + 校验开放 + UI 切换 + 四模式样例；附录 A.3 回填 Routing FQCN=`LlmRoutingAgent` |
 | 2026-09-28 | **M3 落地**：模块 `ace-graph-dsl-agentscope-agent`；Q4 starter-agentscope + `AgentScopeAgent`；附录 A.4；能力探测 `agentscopeEnabled` |
 | 2026-09-28 | **M4 落地**：**Q6=不扩展 SSE**；子步骤轨迹键 + DryRun 子步骤树；样例索引与一页培训文案；附录 A.5 |
+| 2026-10-07 | **文档卫生**：§12 验收清单与文首「已落地」对齐；A.1 agentscope-core 勾选否；宿主清单链到 agent-server `ace-graph-agentscope-host.md`；CHANGELOG 补记 M3 模块 |
