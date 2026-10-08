@@ -36,6 +36,19 @@ export function defaultSaaSpec() {
 }
 
 /**
+ * 从子 Agent ref 解析注册中心 nodeId（generic: / agentscope: 前缀均可）。
+ * @param {string|null|undefined} ref
+ * @returns {string}
+ */
+export function parseSubAgentRegisteredId(ref) {
+  const raw = (ref || '').trim()
+  if (!raw) return ''
+  if (raw.startsWith('generic:')) return raw.slice('generic:'.length).trim()
+  if (raw.startsWith('agentscope:')) return raw.slice('agentscope:'.length).trim()
+  return raw
+}
+
+/**
  * 浅拷贝并规范化 saaSpec（保证 subAgents 为数组）。
  * @param {object|null|undefined} spec
  * @returns {object|null}

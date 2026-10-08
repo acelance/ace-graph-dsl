@@ -168,11 +168,28 @@ export const useGraphEditorStore = defineStore('aceGraphEditor', () => {
         const id = n && n.nodeId
         return id && id !== '__START__' && id !== '__END__' && id !== '__ERROR__'
       })
-      .map((n) => ({
-        nodeId: n.nodeId,
-        category: n.category || '',
-        displayName: (n.config && n.config.label) || n.nodeId
-      }))
+      .map((n) => {
+        const row = {
+          nodeId: n.nodeId,
+          category: n.category || '',
+          displayName: (n.config && n.config.label) || n.displayName || n.nodeId
+        }
+        // 供「当前图」展开 SAA 子 Agent 卡片（与画布未保存态以 editor.nodes 为准）
+        if (n.category === 'SAA_WORKFLOW' && n.saaSpec) {
+          row.saaSpec = {
+            pattern: n.saaSpec.pattern || 'SEQUENTIAL',
+            subAgents: Array.isArray(n.saaSpec.subAgents)
+              ? n.saaSpec.subAgents.map((s, i) => ({
+                  name: s?.name || `agent_${i + 1}`,
+                  impl: s?.impl || 'GENERIC_AGENT',
+                  ref: s?.ref || '',
+                  outputKey: s?.outputKey || ''
+                }))
+              : []
+          }
+        }
+        return row
+      })
     console.info('[graphEditor] 当前图节点快照已更新', graphId.value, savedGraphNodes.value.length)
   }
 

@@ -156,7 +156,14 @@ export default {
     genericAgent: '通用 Agent 节点',
     agentTab: '通用 Agent',
     createAgent: '+ 新建通用 Agent',
-    deleteAgentConfirm: '确认删除通用 Agent 节点 "{name}"？'
+    deleteAgentConfirm: '确认删除通用 Agent 节点 "{name}"？',
+    expandSaaSubs: '展开子 Agent',
+    collapseSaaSubs: '收起子 Agent',
+    saaSubAgent: '子 Agent',
+    saaSubEmpty: '暂无子 Agent（请在属性面板配置）',
+    saaSubEdit: '编辑',
+    saaSubUnresolved: '未找到注册 Agent：{ref}',
+    saaSubNoRef: '未选择引用'
   },
   edgeValidation: {
     title: '连线参数校验',

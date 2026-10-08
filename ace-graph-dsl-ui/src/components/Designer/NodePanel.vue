@@ -1,13 +1,14 @@
 <script setup>
 import { ref, computed, onMounted, watch } from 'vue'
 import { ElMessageBox, ElMessage } from 'element-plus'
-import { ArrowLeft, ArrowRight } from '@element-plus/icons-vue'
+import { ArrowLeft, ArrowRight, ArrowDown, CaretRight } from '@element-plus/icons-vue'
 import { useGraphEditorStore } from '../../stores/graphEditor'
 import { useNodeRegistryStore } from '../../stores/nodeRegistry'
 import { usePermissionStore, MENU } from '../../stores/permissions'
 import { useI18n } from '../../i18n'
 import { useAgentEditorBus } from '../../stores/agentEditorBus'
 import { deleteScriptNode, listReferringGraphs, deleteAgentNode, listAgentReferences } from '../../api/graph'
+import { parseSubAgentRegisteredId } from '../../utils/saaWorkflow'
 import ScriptNodeEditor from './ScriptNodeEditor.vue'
 import AgentNodeEditor from './AgentNodeEditor.vue'
 
@@ -47,6 +48,66 @@ watch(showAgentEditor, (open) => {
 })
 
 const isCurrentGraphTab = computed(() => activeTab.value === 'CURRENT')
+/** 「当前图」中已展开的 SAA_WORKFLOW nodeId */
+const expandedSaaIds = ref(new Set())
+
+function isSaaWorkflowNode(n) {
+  return n?.category === 'SAA_WORKFLOW'
+}
+
+function resolveSaaSubAgents(saved) {
+  const live = (editor.nodes || []).find((n) => n.nodeId === saved.nodeId)
+  const spec = live?.saaSpec || saved.saaSpec
+  const list = Array.isArray(spec?.subAgents) ? spec.subAgents : []
+  return list.map((s, i) => {
+    const registeredId = parseSubAgentRegisteredId(s?.ref)
+    const catalog = registeredId
+      ? nodeStore.nodes.find((n) => n.nodeId === registeredId)
+      : null
+    // 展示与「当前图」注册式 Agent 卡片对齐：优先注册表 displayName
+    return {
+      name: s?.name || `agent_${i + 1}`,
+      impl: (s?.impl || catalog?.category || 'GENERIC_AGENT').toUpperCase(),
+      ref: s?.ref || '',
+      outputKey: s?.outputKey || '',
+      registeredId,
+      displayName: catalog?.displayName || s?.name || registeredId || t('nodePanel.saaSubAgent'),
+      category: catalog?.category || 'GENERIC_AGENT',
+      origin: catalog?.origin || (registeredId ? 'GENERIC_AGENT' : undefined),
+      catalogNode: catalog || null
+    }
+  })
+}
+
+function toggleSaaExpand(nodeId) {
+  const next = new Set(expandedSaaIds.value)
+  if (next.has(nodeId)) next.delete(nodeId)
+  else next.add(nodeId)
+  expandedSaaIds.value = next
+}
+
+function isSaaExpanded(nodeId) {
+  return expandedSaaIds.value.has(nodeId)
+}
+
+async function onEditSaaSubAgent(sub) {
+  if (!sub?.registeredId) {
+    ElMessage.warning(t('nodePanel.saaSubNoRef'))
+    return
+  }
+  await ensureRegistryLoaded()
+  const target =
+    sub.catalogNode ||
+    nodeStore.nodes.find((n) => n.origin === 'GENERIC_AGENT' && n.nodeId === sub.registeredId)
+  if (!target) {
+    ElMessage.warning(t('nodePanel.saaSubUnresolved', { ref: sub.ref || sub.registeredId }))
+    return
+  }
+  openAgentEditor(target, {
+    fromGraph: true,
+    graphId: editor.graphId || undefined
+  })
+}
 
 const filteredNodes = computed(() => {
   const kw = keyword.value.toLowerCase()
@@ -54,18 +115,53 @@ const filteredNodes = computed(() => {
     (name || '').toLowerCase().includes(kw) || (id || '').toLowerCase().includes(kw)
 
   if (activeTab.value === 'CURRENT') {
-    return (editor.savedGraphNodes || [])
+    const skip = new Set(['__START__', '__END__', '__ERROR__'])
+    const byId = new Map()
+    for (const saved of editor.savedGraphNodes || []) {
+      if (saved?.nodeId && !skip.has(saved.nodeId)) byId.set(saved.nodeId, { ...saved })
+    }
+    // 未保存的画布节点也进「当前图」（含刚拖入的 SAA）
+    for (const live of editor.nodes || []) {
+      if (!live?.nodeId || skip.has(live.nodeId)) continue
+      const prev = byId.get(live.nodeId) || {}
+      byId.set(live.nodeId, {
+        ...prev,
+        nodeId: live.nodeId,
+        category: live.category || prev.category || '',
+        displayName: live.displayName || live.config?.label || prev.displayName || live.nodeId,
+        saaSpec: live.saaSpec || prev.saaSpec
+      })
+    }
+    return [...byId.values()]
       .map((saved) => {
         const catalog = nodeStore.nodes.find((n) => n.nodeId === saved.nodeId)
-        if (catalog) return catalog
-        return {
-          nodeId: saved.nodeId,
-          displayName: saved.displayName || saved.nodeId,
-          category: saved.category || '',
-          origin: undefined
+        const base = catalog
+          ? { ...catalog }
+          : {
+              nodeId: saved.nodeId,
+              displayName: saved.displayName || saved.nodeId,
+              category: saved.category || '',
+              origin: undefined
+            }
+        const live = (editor.nodes || []).find((n) => n.nodeId === saved.nodeId)
+        if (live?.displayName || live?.config?.label) {
+          base.displayName = live.displayName || live.config?.label || base.displayName
         }
+        if (saved.category === 'SAA_WORKFLOW' || live?.category === 'SAA_WORKFLOW') {
+          base.category = 'SAA_WORKFLOW'
+          base.saaSubAgents = resolveSaaSubAgents(saved)
+        }
+        return base
       })
-      .filter((n) => matchKw(n.displayName, n.nodeId))
+      .filter((n) => {
+        if (matchKw(n.displayName, n.nodeId)) return true
+        return (n.saaSubAgents || []).some(
+          (s) =>
+            matchKw(s.displayName, s.registeredId) ||
+            matchKw(s.name, s.registeredId) ||
+            matchKw(s.ref, s.impl)
+        )
+      })
   }
 
   let list = nodeStore.nodes
@@ -107,6 +203,10 @@ function onDragStart(e, n) {
 function onNodeActivate(n) {
   if (isCurrentGraphTab.value) {
     emit('node-locate', n.nodeId)
+    // 高阶多智能体：点击卡片展开子 Agent（收起用左侧箭头）
+    if (isSaaWorkflowNode(n) && !isSaaExpanded(n.nodeId)) {
+      toggleSaaExpand(n.nodeId)
+    }
     return
   }
   emit('node-drag', n)
@@ -263,12 +363,26 @@ async function onDelete(node) {
       v-for="n in filteredNodes"
       :key="n.nodeId"
       class="node-item"
+      :class="{ 'node-item--saa': isCurrentGraphTab && isSaaWorkflowNode(n) }"
       :draggable="!isCurrentGraphTab"
       @dragstart="onDragStart($event, n)"
       @click="onNodeActivate(n)"
     >
       <div class="node-row node-row--top">
         <div class="node-info">
+          <el-button
+            v-if="isCurrentGraphTab && isSaaWorkflowNode(n)"
+            link
+            size="small"
+            class="saa-expand-btn"
+            :title="isSaaExpanded(n.nodeId) ? t('nodePanel.collapseSaaSubs') : t('nodePanel.expandSaaSubs')"
+            @click.stop="toggleSaaExpand(n.nodeId)"
+          >
+            <el-icon>
+              <ArrowDown v-if="isSaaExpanded(n.nodeId)" />
+              <CaretRight v-else />
+            </el-icon>
+          </el-button>
           <span class="node-name">{{ n.displayName }}</span>
           <el-tag v-if="n.origin === 'SCRIPT'" size="small" type="success" style="margin-left: 4px;">SCRIPT</el-tag>
           <el-tag
@@ -277,6 +391,12 @@ async function onDelete(node) {
             :class="{ 'hitl-tag': isHitlCategory(n.category) }"
             style="margin-left: 4px;"
           >{{ n.category }}</el-tag>
+          <el-tag
+            v-if="isCurrentGraphTab && isSaaWorkflowNode(n) && (n.saaSubAgents || []).length"
+            size="small"
+            type="info"
+            style="margin-left: 4px;"
+          >{{ (n.saaSubAgents || []).length }}</el-tag>
         </div>
       </div>
       <div class="node-row node-row--bottom" v-if="canEdit(n)">
@@ -284,6 +404,45 @@ async function onDelete(node) {
           <el-button link size="small" type="primary" @click.stop="onEdit(n)">{{ t('nodePanel.edit') }}</el-button>
           <el-button link size="small" type="danger" @click.stop="onDelete(n)">{{ t('nodePanel.delete') }}</el-button>
         </div>
+      </div>
+      <!-- 当前图：SAA 展开子 Agent（展示/样式对齐注册式 Agent 卡片） -->
+      <div
+        v-if="isCurrentGraphTab && isSaaWorkflowNode(n) && isSaaExpanded(n.nodeId)"
+        class="saa-sub-list"
+        @click.stop
+      >
+        <div
+          v-for="(sub, idx) in (n.saaSubAgents || [])"
+          :key="`${n.nodeId}_sub_${idx}_${sub.ref || sub.name}`"
+          class="node-item node-item--sub"
+        >
+          <div class="node-row node-row--top">
+            <div class="node-info">
+              <span class="node-name">{{ sub.displayName }}</span>
+              <el-tag
+                size="small"
+                :type="categoryTagType(sub.category)"
+                style="margin-left: 4px;"
+              >{{ sub.category }}</el-tag>
+            </div>
+          </div>
+          <div class="node-row node-row--bottom" v-if="sub.origin === 'GENERIC_AGENT' || sub.origin === 'SCRIPT'">
+            <div class="node-actions">
+              <el-button
+                link
+                size="small"
+                type="primary"
+                :disabled="!sub.registeredId"
+                @click.stop="onEditSaaSubAgent(sub)"
+              >{{ t('nodePanel.edit') }}</el-button>
+            </div>
+          </div>
+        </div>
+        <el-empty
+          v-if="!(n.saaSubAgents || []).length"
+          :description="t('nodePanel.saaSubEmpty')"
+          :image-size="28"
+        />
       </div>
     </div>
     <el-empty v-if="filteredNodes.length === 0" :description="emptyDescription" :image-size="40" />
@@ -336,6 +495,25 @@ async function onDelete(node) {
   cursor: grab; transition: all 0.2s;
 }
 .node-item:hover {
+  border-color: var(--agd-color-primary, #409eff);
+  background: var(--agd-color-bg-active, #ecf5ff);
+}
+.node-item--saa { cursor: pointer; }
+.saa-expand-btn {
+  margin-right: 2px;
+  padding: 0 2px;
+  vertical-align: middle;
+}
+.saa-sub-list {
+  margin-top: 8px;
+  padding-left: 8px;
+  border-left: 2px solid var(--agd-color-border, #e4e7ed);
+}
+.node-item--sub {
+  cursor: default;
+  margin-bottom: 6px;
+}
+.node-item--sub:hover {
   border-color: var(--agd-color-primary, #409eff);
   background: var(--agd-color-bg-active, #ecf5ff);
 }

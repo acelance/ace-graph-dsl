@@ -155,7 +155,14 @@ export default {
     genericAgent: 'Generic Agent node',
     agentTab: 'Generic Agent',
     createAgent: '+ New Generic Agent',
-    deleteAgentConfirm: 'Delete Generic Agent node "{name}"?'
+    deleteAgentConfirm: 'Delete Generic Agent node "{name}"?',
+    expandSaaSubs: 'Expand sub-agents',
+    collapseSaaSubs: 'Collapse sub-agents',
+    saaSubAgent: 'Sub-agent',
+    saaSubEmpty: 'No sub-agents (configure in the property panel)',
+    saaSubEdit: 'Edit',
+    saaSubUnresolved: 'Registered agent not found: {ref}',
+    saaSubNoRef: 'No ref selected'
   },
   edgeValidation: {
     title: 'Edge parameter validation',
