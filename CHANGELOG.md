@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.12] — 2026-10-13
+
+### Fixed
+
+- **SAA 连线参数可达性**：`EdgeParamReachabilityValidator` / 前端 `edgeParamValidation.js`
+  将 `SAA_WORKFLOW` 的 `saaSpec.outputKey` 与子 `outputKey` 计入上游产出，避免
+  「高阶节点 → 下游 GenericAgent」误报缺少入参、试运行/编译被拦。
+
 ## [1.1.11] — 2026-10-07
 
 ### Fixed
