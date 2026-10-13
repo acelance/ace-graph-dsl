@@ -130,6 +130,7 @@ public final class SequentialFlowAgentNodeAction implements NodeAction {
         if (!seed.containsKey("input")) {
             seed.put("input", seed.values().iterator().next());
         }
+        SaaFlowSeedSupport.copyParentContext(state, seed);
         return seed;
     }
 

@@ -101,12 +101,19 @@ public final class GenericAgentBaseAgentAdapter extends BaseAgent {
 
             Map<String, Object> rawResult;
             if (delegate instanceof GenericAgentNode gan) {
-                rawResult = gan.execute(
-                        variables,
-                        readString(state, ModelOverrideSpec.ACE_RUN_ID_KEY),
-                        readOverrides(state),
-                        readString(state, LlmRequestContext.ACE_AGENT_CODE_KEY),
-                        state);
+                String runId = readString(state, ModelOverrideSpec.ACE_RUN_ID_KEY);
+                String agentCode = readString(state, LlmRequestContext.ACE_AGENT_CODE_KEY);
+                String conversationId = readString(state, LlmRequestContext.ACE_CONVERSATION_ID_KEY);
+                if (!StringUtils.hasText(agentCode)) {
+                    log.error("SAA 子 Agent 缺 agentCode（父 seed 未透传?）: graphId={}, parentNodeId={}, "
+                                    + "subName={}, runId={}, conversationId={}, stateDataKeys={}",
+                            parentGraphId, parentNodeId, name(), runId, conversationId,
+                            state != null && state.data() != null ? state.data().keySet() : null);
+                } else {
+                    log.info("SAA 子 Agent 上下文: graphId={}, subName={}, agentCode={}, runId={}, conversationId={}",
+                            parentGraphId, name(), agentCode, runId, conversationId);
+                }
+                rawResult = gan.execute(variables, runId, readOverrides(state), agentCode, state);
             } else {
                 rawResult = delegate.execute(variables);
             }

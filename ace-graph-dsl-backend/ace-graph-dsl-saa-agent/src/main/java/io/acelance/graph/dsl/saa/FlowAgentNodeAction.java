@@ -174,6 +174,8 @@ public final class FlowAgentNodeAction implements NodeAction {
         if (!seed.containsKey("input")) {
             seed.put("input", seed.values().iterator().next());
         }
+        // 透传 agentCode / runId / conversationId / forceSkills / modelOverrides / media_refs …
+        SaaFlowSeedSupport.copyParentContext(state, seed);
         return seed;
     }
 

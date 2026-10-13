@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.15] — 2026-10-13
+
+### Fixed
+
+- **SAA 子 Agent 丢 agentCode**：`FlowAgentNodeAction` / `SequentialFlowAgentNodeAction`
+  的 seed 原先只带 inputKeys，未透传父 state 保留键；子节点走 `modelConfigKey` 时
+  ModelMount 报「缺少 agentCode」（lf4qw：`intention_subagent`）。现经
+  `SaaFlowSeedSupport` 透传 `ace.graph.dsl.*` 与 `media_refs` 等平台上下文键。
+
 ## [1.1.14] — 2026-10-13
 
 ### Fixed / Diagnostics
