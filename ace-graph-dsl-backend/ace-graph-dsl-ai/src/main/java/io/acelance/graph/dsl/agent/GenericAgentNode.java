@@ -220,15 +220,16 @@ public class GenericAgentNode implements GraphBoundAgentNode {
             boolean deepThinking = resolveDeepThinking(state);
             LlmRequestContext ctx = new LlmRequestContext(
                     agentCode, graphId, nodeId, runId, conversationId, state, binding);
+            // streamAttrs 须在 emitResourceMiss 之前就绪：miss 帧同样走 SSE thinking/nodeDisplay
+            Map<String, Object> streamAttrs = streamAttrsFromSpec(spec);
             List<NamedToolCallback> namedTools = resolveNamedTools(ctx, binding, diag);
-            emitResourceMiss(runId, diag);
+            emitResourceMiss(runId, diag, streamAttrs);
 
             GraphStreamBridge bridge = optionalBean(GraphStreamBridge.class, GraphStreamBridge.NOOP);
             boolean streaming = (bridge != GraphStreamBridge.NOOP) && runId != null && !runId.isBlank();
 
             StreamingLlmTemplate template = resolveTemplate(bridge);
             String userMessage = resolveUserMessage(variables);
-            Map<String, Object> streamAttrs = streamAttrsFromSpec(spec);
             log.info("节点 {} Template 挂载工具数={}, memoryMode={}, conversationId={}, userChars={}, deepThinking={}, streamAttrs={}",
                     nodeId, namedTools.size(), spec.effectiveMemoryMode(), conversationId,
                     userMessage.length(), deepThinking, streamAttrs.keySet());
@@ -570,7 +571,7 @@ public class GenericAgentNode implements GraphBoundAgentNode {
         return filtered;
     }
 
-    private void emitResourceMiss(String runId, ResourceLoadDiagnostics diag) {
+    private void emitResourceMiss(String runId, ResourceLoadDiagnostics diag, Map<String, Object> streamAttrs) {
         if (runId == null || runId.isBlank() || diag == null || !diag.hasIssues()) {
             return;
         }
@@ -578,9 +579,11 @@ public class GenericAgentNode implements GraphBoundAgentNode {
         if (bridge == GraphStreamBridge.NOOP) {
             return;
         }
+        Map<String, Object> attrs = streamAttrs != null ? streamAttrs : Map.of();
         for (ResourceLoadDiagnostics.Entry e : diag.entries()) {
             String msg = e.resourceType() + ":" + e.key() + " — " + e.message();
-            bridge.emit(runId, new TokenChunk(nodeId, msg, null, "resource_miss", false));
+            // 必须带 streamAttrs，否则 SSE 在 LLM 首 token 前无法解析 thinking/nodeDisplay
+            bridge.emit(runId, new TokenChunk(nodeId, msg, null, "resource_miss", false, attrs));
             log.info("节点 {} 已推送 debug resource_miss: {}", nodeId, msg);
         }
     }

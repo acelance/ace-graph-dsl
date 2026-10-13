@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.16] — 2026-10-13
+
+### Fixed
+
+- **resource_miss 帧丢失 thinking**：`GenericAgentNode.emitResourceMiss` 原先发出的
+  `TokenChunk` 不带 `streamAttrs`，且早于 attrs 构建；SSE 在 MCP miss 文案上
+  `attrsPresent=false`，按正文下发（无 `thinking:true`）。现先构建 attrs，miss 帧
+  一并透传，与后续 LLM token 一致。
+
 ## [1.1.15] — 2026-10-13
 
 ### Fixed
