@@ -319,16 +319,19 @@ public class StreamingLlmTemplate {
                 persistUrls, skillLabels, ctx);
         String full;
         boolean wantStream = req.streaming() && ctx.runId() != null && !ctx.runId().isBlank();
+        String resolvedModelId = endpoint.modelId();
         if (wantStream && modelTools.isEmpty()) {
             // 流式不挂记忆 Advisor：调模型前读历史进 Prompt；echo 仍用原始 seed 落盘
             List<Message> promptMessages = mergeHistoryForStreamingPrompt(messages, req, false);
-            full = streamCall(model, promptMessages, modelTools, req, ctx, req.streamResponseKind());
+            full = streamCall(model, promptMessages, modelTools, req, ctx, req.streamResponseKind(),
+                    resolvedModelId);
             persistMemoryAfterToolStream(messages, full, req);
         } else if (wantStream) {
             log.info("节点 {} 流式+工具：ChatClient.stream().chatResponse() 真流式（通道 A）", ctx.nodeId());
-            full = streamCallWithTools(model, messages, modelTools, req, ctx, req.streamResponseKind());
+            full = streamCallWithTools(model, messages, modelTools, req, ctx, req.streamResponseKind(),
+                    resolvedModelId);
         } else {
-            full = syncCall(model, messages, modelTools, req);
+            full = syncCall(model, messages, modelTools, req, resolvedModelId);
             log.info("节点 {} 同步调用完成: chars={}, kind={}, elapsedMs={}",
                     ctx.nodeId(), full.length(), req.streamResponseKind(),
                     (System.nanoTime() - start) / 1_000_000);
@@ -399,7 +402,8 @@ public class StreamingLlmTemplate {
     private ChatClient.ChatClientRequestSpec prepareSpec(ChatModel model,
                                                          List<Message> messages,
                                                          List<ToolCallback> tools,
-                                                         LlmCallRequest req) {
+                                                         LlmCallRequest req,
+                                                         String resolvedModelId) {
         LlmRequestContext ctx = req.context();
         MemoryMode mode = req.memoryMode() == null ? MemoryMode.NONE : req.memoryMode();
         boolean hasTools = tools != null && !tools.isEmpty();
@@ -469,11 +473,15 @@ public class StreamingLlmTemplate {
         }
 
         if (hasTools) {
-            ToolCallingChatOptions options = ToolCallingChatOptions.builder()
+            // 先播种已解析 modelId，避免 OptionsCustomizer 重建请求级 Options 时丢失，
+            // 回落到 spring.ai.openai.chat.options.model。
+            ToolCallingChatOptions.Builder optBuilder = ToolCallingChatOptions.builder()
                     .toolCallbacks(tools)
-                    .internalToolExecutionEnabled(false)
-                    .build();
-            ChatOptions finalOptions = applyOptionsCustomizer(options, req);
+                    .internalToolExecutionEnabled(false);
+            if (resolvedModelId != null && !resolvedModelId.isBlank()) {
+                optBuilder.model(resolvedModelId.trim());
+            }
+            ChatOptions finalOptions = applyOptionsCustomizer(optBuilder.build(), req);
             spec = spec.toolCallbacks(tools).options(finalOptions);
         }
         else {
@@ -505,8 +513,9 @@ public class StreamingLlmTemplate {
     }
 
     private String syncCall(ChatModel model, List<Message> messages,
-                            List<ToolCallback> tools, LlmCallRequest req) {
-        ChatClient.ChatClientRequestSpec spec = prepareSpec(model, messages, tools, req);
+                            List<ToolCallback> tools, LlmCallRequest req,
+                            String resolvedModelId) {
+        ChatClient.ChatClientRequestSpec spec = prepareSpec(model, messages, tools, req, resolvedModelId);
         String content = spec.call().content();
         log.info("节点 {} ChatClient.call 返回 chars={}",
                 req.context().nodeId(), content == null ? 0 : content.length());
@@ -515,9 +524,10 @@ public class StreamingLlmTemplate {
 
     private String streamCall(ChatModel model, List<Message> messages,
                               List<ToolCallback> tools, LlmCallRequest req,
-                              LlmRequestContext ctx, String kind) {
+                              LlmRequestContext ctx, String kind,
+                              String resolvedModelId) {
         StringBuilder sb = new StringBuilder();
-        ChatClient.ChatClientRequestSpec spec = prepareSpec(model, messages, tools, req);
+        ChatClient.ChatClientRequestSpec spec = prepareSpec(model, messages, tools, req, resolvedModelId);
         try {
             spec.stream()
                     .content()
@@ -548,7 +558,8 @@ public class StreamingLlmTemplate {
      */
     private String streamCallWithTools(ChatModel model, List<Message> messages,
                                        List<ToolCallback> tools, LlmCallRequest req,
-                                       LlmRequestContext ctx, String kind) {
+                                       LlmRequestContext ctx, String kind,
+                                       String resolvedModelId) {
         ToolCallingManager toolManager = new StreamingToolCallMergingManager(
                 DefaultToolCallingManager.builder().build());
         // seed 仅用于 echo 落盘；Prompt 在循环外合并历史一次，避免工具多轮重复读 remote
@@ -562,7 +573,8 @@ public class StreamingLlmTemplate {
             for (int round = 0; round < maxRounds; round++) {
                 List<ChatResponse> frames = new ArrayList<>();
                 StringBuilder roundText = new StringBuilder();
-                ChatClient.ChatClientRequestSpec spec = prepareSpec(model, conversation, tools, req);
+                ChatClient.ChatClientRequestSpec spec =
+                        prepareSpec(model, conversation, tools, req, resolvedModelId);
                 spec.stream()
                         .chatResponse()
                         .doOnNext(cr -> {
@@ -735,7 +747,7 @@ public class StreamingLlmTemplate {
                     .streamAttrs(req.streamAttrs())
                     .build();
             ChatModel echo = new EchoAssistantChatModel(assistantText == null ? "" : assistantText);
-            ChatClient.ChatClientRequestSpec spec = prepareSpec(echo, seedMessages, List.of(), echoReq);
+            ChatClient.ChatClientRequestSpec spec = prepareSpec(echo, seedMessages, List.of(), echoReq, null);
             spec.call().content();
             log.info("节点 {} 流式终答记忆已 echo 落盘: chars={}", ctx.nodeId(),
                     assistantText == null ? 0 : assistantText.length());

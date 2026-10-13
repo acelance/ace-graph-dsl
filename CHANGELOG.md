@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.13] — 2026-10-13
+
+### Fixed
+
+- **有工具时请求级 Options 丢失 modelId**：`StreamingLlmTemplate` 在挂工具时将已解析的
+  `endpoint.modelId` 播入 `ToolCallingChatOptions`；避免 `LlmChatOptionsCustomizer` 重建
+  Options 后 model 为空、回落到 `spring.ai.openai.chat.options.model`（表现为 Nacos 配
+  qwen、Langfuse 却打 deepseek）。平台侧 `LessoAceGraphThinkingOptionsCustomizer` 同步
+  从 base Options 保留 model，且不再写入 null model。
+
 ## [1.1.12] — 2026-10-13
 
 ### Fixed
