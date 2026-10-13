@@ -481,27 +481,44 @@ public class StreamingLlmTemplate {
             if (resolvedModelId != null && !resolvedModelId.isBlank()) {
                 optBuilder.model(resolvedModelId.trim());
             }
-            ChatOptions finalOptions = applyOptionsCustomizer(optBuilder.build(), req);
+            ChatOptions seeded = optBuilder.build();
+            log.info("节点 {} 请求级 Options 播种: resolvedModelId={}, seeded.getModel()={}, tools={}",
+                    ctx.nodeId(), resolvedModelId, seeded.getModel(), tools.size());
+            ChatOptions finalOptions = applyOptionsCustomizer(seeded, req, resolvedModelId);
+            log.info("节点 {} 最终请求级 Options: resolvedModelId={}, final.getModel()={}, type={}",
+                    ctx.nodeId(), resolvedModelId,
+                    finalOptions != null ? finalOptions.getModel() : null,
+                    finalOptions != null ? finalOptions.getClass().getSimpleName() : null);
             spec = spec.toolCallbacks(tools).options(finalOptions);
         }
         else {
-            ChatOptions customized = applyOptionsCustomizer(null, req);
+            ChatOptions customized = applyOptionsCustomizer(null, req, resolvedModelId);
             if (customized != null) {
+                log.info("节点 {} 无工具最终 Options: resolvedModelId={}, final.getModel()={}, type={}",
+                        ctx.nodeId(), resolvedModelId, customized.getModel(),
+                        customized.getClass().getSimpleName());
                 spec = spec.options(customized);
             }
         }
         return spec;
     }
 
-    private ChatOptions applyOptionsCustomizer(ChatOptions base, LlmCallRequest req) {
+    private ChatOptions applyOptionsCustomizer(ChatOptions base, LlmCallRequest req,
+                                               String resolvedModelId) {
         if (optionsCustomizer == null) {
             return base;
         }
         try {
             ChatOptions out = optionsCustomizer.customize(base, req);
             if (out != null) {
-                log.info("节点 {} ChatOptions 已由 LlmChatOptionsCustomizer 定制: deepThinking={}, type={}",
-                        req.context().nodeId(), req.deepThinking(), out.getClass().getSimpleName());
+                log.info("节点 {} ChatOptions 已由 LlmChatOptionsCustomizer 定制: deepThinking={}, type={}, "
+                                + "resolvedModelId={}, base.getModel()={}, out.getModel()={}, inlineModelId={}, overrideModelId={}",
+                        req.context().nodeId(), req.deepThinking(), out.getClass().getSimpleName(),
+                        resolvedModelId,
+                        base != null ? base.getModel() : null,
+                        out.getModel(),
+                        req.inlineModel() != null ? req.inlineModel().modelId() : null,
+                        req.modelOverride() != null ? req.modelOverride().modelId() : null);
                 return out;
             }
         }
@@ -603,21 +620,28 @@ public class StreamingLlmTemplate {
                     log.info("节点 {} 流式工具中间轮不进 visible: round={}, intermediateChars={}（C2）",
                             ctx.nodeId(), round + 1, roundText.length());
                 }
-                ToolCallingChatOptions opts = ToolCallingChatOptions.builder()
+                ToolCallingChatOptions.Builder optsBuilder = ToolCallingChatOptions.builder()
                         .toolCallbacks(tools)
-                        .internalToolExecutionEnabled(false)
-                        .build();
-                ChatOptions finalOpts = applyOptionsCustomizer(opts, req);
+                        .internalToolExecutionEnabled(false);
+                if (resolvedModelId != null && !resolvedModelId.isBlank()) {
+                    optsBuilder.model(resolvedModelId.trim());
+                }
+                ToolCallingChatOptions opts = optsBuilder.build();
+                ChatOptions finalOpts = applyOptionsCustomizer(opts, req, resolvedModelId);
                 ToolCallingChatOptions toolOpts = opts;
                 if (finalOpts instanceof ToolCallingChatOptions customized) {
                     // 流式手动多轮必须关闭内置执行，避免与 Template 循环重复跑工具
-                    toolOpts = ToolCallingChatOptions.builder()
+                    ToolCallingChatOptions.Builder toolBuilder = ToolCallingChatOptions.builder()
                             .toolCallbacks(customized.getToolCallbacks() != null
                                     ? customized.getToolCallbacks() : tools)
                             .toolNames(customized.getToolNames())
                             .toolContext(customized.getToolContext())
-                            .internalToolExecutionEnabled(false)
-                            .build();
+                            .internalToolExecutionEnabled(false);
+                    String mid = firstNonBlank(customized.getModel(), resolvedModelId);
+                    if (mid != null) {
+                        toolBuilder.model(mid);
+                    }
+                    toolOpts = toolBuilder.build();
                 }
                 Prompt prompt = new Prompt(conversation, toolOpts);
                 List<String> requestedNames = StreamingToolCallMergingManager.requestedToolNames(toolRound);
@@ -930,5 +954,15 @@ public class StreamingLlmTemplate {
 
     private static String nullToEmpty(String s) {
         return s == null ? "" : s;
+    }
+
+    private static String firstNonBlank(String a, String b) {
+        if (a != null && !a.isBlank()) {
+            return a.trim();
+        }
+        if (b != null && !b.isBlank()) {
+            return b.trim();
+        }
+        return null;
     }
 }

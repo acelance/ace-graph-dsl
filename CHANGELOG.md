@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.14] — 2026-10-13
+
+### Fixed / Diagnostics
+
+- **有工具 LLM 请求 model 诊断日志**：`StreamingLlmTemplate` 打印播种前后 / Customizer
+  前后的 `resolvedModelId`、`base.getModel()`、`out.getModel()`、inline/override。
+- 平台 Customizer（随 agent-server）：`resolveModel` 改为 Override &gt; 已解析 base &gt; inline；
+  `enableModel+modelConfigKey` 时忽略图内残留 inline（z5jtm：endpoint=qwen 被
+  inline=deepseek 盖掉）。
+
 ## [1.1.13] — 2026-10-13
 
 ### Fixed
