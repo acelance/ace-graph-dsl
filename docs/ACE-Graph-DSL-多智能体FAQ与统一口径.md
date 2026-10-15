@@ -6,6 +6,7 @@
 > 读者：产品、业务编排、平台研发、评审  
 > 关联文档：  
 > - [ACE-Graph-DSL-高阶模式集成目标说明.md](./ACE-Graph-DSL-高阶模式集成目标说明.md)（四模式 × 图级边分层详解）  
+> - [ACE-Graph-DSL-state键与inputKeys口径.md](./ACE-Graph-DSL-state键与inputKeys口径.md)（连线校验 vs 运行时缺值；维护框架必读）  
 > - [ACE-Graph-DSL-多智能体中期规划.md](./ACE-Graph-DSL-多智能体中期规划.md)  
 > - [ACE-Graph-DSL-多智能体初步技术方案.md](./ACE-Graph-DSL-多智能体初步技术方案.md)  
 > - [ACE-Graph-DSL-多智能体内核选型.md](./ACE-Graph-DSL-多智能体内核选型.md)
@@ -510,10 +511,30 @@ M4:  再选 不扩展 / 扩展（须契约评审）
 
 ---
 
-## 15. 文档索引
+## 15. inputKeys 校验通过，运行时某个 key 为空，算不算配错？
+
+### 问
+
+> 下游节点声明了 `form_data` / `fileNames` 等 inputKeys，连线校验也过了；某次请求没传这些字段，运行时空了甚至 NPE——是不是图没配好？
+
+### 答（定案 2026-10-15）
+
+**多半不是配置错，先分两层：**
+
+1. **连线校验**：只保证 key **名字在路径上可达**（有人声明产出）。不管这次请求有没有值。  
+2. **运行执行**：允许个别 key **缺失或为空**；提示词对应 `{{key}}` 当空串。框架**不得**因 null 做 `Map.copyOf` 崩溃。
+
+通俗：**管道要通；管子里这次可以没水；没水不该炸管。**
+
+完整口径与维护硬规则：[ACE-Graph-DSL-state键与inputKeys口径.md](./ACE-Graph-DSL-state键与inputKeys口径.md)。
+
+---
+
+## 16. 文档索引
 
 | 想查什么 | 去哪 |
 |----------|------|
+| state / inputKeys / 校验 vs 运行缺值 | [state键与inputKeys口径](./ACE-Graph-DSL-state键与inputKeys口径.md) |
 | 四模式分层拓扑与选用场景 | [高阶模式集成目标说明](./ACE-Graph-DSL-高阶模式集成目标说明.md) |
 | 中期必达 / 非目标 / M1–M4 | [中期规划](./ACE-Graph-DSL-多智能体中期规划.md) |
 | `saaSpec` JSON、Factory、校验 | [初步技术方案](./ACE-Graph-DSL-多智能体初步技术方案.md) |

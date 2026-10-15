@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.17] — 2026-10-15
+
+### Fixed
+
+- **inputKeys 缺值导致 NPE**：`GenericAgentNode` 对 state 缺省 key 曾 `put(null)`，
+  `LlmCallRequest` 再 `Map.copyOf(variables)` 触发 NPE（JDK 禁止 null value）。
+  现缺 key 不写入 variables；`LlmCallRequest` 构造前清洗 null 条目。运行时允许
+  个别 inputKey 无值（提示词空串），连线可达性校验语义不变。
+
 ## [1.1.16] — 2026-10-13
 
 ### Fixed

@@ -141,14 +141,10 @@ public class GenericAgentNode implements GraphBoundAgentNode {
         return (OverAllState state) -> {
             Map<String, Object> variables = new LinkedHashMap<>();
             List<String> keys = spec.inputKeyList();
-            if (keys.isEmpty()) {
-                for (String key : spec.inputKeySet()) {
-                    variables.put(key, state.value(key).orElse(null));
-                }
-            } else {
-                for (String key : keys) {
-                    variables.put(key, state.value(key).orElse(null));
-                }
+            Iterable<String> keyIter = keys.isEmpty() ? spec.inputKeySet() : keys;
+            for (String key : keyIter) {
+                // 缺省不 put null：LlmCallRequest 用 Map.copyOf，null value 会 NPE
+                state.value(key).ifPresent(v -> variables.put(key, v));
             }
             String runId = readRunId(state);
             ModelOverrideSpec overrides = readOverrides(state);
