@@ -8,7 +8,9 @@ import io.acelance.graph.dsl.definition.GraphEdge;
 import io.acelance.graph.dsl.definition.NodeRef;
 import io.acelance.graph.dsl.observability.GraphExecutionListener;
 import io.acelance.graph.dsl.observability.GraphLifecycleListenerBridge;
+import io.acelance.graph.dsl.definition.GenericAgentDefinition;
 import io.acelance.graph.dsl.persistence.DynamicNodeDefinitionRepository;
+import io.acelance.graph.dsl.persistence.GenericAgentDefinitionRepository;
 import io.acelance.graph.dsl.persistence.GraphDefinitionRepository;
 import io.acelance.graph.dsl.registry.EdgeDispatcherRegistry;
 import io.acelance.graph.dsl.registry.GraphNodeDescriptor;
@@ -105,6 +107,11 @@ public class DynamicGraphBuilder {
     private final ObjectProvider<GenericAgentNodeFactory> agentNodeFactory;
     /** 可选：未引入 ace-graph-dsl-saa-agent 时为空，遇 SAA_WORKFLOW 给出可操作报错 */
     private final ObjectProvider<SaaWorkflowNodeFactory> saaWorkflowNodeFactory;
+    /**
+     * 可选：通用 agent 定义仓储。编译前按 DB 刷新注册中心（与脚本节点 ensureScriptNodesLoaded 对称），
+     * 避免多实例下「Agent 定义已更新、图已发布，但仍用启动时旧 Spec」。
+     */
+    private final ObjectProvider<GenericAgentDefinitionRepository> agentDefRepository;
 
     public DynamicGraphBuilder(GraphNodeRegistry nodeRegistry,
                                EdgeDispatcherRegistry dispatcherRegistry,
@@ -119,7 +126,7 @@ public class DynamicGraphBuilder {
                                ObjectProvider<GenericAgentNodeFactory> agentNodeFactory) {
         this(nodeRegistry, dispatcherRegistry, validator, applicationContext, saverRegistry,
                 scriptEdgeActionFactory, executionListeners, nodeDefRepository, scriptNodeFactory,
-                definitionRepository, agentNodeFactory, null);
+                definitionRepository, agentNodeFactory, null, null);
     }
 
     /**
@@ -137,7 +144,8 @@ public class DynamicGraphBuilder {
                                ScriptNodeFactory scriptNodeFactory,
                                GraphDefinitionRepository definitionRepository,
                                ObjectProvider<GenericAgentNodeFactory> agentNodeFactory,
-                               ObjectProvider<SaaWorkflowNodeFactory> saaWorkflowNodeFactory) {
+                               ObjectProvider<SaaWorkflowNodeFactory> saaWorkflowNodeFactory,
+                               ObjectProvider<GenericAgentDefinitionRepository> agentDefRepository) {
         this.nodeRegistry = nodeRegistry;
         this.dispatcherRegistry = dispatcherRegistry;
         this.validator = validator;
@@ -150,6 +158,7 @@ public class DynamicGraphBuilder {
         this.definitionRepository = definitionRepository;
         this.agentNodeFactory = agentNodeFactory;
         this.saaWorkflowNodeFactory = saaWorkflowNodeFactory;
+        this.agentDefRepository = agentDefRepository;
     }
 
     /**
@@ -218,8 +227,9 @@ public class DynamicGraphBuilder {
             nextVisiting.add(currentGraphId);
         }
 
-        // 编译前：按需加载缺失的脚本节点（多实例懒加载）
+        // 编译前：按需从 DB 刷新脚本 / 注册式 GenericAgent（多实例懒加载，避免内存 Spec 陈旧）
         ensureScriptNodesLoaded(def);
+        ensureGenericAgentNodesLoaded(def);
         KeyStrategyFactory keyStrategyFactory = createKeyStrategyFactory(def);
         StateGraph stateGraph = new StateGraph(keyStrategyFactory);
         NodeRuntimeContext ctx = NodeRuntimeContext.empty(applicationContext);
@@ -691,6 +701,9 @@ public class DynamicGraphBuilder {
      * 编译操作本身频率低（启动、发布、回滚、多实例懒刷新），因此无性能顾虑。</p>
      */
     private void ensureScriptNodesLoaded(GraphDefinition def) {
+        if (nodeDefRepository == null || scriptNodeFactory == null) {
+            return;
+        }
         for (NodeRef ref : def.nodes()) {
             String nodeId = ref.nodeId();
             if (!nodeId.startsWith("script:")) continue;
@@ -704,6 +717,61 @@ public class DynamicGraphBuilder {
                 }
             } catch (Exception e) {
                 log.warn("脚本节点加载失败, nodeId={}, error={}", nodeId, e.getMessage());
+            }
+        }
+    }
+
+    /**
+     * 编译前把图引用的注册式 GenericAgent 从 DB 重新加载进注册中心。
+     *
+     * <p>与 {@link #ensureScriptNodesLoaded} 对称：脚本节点早就有「编译前刷 DB」，
+     * Agent 节点此前只信进程内 {@link GraphNodeRegistry}，导致「设计器已改 prompt /
+     * 图已发新版本，执行实例仍用启动时旧 Spec」。</p>
+     *
+     * <p>内联 {@code agentSpec != null} 的节点以图 JSON 为准，不从此处覆盖。</p>
+     */
+    private void ensureGenericAgentNodesLoaded(GraphDefinition def) {
+        GenericAgentDefinitionRepository repo = agentDefRepository == null
+                ? null : agentDefRepository.getIfAvailable();
+        GenericAgentNodeFactory factory = agentNodeFactory == null
+                ? null : agentNodeFactory.getIfAvailable();
+        if (repo == null || factory == null) {
+            return;
+        }
+        for (NodeRef ref : def.nodes()) {
+            // 内联 Spec：以图 JSON 为准
+            if (ref.agentSpec() != null) {
+                continue;
+            }
+            String nodeId = ref.nodeId();
+            if (nodeId == null || nodeId.isBlank()) {
+                continue;
+            }
+            boolean looksAgent = nodeId.startsWith(GenericAgentDefinition.AGENT_ID_PREFIX)
+                    || "GENERIC_AGENT".equals(ref.category());
+            if (!looksAgent) {
+                continue;
+            }
+            try {
+                GenericAgentDefinition agentDef = repo.findById(nodeId).orElse(null);
+                if (agentDef == null || !agentDef.enabled()) {
+                    continue;
+                }
+                GraphBoundAgentNode node = factory.create(
+                        agentDef.nodeId(),
+                        null,
+                        agentDef.spec(),
+                        agentDef.displayName(),
+                        agentDef.description(),
+                        agentDef.version(),
+                        agentDef.permissionTags());
+                nodeRegistry.registerDynamic(node);
+                int promptChars = agentDef.spec() != null && agentDef.spec().prompt() != null
+                        ? agentDef.spec().prompt().length() : 0;
+                log.info("编译前刷新 GenericAgent 节点, nodeId={}, promptChars={}, updatedAt={}",
+                        nodeId, promptChars, agentDef.updatedAt());
+            } catch (Exception e) {
+                log.warn("GenericAgent 节点加载失败, nodeId={}, error={}", nodeId, e.getMessage());
             }
         }
     }
