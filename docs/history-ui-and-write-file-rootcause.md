@@ -2,8 +2,8 @@
 
 | 项 | 内容 |
 |---|---|
-| 状态 | **问题一 P0/P1（1.1.1）；问题二 B1/B2/B3/C2/C3 已实现（框架 1.1.2 已 deploy）；待发版冒烟 + A3 验收** |
-| 日期 | 2026-09-23（A1/B1 进度更新同日） |
+| 状态 | **问题一～问题二主路径已落地（至 1.1.8）**；A3 单测 ✅ + **平台历史 UI 验收通过（2026-10-07）** |
+| 日期 | 2026-10-07（1.1.6 extras；1.1.7 echo；1.1.8 内联 Key；A3 见 §2.6） |
 | 证据 | 截图三张 + `lesso-ai-platform-agent-74d7d68857-4tqtx_….log`（runId≈`6c8301fd…` / session≈`034cf130…`、`80211fd7…`） |
 | 图 | `ls-vertical-agent-dsl-test`（节点 `agent:intent_node` / `agent:ls_biz_node` / `agent:ls_out_put_node`） |
 | 原则 | 对齐 Vertical 的是 **role / extras 语义**；落盘节奏仍按 ace-graph **每节点即时 remote** |
@@ -74,10 +74,16 @@ AceGraphExecutionController : IllegalStateException: No ToolCallback found for t
 
 ### 2.1 目标语义（对齐 Vertical 角色，不齐落盘时机）
 
+> **定案（可组合 `memoryWrites`）**：落盘按节点即时生效；一轮 remote 仅 **1 USER + 1 ASSISTANT**（thinking+正文同条）。  
+> 旧三态 `memoryMode` 在无 `memoryWrites` 时仍兼容；有 `memoryWrites`（含空列表）时以 flags 为准。详见 `.cursor/rules/ace-graph-memory-persist.mdc`。
+
 ```
-intent:  NONE（或不写记忆）；SSE thinking=true → 意图文案进思考气泡
-biz:     READ_WRITE → 节点完成即写 USER(真问题) + ASSISTANT(业务结果，extras.thinking=过程)
-out_put: READ_WRITE + writeUser=false → 只写 ASSISTANT 定稿
+intent:  memoryWrites=[] / memoryMode=NONE
+         SSE thinking=true → 意图文案可进思考气泡（本节点不写 remote）
+biz:     memoryWrites=[WRITE_USER, WRITE_ASSISTANT_THINKING]
+         → 节点完成即写 USER(真问题)；thinking 进 SessionThinkingBuffer（不单独 add ASSISTANT）
+out_put: memoryWrites=[WRITE_ASSISTANT_MAIN_TEXT]
+         → 立刻 add 1 条 ASSISTANT（content=定稿，drain Buffer → thinking_content）
 ```
 
 历史回放应读：
@@ -124,7 +130,7 @@ flowchart TD
 | `thinking_content` = 步骤 / 思考 | buffer 空 → extras 空或错 |
 | `content` = 定稿（链接等） | content = 多轮步骤拼接 |
 
-出口 `writeUser=false` 日志正确；问题在 **biz 写入的 ASSISTANT 形态**。
+出口无假 USER（MAIN_TEXT 且剥离 WRITE_USER）日志正确；问题在 **biz 若误写完整 ASSISTANT** 或 THINKING/MAIN 拆成两次 add。
 
 ### 2.3 实时「当前样式」为何看起来还能忍
 
@@ -137,10 +143,11 @@ flowchart TD
 | ID | 动作 | 归属 | 对应根因 / 截图 | 状态 / 备注 |
 |---|---|---|---|---|
 | **A1** | 核对并修正发布图 biz 的 `enableBizParams` / `bizParamInterpreterId=lesso.sse-frame` / `bizParamRaw={"thinking":true,"nodeDisplay":"业务处理"}` | 业务配置 | §2.2(1) | **已完成（配置）**：设计器「LS业务节点」已选 `lesso.sse-frame`，附加参数 `{"thinking":true,"nodeDisplay":"业务处理"}`；需确认已发布到运行环境，跑一轮日志不再出现 `ls_biz_node`「bizParam 未解析」 |
-| **A3** | 历史接口确认：USER 优先 `display_content`；ASSISTANT 拆 `thinking_content` vs `content` | 业务 / 前端 | 截图 C/D 验收 | 待做；后端字段空则先修后端 |
+| **A3** | 历史接口确认：USER 优先 `display_content`；ASSISTANT 拆 `thinking_content` vs `content`；附件读 extras `images`/`files`；技能芯片读 `guide` | 业务 / 前端 | 截图 C/D 验收 | **✅ 通过**：单测 + 垂直对话「当前 vs 刷新历史」截图（§2.6） |
 | **B1** | `bizParam` 解析失败 WARN 带上 `interpreterId`/`raw`/`enable`；对 `agent:` 前缀 nodeId 做 definition 回退 | Lesso SSE + 框架 Helper | §2.2(1) | **已完成（代码）**：Adapter 增强 WARN；接受 `lesso:sse-frame` 别名；`AceGraphNodeHelper` 支持 `agent:` 去前缀查找；attrs 中 Map 型 raw 转 JSON |
 | **B2** | 校验 echo 落盘路径 `display_content` 是否仍在 UserMessage；必要时 remote 侧打 content 长度 vs display 长度 | Lesso 记忆 | §2.2(3)、截图 C | **已完成（代码）**：Template 挂 `display_content` + 材料注记兜底剥离 + 观测日志；Advisor `forMemoryStorage` / codec `encodeContent` 优先 display，无则剥 `[material]` |
-| **B3** | 仅 `bizParam.thinking=true` 的增量进 `LessoSessionThinkingBuffer`；写 ASSISTANT 时 drain → remote `thinking_content`；若正文与思考同源则 `content` 置空 | Lesso 记忆 | §2.2(1)(4)、历史接口字段 | **已完成（代码）**：SSE 仅 thinking:true→Buffer；每 READ_WRITE 节点 drain；`attachThinking` 同源置空 + 后缀/前缀去重终答 + merge 已有 THINKING；发版后冒烟确认 remote `thinking_content` |
+| **B3** | 仅 `bizParam.thinking=true` 的增量进 `LessoSessionThinkingBuffer`；**仅** `WRITE_ASSISTANT_MAIN_TEXT` 节点 drain → remote `thinking_content`；若正文与思考同源则 `content` 置空 | Lesso 记忆 | §2.2(1)(4)、历史接口字段 | **已完成（代码）**：SSE 仅 thinking:true→Buffer；THINKING 节点 `writeAssistant=false` 不 drain；MAIN_TEXT 节点 drain + `attachThinking`（同源置空 + 后缀/前缀去重 + merge）；发版冒烟 remote `thinking_content` |
+| **B4** | Spec `memoryWrites` 可组合 flags；ztc：biz=`WRITE_USER`+`WRITE_ASSISTANT_THINKING`，out_put=`WRITE_ASSISTANT_MAIN_TEXT`；出口剥离 `WRITE_USER` | 框架 Spec + Lesso Provider | §2.1、假 USER / 双 ASSISTANT | **已完成（代码）**：`MemoryWriteFlag`；Ordered Advisor `writeAssistant`；旧 `memoryMode` 无 flags 时仍推导三 flag |
 | **C2** | 工具轮中间文本：不进 `visible`/content，改走 thinking/progress，或仅终答轮进 content | 框架 Template | §2.2(2)、截图 D | **已完成（代码）**：`streamCallWithTools` 仅无 toolCalls 终答轮进 `visible`；中间轮仍 SSE live emit（thinking:true→思考气泡/Buffer），不进记忆 content |
 | **C3** | 材料注记只进 LLM user，**禁止**进记忆 USER（单测钉死） | 框架 + Lesso | §2.2(3)、截图 C | **已完成（代码）**：`MediaMaterialSupport.stripMaterialNotes` + Template 兜底；Lesso codec/Advisor 双保险；单测覆盖 encode / writeUser |
 
@@ -158,7 +165,54 @@ flowchart TD
 3. ~~**B2 + C3**~~ — **代码已完成**（display_content + `[material]` 剥离 + 单测）  
 4. ~~**B3**~~ — **代码已完成**（drain/去重/merge）；发版冒烟 remote `thinking_content`  
 5. ~~**C2**~~ — **代码已完成**（仅终答轮进 visible）  
-6. **A3** — 前后端历史字段对齐验收  
+6. **A3** — 前后端历史字段对齐验收（清单 §2.6）
+
+### 2.6 A3 历史 UI 冒烟清单（2026-10-07）
+
+> **注意**：SAA 试运行（子 Agent `memory NONE`）**不写** remote 记忆，不能当 A3 证据。须走 **垂直图**（如 `ztc-service-agent` / `ls-vertical-agent-dsl-test`）的平台流式入口。
+
+#### 代码路径（已跑通）
+
+| 用例组 | 结果 | 覆盖 |
+|---|---|---|
+| `LessoOrderedMessageChatMemoryAdvisorWriteUserTest` | 6 ✅ | USER `display_content` 落库；MAIN_TEXT drain → `thinking`；同源正文置空 |
+| `DefaultLessoChatMemoryMessageCodecTest` | 23 ✅ | extras 编解码；`thinking_content`→`thinking`；材料剥离 |
+| `RemoteMemoryHistoryParserTest` | 4 ✅ | 历史文本回读 `images`/`files`/`thinking_content`/`guide` |
+
+#### 库侧抽查（ai_project@27）
+
+- 表 `ai_chat_memory_message`：**无** `display_content` / `guide` / `files` 行（`has_display=0`）；旧 ASSISTANT 有 `extras.thinking` 但 `content` 仍含过程文（旧路径污染）。
+- 结论：库里还不是「1.1.6+ ace-graph 垂直一轮」样例；需在 **已部署 1.1.8 的测试环境** 新跑一轮后再查 remote / 历史接口。
+
+#### 平台手工步骤（请你执行后贴 sessionId / 截图）
+
+1. 打开垂直 Agent 对话（非设计器 SAA 试运行），**新 session**。
+2. 一轮请求同时带：自然语言 query + **图片或文件** + 可选技能口令（`/{{code\|name}}`）+ **深度思考开**。
+3. 等流结束，刷新历史列表，核对：
+
+| # | 检查项 | 期望 |
+|---|---|---|
+| H1 | 本轮气泡数 | **1 USER + 1 ASSISTANT**（无假 USER、无双 ASSISTANT） |
+| H2 | USER 正文 | 真实用户话 / 口令展示；**无** `【agent_result】`、无 mime+moss 材料注记占正文 |
+| H3 | USER 附件 | 缩略图/文件芯片来自 `images`/`files`，不是塞进正文 |
+| H4 | USER 技能芯片 | 有技能时 `guide` 有展示名 |
+| H5 | ASSISTANT 思考区 | 步骤 / 深度思考在 **思考**；主气泡是定稿正文 |
+| H6 | 日志 | `[remote-memory] add`：USER 一次、ASSISTANT 一次；ASSISTANT 带 `thinking_content` |
+
+4. 把本轮 `sessionId`（或历史接口 JSON 脱敏片段）回传，即可把 A3 标为 **平台验收通过**。
+
+#### 平台验收记录（2026-10-07）
+
+场景：垂直对话 · Excel 考勤 OT 汇总（附件 + 技能芯片「美国加班工时计算 / Excel 明细总结表」+ 深度思考）· 对比「当前对话」与「刷新后历史」。
+
+| # | 结果 | 说明 |
+|---|---|---|
+| H1 | ✅ | 1 USER + 1 ASSISTANT，无假 USER / 双助手气泡 |
+| H2 | ✅ | USER 正文为自然语言需求；**非** mime+moss 材料注记占正文（对比旧截图 C） |
+| H3 | ✅ | 历史仍展示 Excel 附件芯片（`files`） |
+| H4 | ✅ | 历史仍展示技能标签芯片（`guide`） |
+| H5 | ✅ | 深度思考区与主气泡定稿（完成摘要/下载链接）分离；步骤未灌进主气泡（对比旧截图 D） |
+| H6 | ✅ | session=`29aa700c…1398`：`role=user` 一次（842B）+ `role=system` 一次（5665B，产品约定 ASSISTANT→system）；无双 add |
 
 ---
 
@@ -168,10 +222,10 @@ flowchart TD
 |---|---|---|
 | 未知 tool 名软降级 + 工具轮 name 日志 | **已做（1.1.1）** | — |
 | SSE `thinking:true` / nodeDisplay | TokenChunk.attrs 透传；Helper `agent:` 别名（B1） | Interpreter + SseAdapter WARN/别名（B1 **已做**） |
-| USER 展示正文 | `MemoryDisplayUserTextResolver` SPI | KeyList（user_query）+ B2/C3 |
+| USER 展示正文 | `MemoryDisplayUserTextResolver` SPI（不穷举业务 key） | `LessoMemoryDisplayUserTextResolver`：`user_query_raw` / 还原 `/{{code\|name}}` + `user_query` |
 | extras.thinking | 不硬编码业务协议 | Buffer + Advisor + remote codec（B3） |
 | 工具轮中间文本是否进 content | Template 仅终答轮进 visible（C2 **已做**） | SSE attrs 决定中间轮进思考气泡 |
-| 落盘时机 | 每节点完成可写 | Provider 按节点 READ_WRITE；**禁止**改回图尾 |
+| 落盘时机 | 每节点 `memoryWrites` / `memoryMode` 即时生效 | Provider 按 flags：`WRITE_USER` / THINKING Buffer / MAIN_TEXT drain+add；**禁止**改回图尾 |
 
 ---
 
@@ -186,11 +240,16 @@ flowchart TD
 
 ## 5. 决策清单（仅剩问题二）
 
-问题一 D1（软降级）已落地；问题二 **A1 配置 + B1/B2/B3/C2/C3 代码已完成**。
+问题一 D1（软降级）已落地；问题二 **A1 配置 + B1/B2/B3/B4/C2/C3 代码已完成**。
 
 - [x] **D3 配置侧（→ A1）** 发布图 biz 已设 `lesso.sse-frame` + `{"thinking":true,"nodeDisplay":"业务处理"}`  
 - [x] **D3 代码侧（→ B1）** Adapter WARN / `lesso:sse-frame` 别名 / `agent:` nodeId 回退（Helper）  
 - [x] **D2（→ C2）** 工具轮中间文本：仅终答轮进 visible；中间轮 SSE emit、不进记忆 content  
 - [x] **D4（→ B2/C3）** display_content：Template 挂元数据 + 材料剥离兜底；codec/Advisor 落库剥 `[material]`  
+- [x] **D5（→ B4）** `memoryWrites` 可组合：biz 写 USER+THINKING Buffer，out_put 写 1 条 ASSISTANT（thinking+正文）  
 
-下一步：**发版冒烟**（A1/B1/B2/B3/C2/C3）+ **A3** 前后端历史字段验收。
+**A3 已关闭（平台 UI + H6 remote add）**。
+
+**历史 USER 附件 / 技能标签（1.1.6）**：实时气泡读本次请求；历史读 remote extras。Excel 不进 `UserMessage.media`，框架只拆 URL 与技能展示名；Lesso `MemoryUserPersistMetadataResolver` 写成 extras `images`/`files`/`guide`/`display_content`。旧会话当时未落 extras，无法回填。
+
+**无工具节点记忆（1.1.7）**：`stream().content()` 在终答后 echo 落盘，不再依赖 Advisor 聚合 after（修复历史缺 ASSISTANT 思考/正文）。

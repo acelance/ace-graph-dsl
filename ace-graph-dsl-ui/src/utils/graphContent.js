@@ -1,11 +1,22 @@
 /**
- * 提取可执行内容用于前后端一致的变更比对（不含 version / displayName / description）。
+ * 提取可执行内容用于前后端一致的变更比对（不含 version / 图级 displayName / description）。
+ * 节点显示名以 config.label 为准（NodeRef 无顶层 displayName，落库靠 label）。
  */
 export function contentSnapshot(def) {
   if (!def) return null
+  const nodes = (def.nodes || []).map((n) => {
+    const label = (n.displayName && String(n.displayName).trim())
+      || (n.config && n.config.label && String(n.config.label).trim())
+      || ''
+    const config = { ...(n.config || {}) }
+    if (label) config.label = label
+    else delete config.label
+    const { displayName: _dn, ...rest } = n
+    return { ...rest, config }
+  })
   return {
     keyStrategies: def.keyStrategies || {},
-    nodes: def.nodes || [],
+    nodes,
     edges: def.edges || [],
     compile: def.compile || { interruptBefore: [], saver: 'memory' }
   }

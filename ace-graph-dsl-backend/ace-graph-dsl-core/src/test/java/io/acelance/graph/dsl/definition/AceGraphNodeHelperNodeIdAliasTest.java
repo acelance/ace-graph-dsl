@@ -28,12 +28,12 @@ class AceGraphNodeHelperNodeIdAliasTest {
                 false, List.of(), false, null,
                 false, List.of(), false, List.of(), Map.of(),
                 false, List.of(),
-                MemoryMode.NONE, false,
+                MemoryMode.NONE, null, false,
                 true, "lesso.sse-frame",
                 "{\"thinking\":true,\"nodeDisplay\":\"业务处理\"}");
         NodeRef node = new NodeRef(
                 "ls_biz_node", "GENERIC_AGENT", Map.of(), null, null,
-                null, null, null, spec);
+                null, null, null, spec, null);
         GraphDefinition def = new GraphDefinition(
                 "g1", "test", "1", null, Map.of(),
                 List.of(node), List.of(), null, null);

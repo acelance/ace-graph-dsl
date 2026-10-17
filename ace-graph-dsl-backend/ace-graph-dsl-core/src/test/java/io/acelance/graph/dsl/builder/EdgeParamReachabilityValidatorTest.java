@@ -4,6 +4,8 @@ import com.alibaba.cloud.ai.graph.action.NodeAction;
 import io.acelance.graph.dsl.definition.GraphDefinition;
 import io.acelance.graph.dsl.definition.GraphEdge;
 import io.acelance.graph.dsl.definition.NodeRef;
+import io.acelance.graph.dsl.definition.SaaSubAgentRef;
+import io.acelance.graph.dsl.definition.SaaWorkflowSpec;
 import io.acelance.graph.dsl.registry.GraphNodeDescriptor;
 import io.acelance.graph.dsl.registry.GraphNodeRegistry;
 import io.acelance.graph.dsl.registry.NodeRuntimeContext;
@@ -29,7 +31,9 @@ class EdgeParamReachabilityValidatorTest {
             node("translate", GraphNodeDescriptor.CATEGORY_NORMAL,
                     Set.of("reply_draft"), Set.of("translate_en")),
             node("rag", GraphNodeDescriptor.CATEGORY_NORMAL,
-                    Set.of("query"), Set.of("knowledge_summary"))
+                    Set.of("query"), Set.of("knowledge_summary")),
+            node("agent:summary_thinking", GraphNodeDescriptor.CATEGORY_GENERIC_AGENT,
+                    Set.of("workflow_result"), Set.of("agent_result"))
     ));
     private final EdgeParamReachabilityValidator validator = new EdgeParamReachabilityValidator(registry);
 
@@ -104,6 +108,55 @@ class EdgeParamReachabilityValidatorTest {
         List<String> errors = validator.validate(def);
 
         assertTrue(errors.isEmpty(), () -> "普通节点到 HITL 应跳过校验: " + errors);
+    }
+
+    @Test
+    void saaWorkflowOutputKeyReachesDownstream() {
+        SaaWorkflowSpec saa = new SaaWorkflowSpec(
+                "SEQUENTIAL",
+                "user_query",
+                "workflow_result",
+                "BIZ",
+                null,
+                null,
+                null,
+                null,
+                null,
+                List.of(new SaaSubAgentRef(
+                        "agent_intention_subagent",
+                        "GENERIC_AGENT",
+                        "generic:agent:intention",
+                        "{user_query}",
+                        "step1")));
+        NodeRef saaNode = new NodeRef(
+                "saa_workflow_1",
+                GraphNodeDescriptor.CATEGORY_SAA_WORKFLOW,
+                Map.of(),
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                saa);
+        GraphDefinition def = new GraphDefinition(
+                "g-saa", "saa-edge", "1.0.0", "",
+                Map.of("workflow_result", "REPLACE", "step1", "REPLACE", "agent_result", "REPLACE"),
+                List.of(
+                        saaNode,
+                        new NodeRef("agent:summary_thinking", Map.of(), null, null)),
+                List.of(
+                        new GraphEdge(GraphDefinition.START, "saa_workflow_1",
+                                GraphEdge.TYPE_NORMAL, null, null, null, null),
+                        new GraphEdge("saa_workflow_1", "agent:summary_thinking",
+                                GraphEdge.TYPE_NORMAL, null, null, null, null),
+                        new GraphEdge("agent:summary_thinking", GraphDefinition.END,
+                                GraphEdge.TYPE_NORMAL, null, null, null, null)),
+                null, null);
+
+        List<String> errors = validator.validate(def);
+
+        assertTrue(errors.isEmpty(), () -> "SAA outputKey 应对下游可见: " + errors);
     }
 
     private static RegisteredGraphNode node(String id, String category, Set<String> inputs, Set<String> outputs) {

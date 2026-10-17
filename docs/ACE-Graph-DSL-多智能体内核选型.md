@@ -2,7 +2,10 @@
 
 > 范围：ACE Graph DSL 是否已具备多智能体编排、如何接入高阶模式库、SAA Agent Framework 与 AgentScope Java 如何取舍  
 > 依据：仓库代码（`ace-graph-dsl` / `lesso-ai-project`）+ Spring AI Alibaba / AgentScope Java 公开能力  
-> 更新日期：2026-09-18
+> 更新日期：2026-09-28  
+> **分层语义展开**：[ACE-Graph-DSL-高阶模式集成目标说明.md](./ACE-Graph-DSL-高阶模式集成目标说明.md)（Sequential / Parallel / Routing / Loop 与图级边的职责对照，防理解偏差）  
+> **FAQ / 统一口径**：[ACE-Graph-DSL-多智能体FAQ与统一口径.md](./ACE-Graph-DSL-多智能体FAQ与统一口径.md)  
+> **开发设计与计划**：[ACE-Graph-DSL-SAA高阶模式节点-开发设计与计划.md](./ACE-Graph-DSL-SAA高阶模式节点-开发设计与计划.md)
 
 ---
 
@@ -107,13 +110,16 @@ SAA Graph Core：StateGraph / 边 / 状态 / CompiledGraph
 
 ### 3.2 Framework 能补的能力
 
-| Framework 能力 | 在 ACE 中的价值 | 与现有能力关系 |
-|----------------|-----------------|----------------|
+> 「ACE 的目标」勿只读本表一行。**图管阶段 vs 节点管内协作** 的详细拓扑、选用场景与防偏清单见  
+> [ACE-Graph-DSL-高阶模式集成目标说明.md](./ACE-Graph-DSL-高阶模式集成目标说明.md)。
+
+| Framework 能力 | 在 ACE 中的价值（摘要） | 与现有能力关系（摘要） |
+|----------------|-------------------------|------------------------|
 | **ReactAgent** | 标准工具循环（调工具 → 再推理 → 结束） | 可增强 / 部分替代 GenericAgent 内自建循环 |
-| **SequentialAgent** | 「固定多步 Agent 链」封装为一个复合节点 | 边 = 跨节点业务编排；Sequential = 节点内模式 |
-| **ParallelAgent** | 节点内多 Agent 并行再汇聚 | FanOut = 图级扇出；Parallel = Agent 组合子 |
-| **Routing / LlmRoutingAgent** | 节点内意图分流到子 Agent | 条件边 = 图级路由；Routing = 节点内路由 |
-| **LoopAgent** | 达标 / 未达标循环 | 补齐目前较弱的一等 Loop 模式 |
+| **SequentialAgent** | 单阶段内「固定多步 Agent 链」封装为一个复合节点 | 图边 = 跨阶段编排；Sequential = **节点内**顺序协作 |
+| **ParallelAgent** | 单阶段内多子 Agent 并行再汇聚 | FanOut = **图级**阶段并行；Parallel = **节点内**协作并行 |
+| **Routing / LlmRoutingAgent** | 单阶段内意图分流到子 Agent | 条件边 = **图级**阶段路由；Routing = **节点内**专家路由 |
+| **LoopAgent** | 退出条件 + 最大轮次的达标循环 | 补齐一等 Loop；≠ 图边自环 / ≠ 单 Agent 工具循环 |
 | **Supervisor**（版本支持时） | 督导-工人模式 | 可做成复合节点或子图模板 |
 
 ### 3.3 设计原则
@@ -151,12 +157,14 @@ SAA Graph Core：StateGraph / 边 / 状态 / CompiledGraph
 
 ### 3.5 编译挂载方式
 
-| 方式 | 适用 | 做法 |
-|------|------|------|
-| **A. NodeAction 适配器** | Framework 只暴露 invoke / stream | `SaaAgentNode.toAction()` 内调用，读写 `OverAllState` |
-| **B. 子图挂载** | Framework 能导出 `CompiledGraph` / `StateGraph` | 与现有 `SUBGRAPH` 一样：`stateGraph.addNode(id, compiled)` |
+> **定案（2026-09-28）：** 现行交付用 **A. NodeAction 适配器**；确认 FlowAgent 可 `asNode()` / 导出 `CompiledGraph` 且收益明确后，再升 **B**。  
+> A/B 只是 ACE `addNode` 的技术胶水，**不是**另开一套编排。详解见  
+> [开发设计与计划 §4.4](./ACE-Graph-DSL-SAA高阶模式节点-开发设计与计划.md) / [FAQ §10](./ACE-Graph-DSL-多智能体FAQ与统一口径.md)。
 
-优先做 **A**（落地快）。若确认可导出 Graph，再上 **B**（与 checkpoint、执行轨迹更一致）。`FlowAgent` 公开资料表明其内部就是编成 StateGraph，B 路径值得在 P0 做一次 API 验证。
+| 方式 | 适用 | 做法 | 地位 |
+|------|------|------|------|
+| **A. NodeAction 适配器** | Framework 暴露 invoke / stream | `toAction()` 内调用 FlowAgent，读写 `OverAllState` | **现行必达** |
+| **B. 子图挂载** | Framework 能导出 `CompiledGraph` / `asNode()` | 与现有 `SUBGRAPH` 一样：`addNode(id, compiled)` | **后续增强**；不阻塞四模式 |
 
 ### 3.6 模块划分
 
@@ -260,10 +268,10 @@ ACE Graph DSL（图 + 设计器）
 
 ### 5.2 实施顺序
 
-1. P0 验证 Framework 是否能导出 `CompiledGraph`（决定适配器还是子图挂载）。
-2. 先接 `ReactAgent`，与现有 GenericAgent 对照试跑（工具循环、流式、MCP session）。
-3. 再接 Sequential / Parallel，设计器只暴露 `pattern` + 子 Agent 引用。
-4. Routing / Loop 放第二期。
+1. P0/M0 用 **方式 A** 验证 SequentialAgent 经 NodeAction 挂进 StateGraph；**可选**探测能否升 B（不阻塞）。
+2. 先接 Sequential（方式 A），与现有 GenericAgent 对照试跑（工具循环、流式、MCP session）。
+3. 再接 Parallel / Routing / Loop，设计器只暴露 `pattern` + 子 Agent 引用。
+4. Routing / Loop 放 M2；升 B 仅在可导出且评审通过后作为增强。
 5. 仅当业务明确需要 A2A / Debate / 沙箱时，再评估 `starter-agentscope`。
 
 ### 5.3 对外口径

@@ -2,9 +2,12 @@ package io.acelance.graph.dsl.builder;
 
 import io.acelance.graph.dsl.definition.GraphDefinition;
 import io.acelance.graph.dsl.definition.GraphEdge;
+import io.acelance.graph.dsl.definition.NodeRef;
+import io.acelance.graph.dsl.definition.SaaWorkflowSpec;
 import io.acelance.graph.dsl.registry.GraphNodeDescriptor;
 import io.acelance.graph.dsl.registry.GraphNodeRegistry;
 import org.springframework.stereotype.Component;
+import org.springframework.util.StringUtils;
 
 import java.util.ArrayDeque;
 import java.util.ArrayList;
@@ -18,6 +21,9 @@ import java.util.Set;
 
 /**
  * 校验连线参数可达性：目标节点所需入参须可由上游节点产出（沿图路径累积 state key）。
+ *
+ * <p>注册表节点用 descriptor 的 input/outputKeys；{@code SAA_WORKFLOW} 结构节点不在注册表，
+ * 从其 {@link NodeRef#saaSpec()} 读取父 outputKey、子 outputKey 与 inputKeys。</p>
  */
 @Component
 public class EdgeParamReachabilityValidator {
@@ -37,8 +43,9 @@ public class EdgeParamReachabilityValidator {
             return errors;
         }
 
+        Map<String, NodeRef> nodeRefs = indexNodeRefs(def);
         Map<String, List<String>> predecessors = buildPredecessors(def);
-        Map<String, Set<String>> entryKeys = computeEntryKeys(def, predecessors);
+        Map<String, Set<String>> entryKeys = computeEntryKeys(def, predecessors, nodeRefs);
 
         List<GraphEdge> edges = def.edges() != null ? def.edges() : List.of();
         Set<String> reported = new LinkedHashSet<>();
@@ -48,24 +55,25 @@ public class EdgeParamReachabilityValidator {
                     continue;
                 }
                 for (String to : edge.mapping().values()) {
-                    reportEdge(edge.from(), to, entryKeys, reported, errors);
+                    reportEdge(edge.from(), to, entryKeys, reported, errors, nodeRefs);
                 }
             } else {
-                reportEdge(edge.from(), edge.to(), entryKeys, reported, errors);
+                reportEdge(edge.from(), edge.to(), entryKeys, reported, errors, nodeRefs);
             }
         }
         return errors;
     }
 
     private void reportEdge(String from, String to, Map<String, Set<String>> entryKeys,
-                            Set<String> reported, List<String> errors) {
+                            Set<String> reported, List<String> errors,
+                            Map<String, NodeRef> nodeRefs) {
         if (to == null || GraphDefinition.END.equals(to)) {
             return;
         }
         if (shouldSkipEdgeValidation(from, to)) {
             return;
         }
-        Set<String> required = inputKeysOf(to);
+        Set<String> required = inputKeysOf(to, nodeRefs);
         if (required.isEmpty()) {
             return;
         }
@@ -106,7 +114,9 @@ public class EdgeParamReachabilityValidator {
         return GraphNodeDescriptor.CATEGORY_HITL.equals(nodeRegistry.get(nodeId).descriptor().category());
     }
 
-    private Map<String, Set<String>> computeEntryKeys(GraphDefinition def, Map<String, List<String>> predecessors) {
+    private Map<String, Set<String>> computeEntryKeys(GraphDefinition def,
+                                                      Map<String, List<String>> predecessors,
+                                                      Map<String, NodeRef> nodeRefs) {
         Map<String, Set<String>> entry = new HashMap<>();
         Map<String, Set<String>> exit = new HashMap<>();
         entry.put(GraphDefinition.START, Set.of());
@@ -127,7 +137,7 @@ public class EdgeParamReachabilityValidator {
             String node = queue.poll();
             Set<String> nodeEntry = entry.getOrDefault(node, Set.of());
             Set<String> nodeExit = new HashSet<>(nodeEntry);
-            nodeExit.addAll(outputKeysOf(node));
+            nodeExit.addAll(outputKeysOf(node, nodeRefs));
             exit.put(node, nodeExit);
 
             for (String succ : successorsOf(node, def)) {
@@ -140,6 +150,19 @@ public class EdgeParamReachabilityValidator {
             }
         }
         return entry;
+    }
+
+    private static Map<String, NodeRef> indexNodeRefs(GraphDefinition def) {
+        Map<String, NodeRef> map = new HashMap<>();
+        if (def.nodes() == null) {
+            return map;
+        }
+        for (NodeRef ref : def.nodes()) {
+            if (ref != null && StringUtils.hasText(ref.nodeId())) {
+                map.put(ref.nodeId(), ref);
+            }
+        }
+        return map;
     }
 
     private Set<String> collectNodes(GraphDefinition def) {
@@ -197,23 +220,51 @@ public class EdgeParamReachabilityValidator {
         return succ;
     }
 
-    private Set<String> inputKeysOf(String nodeId) {
+    private Set<String> inputKeysOf(String nodeId, Map<String, NodeRef> nodeRefs) {
         if (GraphDefinition.START.equals(nodeId) || GraphDefinition.END.equals(nodeId)) {
             return Set.of();
         }
-        if (!nodeRegistry.contains(nodeId)) {
-            return Set.of();
+        if (nodeRegistry.contains(nodeId)) {
+            return nodeRegistry.get(nodeId).descriptor().inputKeys();
         }
-        return nodeRegistry.get(nodeId).descriptor().inputKeys();
+        NodeRef ref = nodeRefs.get(nodeId);
+        if (ref != null && ref.hasSaaSpec() && ref.saaSpec() != null) {
+            return new LinkedHashSet<>(ref.saaSpec().inputKeyList());
+        }
+        if (ref != null && ref.hasAgentSpec() && ref.agentSpec() != null) {
+            return new LinkedHashSet<>(ref.agentSpec().inputKeyList());
+        }
+        return Set.of();
     }
 
-    private Set<String> outputKeysOf(String nodeId) {
+    private Set<String> outputKeysOf(String nodeId, Map<String, NodeRef> nodeRefs) {
         if (GraphDefinition.START.equals(nodeId) || GraphDefinition.END.equals(nodeId)) {
             return Set.of();
         }
-        if (!nodeRegistry.contains(nodeId)) {
-            return Set.of();
+        Set<String> keys = new LinkedHashSet<>();
+        if (nodeRegistry.contains(nodeId)) {
+            keys.addAll(nodeRegistry.get(nodeId).descriptor().outputKeys());
         }
-        return nodeRegistry.get(nodeId).descriptor().outputKeys();
+        NodeRef ref = nodeRefs.get(nodeId);
+        if (ref != null && ref.hasSaaSpec() && ref.saaSpec() != null) {
+            keys.addAll(saaOutputKeys(ref.saaSpec()));
+        } else if (ref != null && ref.hasAgentSpec() && ref.agentSpec() != null
+                && StringUtils.hasText(ref.agentSpec().effectiveOutputKey())) {
+            keys.add(ref.agentSpec().effectiveOutputKey());
+        }
+        return keys;
+    }
+
+    /** SAA 写回图 state 的键：父 outputKey + 各子 outputKey。 */
+    static Set<String> saaOutputKeys(SaaWorkflowSpec spec) {
+        Set<String> keys = new LinkedHashSet<>();
+        if (spec == null) {
+            return keys;
+        }
+        if (StringUtils.hasText(spec.outputKey())) {
+            keys.add(spec.outputKey().trim());
+        }
+        keys.addAll(spec.subAgentOutputKeys());
+        return keys;
     }
 }

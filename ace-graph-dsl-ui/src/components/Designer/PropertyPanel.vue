@@ -1,12 +1,12 @@
 <script setup>
-import { ref, watch, computed, nextTick, inject } from 'vue'
+import { ref, watch, computed, nextTick, inject, onMounted } from 'vue'
 import { Delete, Loading } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
 import { useGraphEditorStore } from '../../stores/graphEditor'
 import { useNodeRegistryStore } from '../../stores/nodeRegistry'
 import { useI18n } from '../../i18n'
 import { requestOpenAgentEditor } from '../../stores/agentEditorBus'
-import { listScriptEngines, listAgentResources } from '../../api/graph'
+import { listScriptEngines, listAgentResources, getSaaCapabilities } from '../../api/graph'
 import { loadStreamKindOptions } from '../../utils/streamKinds'
 import { loadBizParamInterpreterOptions } from '../../utils/bizParamInterpreters'
 import {
@@ -25,6 +25,13 @@ import {
   OTHER_BIZ_PARAMS_MAX_BYTES
 } from '../../embed/context'
 import MermaidPreview from './MermaidPreview.vue'
+import SaaWorkflowForm from './SaaWorkflowForm.vue'
+import { normalizeSaaSpec } from '../../utils/saaWorkflow'
+import {
+  MEMORY_WRITE_FLAGS,
+  isMemoryWritesConfigured,
+  normalizeMemoryWrites
+} from '../../utils/memoryWrites'
 
 const props = defineProps({
   /** 嵌入左侧目录时使用紧凑布局 */
@@ -38,15 +45,33 @@ const embedCtx = inject(ACE_GRAPH_EMBED_KEY, computed(() => ({})))
 
 const activeTab = ref('node')
 const keyStrategyRows = ref([])
+let keyRowUid = 0
+const flushingKeyStrategies = ref(false)
 
 watch(() => editor.keyStrategies, (ks) => {
-  keyStrategyRows.value = Object.entries(ks || {}).map(([k, v]) => ({ key: k, strategy: v }))
+  if (flushingKeyStrategies.value) return
+  keyStrategyRows.value = Object.entries(ks || {}).map(([k, v]) => ({
+    uid: ++keyRowUid,
+    key: k,
+    strategy: v
+  }))
 }, { immediate: true, deep: true })
+
+watch(
+  () => editor.validationErrors,
+  (errs) => {
+    if (Array.isArray(errs) && errs.length) {
+      activeTab.value = 'validation'
+    }
+  },
+  { deep: true }
+)
 
 const STRUCTURAL_DESCRIPTORS = {
   SUBGRAPH: { nodeId: '', displayName: 'Subgraph', category: 'SUBGRAPH', origin: 'STRUCTURAL', inputKeys: [], outputKeys: [], configurableProps: {} },
   AGENT: { nodeId: '', displayName: 'Agent', category: 'AGENT', origin: 'STRUCTURAL', inputKeys: [], outputKeys: [], configurableProps: {} },
-  GENERIC_AGENT: { nodeId: '', displayName: 'Generic Agent', category: 'GENERIC_AGENT', origin: 'STRUCTURAL', inputKeys: [], outputKeys: [], configurableProps: {} }
+  GENERIC_AGENT: { nodeId: '', displayName: 'Generic Agent', category: 'GENERIC_AGENT', origin: 'STRUCTURAL', inputKeys: [], outputKeys: [], configurableProps: {} },
+  SAA_WORKFLOW: { nodeId: '', displayName: 'SAA Workflow', category: 'SAA_WORKFLOW', origin: 'STRUCTURAL', inputKeys: [], outputKeys: [], configurableProps: {} }
 }
 
 const selectedDescriptor = computed(() => {
@@ -54,7 +79,9 @@ const selectedDescriptor = computed(() => {
   const d = nodeStore.nodes.find(n => n.nodeId === editor.selectedNode.nodeId)
   if (d) return d
   const cat = editor.selectedNode.category
-  if (cat === 'SUBGRAPH' || cat === 'AGENT' || cat === 'GENERIC_AGENT') return STRUCTURAL_DESCRIPTORS[cat]
+  if (cat === 'SUBGRAPH' || cat === 'AGENT' || cat === 'GENERIC_AGENT' || cat === 'SAA_WORKFLOW') {
+    return STRUCTURAL_DESCRIPTORS[cat]
+  }
   return null
 })
 
@@ -65,13 +92,43 @@ const selectedNodeMeta = computed(() => {
 })
 
 const isStructuralSelected = computed(() =>
-  editor.selectedNode?.category === 'SUBGRAPH' || editor.selectedNode?.category === 'AGENT' || editor.selectedNode?.category === 'GENERIC_AGENT'
+  editor.selectedNode?.category === 'SUBGRAPH'
+  || editor.selectedNode?.category === 'AGENT'
+  || editor.selectedNode?.category === 'GENERIC_AGENT'
+  || editor.selectedNode?.category === 'SAA_WORKFLOW'
 )
 const isSubgraphSelected = computed(() => editor.selectedNode?.category === 'SUBGRAPH')
 const isAgentSelected = computed(() => editor.selectedNode?.category === 'AGENT')
 const isGenericAgentSelected = computed(() => editor.selectedNode?.category === 'GENERIC_AGENT')
+const isSaaWorkflowSelected = computed(() => editor.selectedNode?.category === 'SAA_WORKFLOW')
 /** 注册式（引用型）通用 Agent：无内联 agentSpec，元数据集中在节点面板管理 */
 const isGenericAgentRegistered = computed(() => isGenericAgentSelected.value && !currentAgentSpec.value)
+
+/** SAA 模块是否启用（探测失败时 fail-open 为 true，避免阻断设计） */
+const saaModuleEnabled = ref(true)
+/** AgentScope 子 Agent 模块是否启用 */
+const agentscopeEnabled = ref(false)
+
+onMounted(async () => {
+  try {
+    const cap = await getSaaCapabilities()
+    if (cap && typeof cap.saaWorkflowEnabled === 'boolean') {
+      saaModuleEnabled.value = cap.saaWorkflowEnabled
+    }
+    if (cap && typeof cap.agentscopeEnabled === 'boolean') {
+      agentscopeEnabled.value = cap.agentscopeEnabled
+    }
+  } catch (e) {
+    console.warn('[PropertyPanel] getSaaCapabilities failed, fail-open', e)
+    saaModuleEnabled.value = true
+  }
+})
+
+const currentSaaSpec = computed(() => normalizeSaaSpec(selectedNodeMeta.value?.saaSpec))
+
+function onSaaSpecChange(next) {
+  editor.updateSelectedSaaSpec(normalizeSaaSpec(next))
+}
 
 /** 注册式节点：跳转到「节点面板 → 通用 Agent」进行元数据编辑（图入口带 Catalog 上下文） */
 function gotoNodePanelAgent() {
@@ -209,6 +266,18 @@ function onAgentSpecField(field, value) {
   if (!s) return
   const next = { ...s, [field]: value }
   editor.updateSelectedAgentSpec(next)
+}
+
+/** 是否已显式配置 memoryWrites（含空列表）；未配置则回退 memoryMode。 */
+const memoryWritesConfigured = computed(() => isMemoryWritesConfigured(currentAgentSpec.value?.memoryWrites))
+
+function onMemoryWritesEnabled(enabled) {
+  onAgentSpecField('memoryWrites', enabled ? normalizeMemoryWrites(currentAgentSpec.value?.memoryWrites) : null)
+}
+
+function onMemoryWritesChange(vals) {
+  // 选择任一 flag 即视为显式配置，写入 memoryWrites（覆盖 memoryMode）
+  onAgentSpecField('memoryWrites', normalizeMemoryWrites(vals))
 }
 
 /** API Key 输入：掩码态下留空表示保持原值；输入非空值则覆盖并清除掩码标记 */
@@ -415,12 +484,32 @@ function onAgentSpecToggle(field, enabled) {
   editor.updateSelectedAgentSpec({ ...s, [field]: !!enabled })
 }
 
-function addKey() {
-  editor.keyStrategies[`custom_${Date.now()}`] = 'REPLACE'
+function flushKeyStrategies() {
+  flushingKeyStrategies.value = true
+  const next = {}
+  for (const row of keyStrategyRows.value) {
+    const k = (row.key || '').trim()
+    if (!k) continue
+    if (Object.prototype.hasOwnProperty.call(next, k)) {
+      ElMessage.warning(t('propertyPanel.duplicateKey', { key: k }))
+      continue
+    }
+    next[k] = row.strategy === 'APPEND' ? 'APPEND' : 'REPLACE'
+  }
+  Object.keys(editor.keyStrategies).forEach((k) => delete editor.keyStrategies[k])
+  Object.assign(editor.keyStrategies, next)
+  nextTick(() => {
+    flushingKeyStrategies.value = false
+  })
 }
 
-function removeKey(k) {
-  delete editor.keyStrategies[k]
+function addKey() {
+  keyStrategyRows.value.push({ uid: ++keyRowUid, key: '', strategy: 'REPLACE' })
+}
+
+function removeKey(row) {
+  keyStrategyRows.value = keyStrategyRows.value.filter((r) => r.uid !== row.uid)
+  flushKeyStrategies()
 }
 
 /* ───────── 条件边编辑区 ───────── */
@@ -629,6 +718,17 @@ function onStreamingChange(val) {
             <el-form-item :label="t('propertyPanel.displayName')">
               <el-input :model-value="selectedNodeMeta?.displayName || ''" :disabled="isGenericAgentRegistered" @update:model-value="onRenameDisplayName" />
             </el-form-item>
+
+            <!-- SAA 高阶多智能体 -->
+            <template v-if="isSaaWorkflowSelected">
+              <SaaWorkflowForm
+                :model-value="currentSaaSpec"
+                :module-enabled="saaModuleEnabled"
+                :agentscope-enabled="agentscopeEnabled"
+                @update:model-value="onSaaSpecChange"
+              />
+            </template>
+
             <template v-if="isSubgraphSelected">
               <el-form-item :label="t('propertyPanel.subgraphMode')">
                 <el-radio-group :model-value="subgraphMode" @update:model-value="onSubgraphModeChange">
@@ -787,9 +887,36 @@ function onStreamingChange(val) {
               </el-form-item>
 
               <el-divider content-position="left">{{ t('propertyPanel.agentSpec.memoryMode') }}</el-divider>
-              <el-form-item :label="t('propertyPanel.agentSpec.memoryMode')">
+              <el-form-item :label="t('propertyPanel.agentSpec.memoryWrites')">
+                <el-select
+                  :model-value="normalizeMemoryWrites(currentAgentSpec.memoryWrites)"
+                  multiple
+                  collapse-tags
+                  collapse-tags-tooltip
+                  style="width: 100%;"
+                  :placeholder="t('propertyPanel.agentSpec.memoryWritesPlaceholder')"
+                  @update:model-value="onMemoryWritesChange"
+                >
+                  <el-option
+                    v-for="flag in MEMORY_WRITE_FLAGS"
+                    :key="flag"
+                    :label="t(`propertyPanel.agentSpec.memoryWriteFlag.${flag}`)"
+                    :value="flag"
+                  />
+                </el-select>
+                <span class="hint" style="display:block; margin-top:4px;">{{ t('propertyPanel.agentSpec.memoryWritesHint') }}</span>
+              </el-form-item>
+              <el-form-item :label="t('propertyPanel.agentSpec.memoryWritesEnabled')">
+                <el-switch
+                  :model-value="memoryWritesConfigured"
+                  @update:model-value="onMemoryWritesEnabled"
+                />
+                <span class="hint" style="display:block; margin-top:4px;">{{ t('propertyPanel.agentSpec.memoryWritesEnabledHint') }}</span>
+              </el-form-item>
+              <el-form-item :label="t('propertyPanel.agentSpec.memoryModeLegacy')">
                 <el-select
                   :model-value="currentAgentSpec.memoryMode || 'NONE'"
+                  :disabled="memoryWritesConfigured"
                   @update:model-value="onAgentSpecField('memoryMode', $event || 'NONE')"
                   style="width: 100%;"
                 >
@@ -797,7 +924,11 @@ function onStreamingChange(val) {
                   <el-option :label="t('propertyPanel.agentSpec.memoryModeReadOnly')" value="READ_ONLY" />
                   <el-option :label="t('propertyPanel.agentSpec.memoryModeReadWrite')" value="READ_WRITE" />
                 </el-select>
-                <span class="hint" style="display:block; margin-top:4px;">{{ t('propertyPanel.agentSpec.memoryModeHint') }}</span>
+                <span class="hint" style="display:block; margin-top:4px;">{{
+                  memoryWritesConfigured
+                    ? t('propertyPanel.agentSpec.memoryModeIgnoredHint')
+                    : t('propertyPanel.agentSpec.memoryModeHint')
+                }}</span>
               </el-form-item>
 
               <el-divider content-position="left">{{ t('propertyPanel.agentSpec.deepThinking') }}</el-divider>
@@ -1130,11 +1261,21 @@ function onStreamingChange(val) {
       </el-tab-pane>
 
       <el-tab-pane :label="t('propertyPanel.tabKeys')" name="keys">
+        <p class="key-strategy-hint">{{ t('propertyPanel.keyStrategyHint') }}</p>
         <el-table :data="keyStrategyRows" size="small" max-height="400">
-          <el-table-column prop="key" :label="t('propertyPanel.stateKey')" min-width="120" />
+          <el-table-column :label="t('propertyPanel.stateKey')" min-width="140">
+            <template #default="{ row }">
+              <el-input
+                v-model="row.key"
+                size="small"
+                :placeholder="t('propertyPanel.keyPlaceholder')"
+                @change="flushKeyStrategies"
+              />
+            </template>
+          </el-table-column>
           <el-table-column :label="t('propertyPanel.strategy')" width="110">
             <template #default="{ row }">
-              <el-select v-model="row.strategy" size="small">
+              <el-select v-model="row.strategy" size="small" @change="flushKeyStrategies">
                 <el-option label="REPLACE" value="REPLACE" />
                 <el-option label="APPEND" value="APPEND" />
               </el-select>
@@ -1142,7 +1283,7 @@ function onStreamingChange(val) {
           </el-table-column>
           <el-table-column label="" width="50">
             <template #default="{ row }">
-              <el-button type="danger" size="small" link @click="removeKey(row.key)">X</el-button>
+              <el-button type="danger" size="small" link @click="removeKey(row)">X</el-button>
             </template>
           </el-table-column>
         </el-table>
@@ -1215,6 +1356,12 @@ function onStreamingChange(val) {
 
 <style scoped>
 .property-panel { padding: 12px; }
+.key-strategy-hint {
+  margin: 0 0 8px;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--agd-color-text-secondary, #909399);
+}
 .mp-loading {
   display: flex;
   align-items: center;

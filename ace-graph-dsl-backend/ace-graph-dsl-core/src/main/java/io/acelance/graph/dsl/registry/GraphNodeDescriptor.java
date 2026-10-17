@@ -43,6 +43,8 @@ public record GraphNodeDescriptor(
     public static final String CATEGORY_AGENT = "AGENT";
     /** 通用 agent 节点（声明式模型调用：模型/prompt/skill/mcp/tools 元数据驱动，无需内嵌代码） */
     public static final String CATEGORY_GENERIC_AGENT = "GENERIC_AGENT";
+    /** SAA 高阶工作流节点（Sequential/Parallel/Routing/Loop，节点管内多智能体协作） */
+    public static final String CATEGORY_SAA_WORKFLOW = "SAA_WORKFLOW";
 
     /** 兼容旧构造：BUILTIN 来源，无权限标签 */
     public GraphNodeDescriptor(

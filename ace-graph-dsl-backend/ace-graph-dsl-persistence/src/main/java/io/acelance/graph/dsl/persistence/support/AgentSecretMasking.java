@@ -26,7 +26,7 @@ public final class AgentSecretMasking {
                 GenericAgentSpec m = ref.agentSpec().masked();
                 maskedNodes.add(new NodeRef(
                         ref.nodeId(), ref.category(), ref.config(), ref.x(), ref.y(),
-                        ref.subgraph(), ref.subgraphRef(), ref.agent(), m));
+                        ref.subgraph(), ref.subgraphRef(), ref.agent(), m, ref.saaSpec()));
                 changed = true;
             } else {
                 maskedNodes.add(ref);

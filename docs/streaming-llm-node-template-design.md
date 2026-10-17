@@ -426,36 +426,45 @@ public class CsAssistantController {
 | `ace.graph.dsl.conversationId` | 业务入口（= sessionId） | Context → Advisor params | **仅**会话 ID；≠ runId |
 | userId / bizKey | 业务 `BusinessContext` | 业务 Store / 观测 Filter | 产品不认识 |
 
-**MemoryMode（节点 Spec，默认 NONE）**：`NONE` | `READ_ONLY` | `READ_WRITE`。多节点勿多个 `READ_WRITE` 同回合写 ASSISTANT。
+**MemoryMode（节点 Spec，默认 NONE，兼容）**：`NONE` | `READ_ONLY` | `READ_WRITE`。  
+无 `memoryWrites` 时：`READ_WRITE` = 三 flag 全开（单节点场景）；多节点勿多个 `READ_WRITE` 同回合各写 ASSISTANT。
 
-**SPI 形态**：
+**memoryWrites（优先，可组合）**：显式列表（含空）优先生效：
+
+| Flag | 节点完成时 |
+|------|------------|
+| `WRITE_USER` | remote add USER |
+| `WRITE_ASSISTANT_THINKING` | SSE/Buffer 累积思考；**不**单独 add ASSISTANT |
+| `WRITE_ASSISTANT_MAIN_TEXT` | remote add ASSISTANT（drain Buffer → thinking_content） |
+
+多节点推荐：biz=`WRITE_USER`+`WRITE_ASSISTANT_THINKING`，out_put=`WRITE_ASSISTANT_MAIN_TEXT` → 一轮 **1 USER + 1 ASSISTANT**。落盘按节点即时，**禁止**图尾统一 persist。
+
+**SPI 形态**（以代码为准；示意）：
 
 ```java
-public static final String ACE_CONVERSATION_ID_KEY = "ace.graph.dsl.conversationId";
-
-public enum MemoryMode { NONE, READ_ONLY, READ_WRITE }
-
 public interface ChatClientAdvisorProvider {
     ChatClientAdvisorBundle provide(ChatClientAdvisorRequest request);
-}
 
-public record ChatClientAdvisorRequest(
-        LlmRequestContext ctx, MemoryMode memoryMode,
-        boolean streaming, boolean hasTools) {}
-
-public record ChatClientAdvisorBundle(
-        List<Advisor> advisors, Map<String, Object> advisorParams) {
-    public static ChatClientAdvisorBundle empty() {
-        return new ChatClientAdvisorBundle(List.of(), Map.of());
+    /** 流式调模型前只读合并历史；默认 no-op。勿用仅 provide 的 lambda 包装（R4b）。 */
+    default List<Message> mergeHistoryForPrompt(ChatClientAdvisorRequest request,
+                                               List<Message> seedMessages) {
+        return seedMessages;
     }
 }
 ```
 
-**Template 约定**：与 `ToolCallAdvisor` 同挂 ChatClient；`mode==NONE` 或 conversationId 空或无 Provider → 跳过记忆 Advisor；关键日志打印 mode/conversationId/advisor 数。
+**Template 约定**：
 
-**明确不做**：图尾统一 persistMemory 作主路径；官方 `MessageChatMemoryAdvisor` 不强制（业务可用自研 Ordered Advisor）；Catalog/Resolver 读写记忆。
+| 路径 | 记忆读 | 记忆写 |
+|------|--------|--------|
+| sync | 挂业务 Advisor（`prepareSpec`） | Advisor after |
+| stream / stream+tools | **循环外**调用一次 `mergeHistoryForPrompt` | **不**挂写 Advisor；终答 echo（`streaming=false`）落盘 |
 
-**怎么验收**：业务 Provider 挂上后多轮可读历史；无 Bean 时行为与今日一致。
+`mode==NONE` 且 writes 空、或 conversationId 空、或无 Provider → 跳过读/写钩子。`LlmResolvers` 延迟包装须转发 `provide` **与** `merge`（dsl ≥1.1.10）。
+
+**明确不做**：图尾统一 persistMemory 作主路径；官方 `MessageChatMemoryAdvisor` 不强制；Catalog/Resolver 读写记忆；把拼好的 Prompt 当 USER 持久化。
+
+**怎么验收**：业务 Provider 挂上后多轮可读历史；流式续轮日志含「流式前已合并历史」且业务侧「记忆 Provider 流式前已合并历史」；无 Bean 时行为与今日一致；多节点图一轮 remote 仅 1 USER + 1 ASSISTANT。根因案例见 lesso `docs/history-attachment-replay-fix-plan.md`。
 
 ### 4.3 Resolver 接口（运行期：此时 key 已经有了）
 
@@ -1431,7 +1440,7 @@ state.put(ACE_FORCE_SKILLS_KEY, forceSkills);
 |---|---|
 | 元素含义 | 与 UI `skillKeys`、L1 的 `code` **同一套 key**（例如 `skill.refund`） |
 | 有序 | 按列表顺序依次 `load_skill`，先激活的先回灌 |
-| 不在白名单 | **跳过该 code** + **info** 日志（多节点场景很常见，不要打成 error）；**不删** state 里的列表，留给后续节点 |
+| 不在设计器勾选 | **不再静默跳过**：有效白名单 = 节点 `skillKeys` ∪ 本轮 `forceSkills`（口令/点选视为显式授权）；state 列表仍不删 |
 | 空 / 缺键 | 不强制激活，走模型自选即可 |
 | 写入时机 | 建议在 **图执行入口** 写入初始 state（与 `runId` / `agentCode` 一起）；整次 run 内随 `OverAllState` 往后传，**中间节点不要清掉** |
 | 多节点传递 | **能传到第 N 个节点**（见 §6.3.2） |
@@ -1440,9 +1449,9 @@ state.put(ACE_FORCE_SKILLS_KEY, forceSkills);
 
 ```text
 读 ACE_FORCE_SKILLS_KEY
-  → 对每个 code（∈ 本节点 skillKeys）先 load_skill，正文进 messages
-  → 不在本节点白名单的 code：跳过 + 日志（不删 state 里的列表）
-  → 再进入正常 ChatClient 轮次（模型仍可再 load 其它白名单 skill）
+  → 有效白名单 = skillKeys ∪ forceSkills
+  → 对每个 forceSkills code 先 load_skill，正文进 messages
+  → 再进入正常 ChatClient 轮次（模型仍可再 load 其它有效白名单 skill）
 ```
 
 #### 不同项目聊天口令不一样时，怎么激活？（必读）
@@ -1614,10 +1623,10 @@ List<String> forceSkills = Optional.ofNullable(state.value(LlmRequestContext.ACE
         })
         .orElse(List.of());
 
+List<String> effective = ForceSkills.effectiveSkillKeys(state, nodeId, binding.skillKeys());
 for (String code : forceSkills) {
-    if (!binding.skillKeys().contains(code)) {
-        // 多节点场景很常见：意图留给后面的节点，本节点白名单故意不含 → info 而非 error
-        log.info("节点 {} 的 forceSkills 含 {}，但不在本节点白名单，跳过加载（保留键仍留给后续节点）",
+    if (!effective.contains(code)) {
+        log.info("节点 {} 的 forceSkills 含 {}，不在有效白名单，跳过加载（保留键仍留给后续节点）",
                 nodeId, code);
         continue;
     }
@@ -1655,10 +1664,10 @@ for (String code : forceSkills) {
 #### 怎么验收
 
 1. 入口写入 `forceSkills=["skill.refund"]` 且节点白名单含该项 → 进模型前日志有「强制激活 skill.refund」，且 messages 中已有 L2 正文  
-2. 写入不在白名单的 code → 跳过 + 日志，节点不整体失败；**state 中 forceSkills 仍保留**，可供后续节点使用  
+2. 口令写入的 code 即使设计器未勾选 `skillKeys`，仍并入有效白名单并可 `load_skill`；**state 中 forceSkills 仍保留**  
 3. 用户只说自然语言、业务未写 forceSkills → 不报错，靠模型自选 `load_skill`  
 4. 业务自己做了 `/skill` 解析并写入 forceSkills → 行为与方式 B 相同  
-5. **多节点**：入口写入后，仅第 N 个节点勾选该 skill → 前序节点跳过（info）、第 N 个强制激活（§6.3.2）
+5. **多节点**：`forceSkills` 随 state 传递；**任意**执行 GenericAgent 的节点都会把 force 并入有效白名单（不再因未勾选而静默跳过）
 
 ### 6.4 Resolver 职责划分
 
@@ -4175,5 +4184,6 @@ starter **compile 依赖** `ace-graph-dsl-ai`，保证全家桶开箱可用（st
 | 2026-09-10 | **补定 §8.3 原生写回样例**：节点通过 `NodeAction.apply` **return Map** 由引擎按 `KeyStrategy` 合并进 state（非手写 `state.put`）；附原生双节点样例 + 现网 `GenericAgentNode` return `outputKey` 片段；`keyStrategies` 须覆盖输出 key |
 | 2026-09-14 | **补强 §11.1.0 决策溯源**：写入问题 1/2/3 问卷全文、已选 1A+2B+3B 完整含义、否决项及「刻意不选推荐项 2A/3A」说明；明确实现以本文为准、禁止再就 A/B/C 向产品确认；增 §11.1.4 验收 |
 | 2026-09-14 | **定案对话记忆（§4.2.2）= 方案 B**：`conversationId` 保留键 + `MemoryMode` + `ChatClientAdvisorProvider`；Template 挂业务 Advisor 并透传 `ChatMemory.CONVERSATION_ID`。conversationId ≡ sessionId，**不是** userId+sessionId+bizKey 拼接；Store/Ordered·ReadOnly Advisor 在业务。否决图尾 persistMemory 主路径。排期 P3.8 / Biz.8；整合见评估文档 §12 |
+| 2026-10-07 | **§4.2.2 流式读/写分离（R4/R4b）**：`mergeHistoryForPrompt`；流式仍不挂写 Advisor；deferred 须匿名类转发 merge（1.1.9/1.1.10）。业务验收见 `history-attachment-replay-fix-plan.md` |
 | 2026-09-14 | **定案可观测性（§4.6）**：Langfuse 主路径 = 原生 ChatModel Observation + 业务 Filter 定制；产品不造 Langfuse SPI。Biz.2 须挂 ObservationRegistry；Biz.9 入口绑上下文；可选 P3.9 Lifecycle。评估文档 §13。非目标增补：不写 langfuse.*、不实现 ChatMemory Store |
 | 2026-09-10 | **补定 §8.3：ace-graph-dsl 指定 key 赋值**。Agent 写回 key 唯一来源是配置字段 `outputKey`（默认 `agent_result`），整段模型回复进这一个 key。提示词只能约束正文形态（含 JSON），框架不解析、不拆多 key；Structured Output 首期不做。多 key 靠下游解析节点或业务 NodeAction `return` 多 entry |

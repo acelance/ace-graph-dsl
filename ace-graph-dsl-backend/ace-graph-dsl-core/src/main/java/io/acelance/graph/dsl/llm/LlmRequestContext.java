@@ -28,6 +28,12 @@ public record LlmRequestContext(
     public static final String ACE_FORCE_SKILLS_KEY = "ace.graph.dsl.forceSkills";
 
     /**
+     * state 保留键：强制预激活 skill 的展示名列表（与 {@link #ACE_FORCE_SKILLS_KEY} 同序）。
+     * 缺省时运行期回退 code。业务记忆 extras 键名由 persist SPI 映射，不在本类出现。
+     */
+    public static final String ACE_FORCE_SKILL_LABELS_KEY = "ace.graph.dsl.forceSkillLabels";
+
+    /**
      * state 保留键：对话会话 ID（≡ 业务 sessionId；≠ runId）。
      * 供记忆 Advisor 透传 {@code ChatMemory.CONVERSATION_ID}。
      */

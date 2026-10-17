@@ -1,4 +1,4 @@
-﻿<?xml version="1.0" encoding="UTF-8"?>
+<?xml version="1.0" encoding="UTF-8"?>
 <project xmlns="http://maven.apache.org/POM/4.0.0"
          xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
          xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
@@ -7,7 +7,7 @@
     <parent>
         <groupId>io.acelance</groupId>
         <artifactId>ace-graph-dsl-backend</artifactId>
-        <version>1.1.3</version>
+        <version>1.1.17</version>
     </parent>
 
     <artifactId>ace-graph-dsl-core</artifactId>
@@ -19,7 +19,7 @@
             <groupId>com.alibaba.cloud.ai</groupId>
             <artifactId>spring-ai-alibaba-graph-core</artifactId>
         </dependency>
-        <!-- 流式输出桥接（GraphStreamBridge）需要 reactor；graph-core 将其声明为 optional，故此处显式声明 -->
+        <!-- ��ʽ����Žӣ�GraphStreamBridge����Ҫ reactor��graph-core ��������Ϊ optional���ʴ˴���ʽ���� -->
         <dependency>
             <groupId>io.projectreactor</groupId>
             <artifactId>reactor-core</artifactId>
@@ -53,7 +53,7 @@
 
     <build>
         <plugins>
-            <!-- 父 POM 默认 skipTests=true（发布场景）；core 模块的单元测试无外部依赖，始终执行 -->
+            <!-- �� POM Ĭ�� skipTests=true��������������core ģ��ĵ�Ԫ�������ⲿ������ʼ��ִ��?-->
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-surefire-plugin</artifactId>

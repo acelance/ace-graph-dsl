@@ -10,16 +10,60 @@ function descriptorMap(nodeDescriptors) {
   return map
 }
 
-function inputKeysOf(nodeId, descMap) {
-  if (nodeId === START || nodeId === END || nodeId === ERROR) return new Set()
-  const desc = descMap.get(nodeId)
-  return new Set(desc?.inputKeys || [])
+function nodeRefMap(definition) {
+  const map = new Map()
+  for (const n of definition?.nodes || []) {
+    if (n?.nodeId) map.set(n.nodeId, n)
+  }
+  return map
 }
 
-function outputKeysOf(nodeId, descMap) {
+function splitKeys(raw) {
+  if (!raw) return []
+  if (Array.isArray(raw)) return raw.map(s => String(s).trim()).filter(Boolean)
+  return String(raw).split(/[,\s]+/).map(s => s.trim()).filter(Boolean)
+}
+
+/** SAA 写回图 state：父 outputKey + 子 outputKey */
+function saaOutputKeys(saaSpec) {
+  const keys = []
+  if (!saaSpec) return keys
+  const parent = (saaSpec.outputKey || '').trim()
+  if (parent) keys.push(parent)
+  for (const sub of saaSpec.subAgents || []) {
+    const k = (sub?.outputKey || '').trim()
+    if (k) keys.push(k)
+  }
+  return keys
+}
+
+function inputKeysOf(nodeId, descMap, refMap) {
   if (nodeId === START || nodeId === END || nodeId === ERROR) return new Set()
   const desc = descMap.get(nodeId)
-  return new Set(desc?.outputKeys || [])
+  if (desc) return new Set(desc.inputKeys || [])
+  const ref = refMap.get(nodeId)
+  if (ref?.saaSpec || ref?.category === 'SAA_WORKFLOW') {
+    return new Set(splitKeys(ref.saaSpec?.inputKeys))
+  }
+  if (ref?.agentSpec) {
+    return new Set(splitKeys(ref.agentSpec.inputKeys))
+  }
+  return new Set()
+}
+
+function outputKeysOf(nodeId, descMap, refMap) {
+  if (nodeId === START || nodeId === END || nodeId === ERROR) return new Set()
+  const keys = new Set()
+  const desc = descMap.get(nodeId)
+  for (const k of desc?.outputKeys || []) keys.add(k)
+  const ref = refMap.get(nodeId)
+  if (ref?.saaSpec || ref?.category === 'SAA_WORKFLOW') {
+    for (const k of saaOutputKeys(ref.saaSpec)) keys.add(k)
+  } else if (ref?.agentSpec) {
+    const out = (ref.agentSpec.outputKey || '').trim()
+    if (out) keys.add(out)
+  }
+  return keys
 }
 
 /** START / ERROR 出边、目标为 HITL 的入边不做可达性校验 */
@@ -75,7 +119,7 @@ function successorsOf(from, definition) {
   return succ
 }
 
-function computeEntryKeys(definition, predecessors, descMap) {
+function computeEntryKeys(definition, predecessors, descMap, refMap) {
   const entry = new Map()
   const exit = new Map()
   entry.set(START, new Set())
@@ -94,7 +138,7 @@ function computeEntryKeys(definition, predecessors, descMap) {
     const node = queue.shift()
     const nodeEntry = entry.get(node) || new Set()
     const nodeExit = new Set(nodeEntry)
-    for (const k of outputKeysOf(node, descMap)) nodeExit.add(k)
+    for (const k of outputKeysOf(node, descMap, refMap)) nodeExit.add(k)
     exit.set(node, nodeExit)
 
     for (const succ of successorsOf(node, definition)) {
@@ -118,15 +162,16 @@ export function validateEdgeParamReachability(definition, nodeDescriptors) {
   if (!definition?.nodes?.length) return []
 
   const descMap = descriptorMap(nodeDescriptors)
+  const refMap = nodeRefMap(definition)
   const predecessors = buildPredecessors(definition)
-  const entryKeys = computeEntryKeys(definition, predecessors, descMap)
+  const entryKeys = computeEntryKeys(definition, predecessors, descMap, refMap)
   const reported = new Set()
   const issues = []
 
   function reportEdge(from, to) {
     if (!to || to === END) return
     if (shouldSkipEdgeValidation(from, to, descMap)) return
-    const required = inputKeysOf(to, descMap)
+    const required = inputKeysOf(to, descMap, refMap)
     if (!required.size) return
     const available = entryKeys.get(to) || new Set()
     const missingKeys = [...required].filter(k => !available.has(k))

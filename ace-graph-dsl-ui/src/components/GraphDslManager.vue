@@ -177,6 +177,10 @@ function onNodeDrag(descriptor) {
   designerRef.value?.onNodeDrag(descriptor)
 }
 
+function onNodeLocate(nodeId) {
+  designerRef.value?.locateCanvasNode?.(nodeId)
+}
+
 onMounted(async () => {
   if (!perm.loaded) await perm.load()
   await refreshCatalog()
@@ -264,7 +268,7 @@ onMounted(async () => {
       <div v-else class="empty-center">
         <el-empty :description="t('manager.selectOrCreate')" />
       </div>
-      <NodePanel v-model:collapsed="nodePanelCollapsed" :class="['node-panel-right', { 'node-panel-right--collapsed': nodePanelCollapsed }]" @node-drag="onNodeDrag" />
+      <NodePanel v-model:collapsed="nodePanelCollapsed" :class="['node-panel-right', { 'node-panel-right--collapsed': nodePanelCollapsed }]" @node-drag="onNodeDrag" @node-locate="onNodeLocate" />
     </main>
 
     <el-dialog v-model="showCreate" :title="t('manager.createDialogTitle')" width="420px">

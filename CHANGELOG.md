@@ -7,6 +7,145 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.17] — 2026-10-15
+
+### Fixed
+
+- **inputKeys 缺值导致 NPE**：`GenericAgentNode` 对 state 缺省 key 曾 `put(null)`，
+  `LlmCallRequest` 再 `Map.copyOf(variables)` 触发 NPE（JDK 禁止 null value）。
+  现缺 key 不写入 variables；`LlmCallRequest` 构造前清洗 null 条目。运行时允许
+  个别 inputKey 无值（提示词空串），连线可达性校验语义不变。
+
+## [1.1.16] — 2026-10-13
+
+### Fixed
+
+- **resource_miss 帧丢失 thinking**：`GenericAgentNode.emitResourceMiss` 原先发出的
+  `TokenChunk` 不带 `streamAttrs`，且早于 attrs 构建；SSE 在 MCP miss 文案上
+  `attrsPresent=false`，按正文下发（无 `thinking:true`）。现先构建 attrs，miss 帧
+  一并透传，与后续 LLM token 一致。
+
+## [1.1.15] — 2026-10-13
+
+### Fixed
+
+- **SAA 子 Agent 丢 agentCode**：`FlowAgentNodeAction` / `SequentialFlowAgentNodeAction`
+  的 seed 原先只带 inputKeys，未透传父 state 保留键；子节点走 `modelConfigKey` 时
+  ModelMount 报「缺少 agentCode」（lf4qw：`intention_subagent`）。现经
+  `SaaFlowSeedSupport` 透传 `ace.graph.dsl.*` 与 `media_refs` 等平台上下文键。
+
+## [1.1.14] — 2026-10-13
+
+### Fixed / Diagnostics
+
+- **有工具 LLM 请求 model 诊断日志**：`StreamingLlmTemplate` 打印播种前后 / Customizer
+  前后的 `resolvedModelId`、`base.getModel()`、`out.getModel()`、inline/override。
+- 平台 Customizer（随 agent-server）：`resolveModel` 改为 Override &gt; 已解析 base &gt; inline；
+  `enableModel+modelConfigKey` 时忽略图内残留 inline（z5jtm：endpoint=qwen 被
+  inline=deepseek 盖掉）。
+
+## [1.1.13] — 2026-10-13
+
+### Fixed
+
+- **有工具时请求级 Options 丢失 modelId**：`StreamingLlmTemplate` 在挂工具时将已解析的
+  `endpoint.modelId` 播入 `ToolCallingChatOptions`；避免 `LlmChatOptionsCustomizer` 重建
+  Options 后 model 为空、回落到 `spring.ai.openai.chat.options.model`（表现为 Nacos 配
+  qwen、Langfuse 却打 deepseek）。平台侧 `LessoAceGraphThinkingOptionsCustomizer` 同步
+  从 base Options 保留 model，且不再写入 null model。
+
+## [1.1.12] — 2026-10-13
+
+### Fixed
+
+- **SAA 连线参数可达性**：`EdgeParamReachabilityValidator` / 前端 `edgeParamValidation.js`
+  将 `SAA_WORKFLOW` 的 `saaSpec.outputKey` 与子 `outputKey` 计入上游产出，避免
+  「高阶节点 → 下游 GenericAgent」误报缺少入参、试运行/编译被拦。
+
+## [1.1.11] — 2026-10-07
+
+### Fixed
+
+- **草稿仅改 displayName 被 SKIP**：`saveDraft` 在可执行内容与 base 相同时，若图级元信息
+  （`displayName` / `description`）有变仍应插入新行；仅内容与元信息皆不变才 SKIP。
+  `DraftSaveValidator.sameMeta` + `DraftSaveSupport`；单测见 `DraftSaveValidatorTest`。
+
+### Documentation
+
+- 同步流式记忆 R4/R4b 交叉引用（设计 §4.2.2、implementation-plan P3.8）。
+- SAA 高阶节点文档：§12 验收清单与「M0～M4 已落地」对齐；链宿主 `ace-graph-agentscope-host.md`。
+- 补记：可选模块 `ace-graph-dsl-agentscope-agent`（M3 / Q4 `starter-agentscope`）见设计附录 A.4（2026-09-28 已交付，此前 CHANGELOG 未单列）。
+
+## [1.1.10] — 2026-10-07
+
+### Fixed
+
+- **R4b：deferred Provider 未转发 mergeHistoryForPrompt**：`AceGraphDslAiAutoConfiguration` 用
+  `@FunctionalInterface` lambda 包装业务 Provider 时，仅实现 `provide`，流式前 `mergeHistoryForPrompt`
+  落在接口 default no-op，续轮仍不读历史。改为匿名类同时转发 `provide` + `merge`；去掉接口上的
+  `@FunctionalInterface`。见 `history-attachment-replay-fix-plan.md` R4b。
+
+## [1.1.9] — 2026-10-07
+
+### Fixed
+
+- **流式路径续轮读历史（R4）**：`StreamingLlmTemplate` 在 `streamCall` / `streamCallWithTools` **调模型前**调用
+  `ChatClientAdvisorProvider.mergeHistoryForPrompt` 合并历史进 Prompt；流式仍不挂记忆 Advisor（写 ASSISTANT 继续 echo）。
+  工具多轮只 merge **一次**，echo 落盘仍用原始 seed（禁止把拼好的 Prompt 当 USER 持久化）。
+  业务侧见 lesso-ai-project `docs/history-attachment-replay-fix-plan.md` §2 R4 / §7。
+
+### Added
+
+- `ChatClientAdvisorProvider#mergeHistoryForPrompt`（默认 no-op）：流式前只读合并历史。
+
+## [1.1.8] — 2026-10-06
+
+### Fixed
+
+- **Generic Agent 内联 API Key**：落库与注册保留完整 Key；HTTP 读回仍脱敏。更新时若提交 `****` 占位则保留原明文，历史已裁剪行须重新填写完整 Key。
+
+## [1.1.7] — 2026-10-06
+
+### Fixed
+
+- **流式无工具节点记忆**：`stream().content()` 不再依赖 Advisor 聚合 after；与工具路径一样终答后 echo 落盘（修复历史缺 ASSISTANT 思考/正文）。
+
+## [1.1.6] — 2026-10-06
+
+### Added
+
+- **设计器对话记忆 UI**：属性面板 / Agent 编辑器支持 `memoryWrites` 开关与三 flag 多选
+  （`WRITE_USER` / `WRITE_ASSISTANT_THINKING` / `WRITE_ASSISTANT_MAIN_TEXT`）；
+  开启后覆盖 `memoryMode`（含空列表=本节点不写），关闭则回退旧三态。
+- **历史 USER 附件/技能标签**：框架只拆 URL / 技能展示名，经 `MemoryUserPersistMetadataResolver` 由业务写成 extras（Lesso：`images`/`files`/`guide`/`display_content`）。
+
+## [1.1.5] — 2026-10-06
+
+### Fixed
+
+- **`DynamicGraphBuilder` 启动失败**：类上存在两个构造器且未标注 `@Autowired` 时，
+  Spring 回退查找无参构造导致 `NoSuchMethodException: DynamicGraphBuilder.<init>()`；
+  已在完整依赖构造器上标注 `@Autowired`。
+
+## [1.1.4] — 2026-10-06
+
+### Added
+
+- **可组合记忆写意图 `memoryWrites`**：`GenericAgentSpec` / JSON 支持
+  `WRITE_USER` | `WRITE_ASSISTANT_THINKING` | `WRITE_ASSISTANT_MAIN_TEXT`。
+  有 `memoryWrites`（含空列表）时优先生效；未配置时仍由旧 `memoryMode` 推导。
+- **`MemoryWriteFlag` + Ordered Advisor `writeAssistant`**：THINKING 仅进
+  `LessoSessionThinkingBuffer`（不 drain、不单独 add ASSISTANT）；MAIN_TEXT 节点
+  drain + 写 1 条 ASSISTANT（content+thinking_content）。出口节点自动剥离 `WRITE_USER`。
+
+### Changed
+
+- **多节点推荐配置（ztc-service-agent v1.0.9）**：
+  intent=`[]`；biz=`[WRITE_USER, WRITE_ASSISTANT_THINKING]`；
+  out_put=`[WRITE_ASSISTANT_MAIN_TEXT]` → 一轮 remote 仅 **1 USER + 1 ASSISTANT**。
+- **文档**：`history-ui-and-write-file-rootcause.md` §2.1/B4；记忆落盘约定 rule；
+  设计稿 MemoryMode 段补充 `memoryWrites`。
+
 ## [1.1.3] — 2026-09-24
 
 ### Fixed

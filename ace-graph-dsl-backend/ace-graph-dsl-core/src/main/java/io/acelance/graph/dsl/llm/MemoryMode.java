@@ -5,15 +5,20 @@ package io.acelance.graph.dsl.llm;
  *
  * <p>默认 {@link #NONE}。</p>
  *
- * <p><b>ace-graph 多节点</b>：允许同回合多个 {@link #READ_WRITE}——各节点响应完成即写 remote
- *（角色上出口节点勿重复写 USER；时机上禁止学 Vertical 推到图尾）。</p>
+ * <p><b>ace-graph 多节点</b>：优先用 Spec {@code memoryWrites} 可组合写意图
+ *（{@link MemoryWriteFlag}）；未配置时本枚举仍有效。
+ * 时机上各写意图在节点完成时即时生效（USER/MAIN_TEXT → remote add；THINKING → Buffer），
+ * 禁止学 Vertical 推到图尾。</p>
  */
 public enum MemoryMode {
     /** 本节点不参与对话记忆 */
     NONE,
-    /** 读历史；可选写 USER；不写 ASSISTANT */
+    /** 读历史；可选写 USER；不写 ASSISTANT（无 memoryWrites 时走 ReadOnly Advisor） */
     READ_ONLY,
-    /** 读历史 + 写 USER + 写 ASSISTANT */
+    /**
+     * 兼容旧配置：等价 {@code memoryWrites=
+     * [WRITE_USER, WRITE_ASSISTANT_THINKING, WRITE_ASSISTANT_MAIN_TEXT]}。
+     */
     READ_WRITE;
 
     /**

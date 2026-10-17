@@ -1,6 +1,6 @@
 <script setup>
-import { ref, computed, watch, onMounted, onBeforeUnmount, nextTick } from 'vue'
-import { ElMessage, ElMessageBox } from 'element-plus'
+import { ref, computed, watch, onMounted, onBeforeUnmount, nextTick, h } from 'vue'
+import { ElMessage, ElMessageBox, ElNotification } from 'element-plus'
 import { RefreshLeft, RefreshRight, VideoPlay, Upload, Download, Share, Switch, ZoomIn, ZoomOut, FullScreen, ScaleToOriginal, MagicStick, MapLocation, FolderOpened, Rank, Crop } from '@element-plus/icons-vue'
 import { useGraphEditorStore } from '../../stores/graphEditor'
 import { usePermissionStore, MENU } from '../../stores/permissions'
@@ -172,14 +172,33 @@ async function onSave() {
   }
 }
 
+function notifyValidateErrors(errors) {
+  const list = (errors || []).map((e) => String(e))
+  ElNotification({
+    title: t('toolbar.validateFailed', { count: list.length }),
+    message: h(
+      'ol',
+      { style: 'margin:0;padding-left:18px;max-height:240px;overflow:auto;' },
+      list.map((msg) => h('li', { style: 'margin-bottom:6px;line-height:1.45;word-break:break-word;' }, msg))
+    ),
+    type: 'warning',
+    duration: 5000,
+    position: 'top-right'
+  })
+}
+
 async function onValidate() {
-  const result = await editor.validate()
-  if (result.ok) {
-    ElMessage.success(t('toolbar.validateSuccess'))
-  } else {
-    ElMessage.warning(t('toolbar.validateFailed', { count: result.errors.length }))
+  try {
+    const result = await editor.validate()
+    if (result.ok) {
+      ElMessage.success(t('toolbar.validateSuccess'))
+    } else {
+      notifyValidateErrors(result.errors)
+    }
+    emit('validate', result)
+  } catch (e) {
+    ElMessage.error(t('toolbar.validateRequestFailed', { msg: e.response?.data?.error || e.message || e }))
   }
-  emit('validate', result)
 }
 
 async function onPreview() {

@@ -186,15 +186,16 @@ P3.6 ResourceKeyValidator 接线（任意空隙，建议 C）
 | 项 | 落点 | 状态 |
 |---|---|---|
 | 保留键 `ace.graph.dsl.conversationId` + `LlmRequestContext.conversationId` | core | ✅ |
-| 节点 `MemoryMode`（NONE / READ_ONLY / READ_WRITE）→ Spec / `LlmCallRequest` | core + ai | ✅ |
+| 节点 `MemoryMode` + `memoryWrites`（可组合 flags）→ Spec / `LlmCallRequest` / `ChatClientAdvisorRequest` | core + ai | ✅ |
 | `ChatClientAdvisorProvider` + Bundle/Request | ai | ✅ |
 | `StreamingLlmTemplate` sync/stream 统一 `prepareSpec` 挂载业务 Advisor + `ChatMemory.CONVERSATION_ID` | Template | ✅ |
-| `LlmResolvers` / 自动配置可选注入 Provider（null=空操作） | starter/ai | ✅ |
-| 单测：假 Advisor 验证透传与 mode=NONE 跳过 | ai/test | ✅ |
+| **流式前** `mergeHistoryForPrompt`（读/写分离；工具循环外一次；1.1.9） | Template + SPI | ✅ |
+| `LlmResolvers` deferred **匿名类**转发 `provide`+`merge`（1.1.10 R4b） | ai autoconfig | ✅ |
+| 单测：假 Advisor / merge / deferred 陷阱；`MemoryWriteFlagTest` | ai/core test | ✅ |
 
 **不做**：ChatMemory Store、userId/bizKey、图尾 persistMemory、认识 Lesso BusinessContext。
 
-**验收**：业务 Provider 挂上后，call/stream 均能读到 CONVERSATION_ID；无 Provider / NONE 行为与今日一致。
+**验收**：业务 Provider 挂上后，call/stream 均能读到 CONVERSATION_ID；**流式续轮** Prompt 含历史（日志 `mergedCount>seedCount`）；无 Provider / NONE / 空 writes 行为与今日一致；多节点一轮 remote 仅 1 USER + 1 ASSISTANT。业务案例：`history-attachment-replay-fix-plan.md`。
 
 **出口后业务下一步**：真 UI 浏览器 E2E 收口（评估 §14.1.1）；Catalog 过滤搁置（§14.3）；增强批可缓。
 
@@ -294,7 +295,7 @@ P3.6 ResourceKeyValidator 接线（任意空隙，建议 C）
 | `LessoNacosSkillStore`：L1 Catalog / L2 Content / L3 Resource | 包 `LessoSkillCatalog` + `LessoSkillWorkspace` | ✅ |
 | 与框架 `InMemorySkillStore` 共存：业务 Bean `@Primary`；产品自动配置「已有 CatalogResolver 则跳过空仓」 | 避免注入歧义 | ✅ |
 | 入口 / inputs 写入 `ACE_FORCE_SKILLS_KEY`（冒烟已验证） | 框架只认保留键 | ✅ 联调路径 |
-| 用户口令 → forceSkills 自动解析 | 产品化增强 | 未开始 |
+| 用户口令 → forceSkills 自动解析 | `AceGraphPlatformRequestMapper` 解析 `/{{code\|name}}`，写 `forceSkills`+labels，并清洗 `user_query`；原文进 `user_query_raw` 供记忆展示 | ✅（1.1.6 宿主） |
 | 路径安全、按 agentCode 范围 | SkillPathSafety | 沿用 SDK |
 
 **验收**：白名单 L1 进 system；forceSkills 预激活 L2；`load_skill` 可拉正文（冒烟已验 L2 + 一句话摘要）。
@@ -339,13 +340,13 @@ P3.6 ResourceKeyValidator 接线（任意空隙，建议 C）
 
 | 项 | 说明 | 状态 |
 |---|---|---|
-| 实现 `ChatClientAdvisorProvider`：按 MemoryMode 返回 Ordered / ReadOnly Advisor | 复用 lesso-ai-memory / `PlatformChatMemorySupport` | ✅ |
+| 实现 `ChatClientAdvisorProvider`：按 `memoryWrites` / MemoryMode 返回 Ordered / ReadOnly Advisor | 复用 lesso-ai-memory / `PlatformChatMemorySupport`（含 `writeAssistant`） | ✅ |
 | 入口写 `ACE_CONVERSATION_ID_KEY`=sessionId + `BusinessContext`(userId/sessionId/bizKey) | conversationId **≠** 三字段拼接 | ✅（Biz.0） |
-| 节点 Spec 配置 `memoryMode`（主对话 READ_WRITE；旁路 NONE/READ_ONLY） | 禁止多节点同回合多写 ASSISTANT | ✅ 冒烟 `READ_WRITE` |
-| `PlatformChatMemorySupport` 补 `createOrdered` / `createReadOnly` | 评估 §12 | ✅ |
+| 节点 Spec：`memoryWrites` 优先；兼容 `memoryMode`（单节点 READ_WRITE=三 flag） | 多节点：biz USER+THINKING，out_put MAIN_TEXT；禁止同回合多次 ASSISTANT add | ✅ ztc v1.0.9 |
+| `PlatformChatMemorySupport` 补 `createOrdered(writeUser, writeAssistant)` / `createReadOnly` | 评估 §12 | ✅ |
 | `GenericAgentNode` 将 `user_query` 等写入 USER（供记忆落库） | 产品小修，随 P3.8/Biz.8 | ✅ |
 
-**验收**：同 sessionId 多轮能读到历史；USER/ASSISTANT 由 Advisor 落库；关键日志带齐身份键。
+**验收**：同 sessionId 多轮能读到历史；一轮 remote 仅 1 USER + 1 ASSISTANT（thinking+正文）；关键日志带齐身份键与 writes。
 
 ### Biz.9 — Langfuse 观测接入（业务定制；**不**做产品 Langfuse UI）· ✅
 
@@ -426,13 +427,13 @@ P3.6 ResourceKeyValidator 接线（任意空隙，建议 C）
 | P0～P2.2 | ✅ | — |
 | P2.3 | ⏭ | 等拍板 |
 | **P3.1～P3.7** | ✅ | 框架工具链欠账清完 |
-| **P3.8** | ✅ | 对话记忆 Advisor 钩子已出口；业务可开 Biz.8 |
+| **P3.8** | ✅ | 对话记忆 Advisor 钩子已出口；**1.1.9/1.1.10** 补齐流式前 merge（R4/R4b）；业务可开 Biz.8 |
 | **P3.9** | ⏭ 按需 | 节点级观测上下文刷新 |
 | **Biz.0** | ✅ | 图执行入口 + 冒烟图 |
 | **Biz.1** | ✅ 主路径 | Validator / 列表鉴权可选 |
 | **Biz.2** | ✅ 主路径 | 热刷新见 Biz.R；Fernet/specRef 已踩通 |
 | **Biz.3** | ✅ 主路径 | session 关闭已做；热刷新见 Biz.R |
-| **Biz.4** | ✅ 主路径 | 口令→forceSkills 可增强 |
+| **Biz.4** | ✅ 主路径 | 口令→forceSkills 已解析；有效白名单=`skillKeys ∪ forceSkills` |
 | **Biz.5～7** | 未开始 | 增强批，可缓 |
 | **Biz.8** | ✅ 主路径 | Provider + 冒烟 `memoryMode=READ_WRITE`；两轮同 session 验收 |
 | **Biz.9** | ✅ | 现有 Langfuse 控制台 Generation 已核对（产品不做 Langfuse 页面） |

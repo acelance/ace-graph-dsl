@@ -1,6 +1,6 @@
 {
   "name": "@acelance/graph-dsl-ui",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Ace Graph DSL visual designer components for spring-ai-alibaba-graph",
   "license": "Apache-2.0",
   "homepage": "https://github.com/acelance/ace-graph-dsl",
@@ -13,8 +13,8 @@
     "url": "https://github.com/acelance/ace-graph-dsl/issues"
   },
   "publishConfig": {
-    "registry": "https://npm.pkg.github.com",
-    "@acelance:registry": "https://npm.pkg.github.com"
+    "access": "public",
+    "registry": "https://registry.npmjs.org"
   },
   "type": "module",
   "main": "./dist/index.js",

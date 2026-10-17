@@ -8,7 +8,9 @@ import io.acelance.graph.dsl.definition.GraphEdge;
 import io.acelance.graph.dsl.definition.NodeRef;
 import io.acelance.graph.dsl.observability.GraphExecutionListener;
 import io.acelance.graph.dsl.observability.GraphLifecycleListenerBridge;
+import io.acelance.graph.dsl.definition.GenericAgentDefinition;
 import io.acelance.graph.dsl.persistence.DynamicNodeDefinitionRepository;
+import io.acelance.graph.dsl.persistence.GenericAgentDefinitionRepository;
 import io.acelance.graph.dsl.persistence.GraphDefinitionRepository;
 import io.acelance.graph.dsl.registry.EdgeDispatcherRegistry;
 import io.acelance.graph.dsl.registry.GraphNodeDescriptor;
@@ -20,11 +22,15 @@ import io.acelance.graph.dsl.script.ScriptEdgeActionFactory;
 import io.acelance.graph.dsl.script.ScriptNodeFactory;
 import io.acelance.graph.dsl.agent.GenericAgentNodeFactory;
 import io.acelance.graph.dsl.agent.GraphBoundAgentNode;
+import io.acelance.graph.dsl.agent.SaaWorkflowNodeFactory;
 import io.acelance.graph.dsl.definition.GenericAgentSpec;
+import io.acelance.graph.dsl.definition.SaaWorkflowKeys;
+import io.acelance.graph.dsl.definition.SaaWorkflowSpec;
 import io.acelance.graph.dsl.llm.LlmRequestContext;
 import io.acelance.graph.dsl.runtime.ModelOverrideSpec;
 import io.acelance.graph.dsl.streamkind.StreamResponseKind;
 import io.acelance.graph.dsl.streamkind.StreamResponseKindResolver;
+import io.acelance.graph.dsl.validation.SaaWorkflowValidator;
 import com.alibaba.cloud.ai.graph.CompileConfig;
 import com.alibaba.cloud.ai.graph.CompiledGraph;
 import com.alibaba.cloud.ai.graph.KeyStrategy;
@@ -44,6 +50,7 @@ import com.alibaba.cloud.ai.graph.state.strategy.ReplaceStrategy;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.ApplicationContext;
 import org.springframework.stereotype.Component;
 
@@ -77,10 +84,13 @@ public class DynamicGraphBuilder {
     private static final List<String> RESERVED_STATE_KEYS = List.of(
             LlmRequestContext.ACE_AGENT_CODE_KEY,
             LlmRequestContext.ACE_FORCE_SKILLS_KEY,
+            LlmRequestContext.ACE_FORCE_SKILL_LABELS_KEY,
             LlmRequestContext.ACE_CONVERSATION_ID_KEY,
             LlmRequestContext.ACE_DEEP_THINKING_KEY,
             ModelOverrideSpec.ACE_RUN_ID_KEY,
-            ModelOverrideSpec.ACE_MODEL_OVERRIDES_KEY
+            ModelOverrideSpec.ACE_MODEL_OVERRIDES_KEY,
+            SaaWorkflowKeys.SUB_STEPS_KEY,
+            SaaWorkflowKeys.SUB_STEPS_META_KEY
     );
 
     private final GraphNodeRegistry nodeRegistry;
@@ -95,6 +105,13 @@ public class DynamicGraphBuilder {
     private final GraphDefinitionRepository definitionRepository;
     /** 可选：未引入 ace-graph-dsl-ai 时为空，遇 GENERIC_AGENT 给出可操作报错 */
     private final ObjectProvider<GenericAgentNodeFactory> agentNodeFactory;
+    /** 可选：未引入 ace-graph-dsl-saa-agent 时为空，遇 SAA_WORKFLOW 给出可操作报错 */
+    private final ObjectProvider<SaaWorkflowNodeFactory> saaWorkflowNodeFactory;
+    /**
+     * 可选：通用 agent 定义仓储。编译前按 DB 刷新注册中心（与脚本节点 ensureScriptNodesLoaded 对称），
+     * 避免多实例下「Agent 定义已更新、图已发布，但仍用启动时旧 Spec」。
+     */
+    private final ObjectProvider<GenericAgentDefinitionRepository> agentDefRepository;
 
     public DynamicGraphBuilder(GraphNodeRegistry nodeRegistry,
                                EdgeDispatcherRegistry dispatcherRegistry,
@@ -107,6 +124,28 @@ public class DynamicGraphBuilder {
                                ScriptNodeFactory scriptNodeFactory,
                                GraphDefinitionRepository definitionRepository,
                                ObjectProvider<GenericAgentNodeFactory> agentNodeFactory) {
+        this(nodeRegistry, dispatcherRegistry, validator, applicationContext, saverRegistry,
+                scriptEdgeActionFactory, executionListeners, nodeDefRepository, scriptNodeFactory,
+                definitionRepository, agentNodeFactory, null, null);
+    }
+
+    /**
+     * Spring 注入入口。类上有两个构造时必须标 {@link Autowired}，否则会回退找无参构造而启动失败。
+     */
+    @Autowired
+    public DynamicGraphBuilder(GraphNodeRegistry nodeRegistry,
+                               EdgeDispatcherRegistry dispatcherRegistry,
+                               GraphValidator validator,
+                               ApplicationContext applicationContext,
+                               CheckpointSaverRegistry saverRegistry,
+                               ScriptEdgeActionFactory scriptEdgeActionFactory,
+                               List<GraphExecutionListener> executionListeners,
+                               DynamicNodeDefinitionRepository nodeDefRepository,
+                               ScriptNodeFactory scriptNodeFactory,
+                               GraphDefinitionRepository definitionRepository,
+                               ObjectProvider<GenericAgentNodeFactory> agentNodeFactory,
+                               ObjectProvider<SaaWorkflowNodeFactory> saaWorkflowNodeFactory,
+                               ObjectProvider<GenericAgentDefinitionRepository> agentDefRepository) {
         this.nodeRegistry = nodeRegistry;
         this.dispatcherRegistry = dispatcherRegistry;
         this.validator = validator;
@@ -118,6 +157,8 @@ public class DynamicGraphBuilder {
         this.scriptNodeFactory = scriptNodeFactory;
         this.definitionRepository = definitionRepository;
         this.agentNodeFactory = agentNodeFactory;
+        this.saaWorkflowNodeFactory = saaWorkflowNodeFactory;
+        this.agentDefRepository = agentDefRepository;
     }
 
     /**
@@ -186,8 +227,9 @@ public class DynamicGraphBuilder {
             nextVisiting.add(currentGraphId);
         }
 
-        // 编译前：按需加载缺失的脚本节点（多实例懒加载）
+        // 编译前：按需从 DB 刷新脚本 / 注册式 GenericAgent（多实例懒加载，避免内存 Spec 陈旧）
         ensureScriptNodesLoaded(def);
+        ensureGenericAgentNodesLoaded(def);
         KeyStrategyFactory keyStrategyFactory = createKeyStrategyFactory(def);
         StateGraph stateGraph = new StateGraph(keyStrategyFactory);
         NodeRuntimeContext ctx = NodeRuntimeContext.empty(applicationContext);
@@ -525,6 +567,22 @@ public class DynamicGraphBuilder {
             for (String key : RESERVED_STATE_KEYS) {
                 strategies.putIfAbsent(key, new ReplaceStrategy());
             }
+            // SAA 子/父输出键：未声明时自动补 REPLACE，便于中间键透传
+            if (def.nodes() != null) {
+                for (NodeRef ref : def.nodes()) {
+                    if (!SaaWorkflowValidator.isSaaWorkflowNode(ref)) {
+                        continue;
+                    }
+                    for (String key : SaaWorkflowValidator.collectNeededKeys(ref)) {
+                        strategies.putIfAbsent(key, new ReplaceStrategy());
+                    }
+                    if (ref.saaSpec() != null) {
+                        for (String in : ref.saaSpec().inputKeyList()) {
+                            strategies.putIfAbsent(in, new ReplaceStrategy());
+                        }
+                    }
+                }
+            }
             return strategies;
         };
     }
@@ -538,8 +596,32 @@ public class DynamicGraphBuilder {
         if (ref.hasAgentSpec() || GraphNodeDescriptor.CATEGORY_GENERIC_AGENT.equals(ref.category())) {
             return node_async(resolveGenericAgent(def, ref).toAction(nodeCtx));
         }
+        if (SaaWorkflowValidator.isSaaWorkflowNode(ref)) {
+            return node_async(resolveSaaWorkflow(def, ref, nodeCtx));
+        }
         RegisteredGraphNode node = nodeRegistry.get(ref.nodeId());
         return node_async(node.toAction(nodeCtx));
+    }
+
+    /**
+     * 编译 SAA_WORKFLOW 节点为 NodeAction（方式 A）。
+     */
+    private com.alibaba.cloud.ai.graph.action.NodeAction resolveSaaWorkflow(
+            GraphDefinition def, NodeRef ref, NodeRuntimeContext nodeCtx) throws GraphStateException {
+        SaaWorkflowNodeFactory factory = saaWorkflowNodeFactory == null
+                ? null : saaWorkflowNodeFactory.getIfAvailable();
+        if (factory == null) {
+            throw new GraphStateException("图 " + def.graphId() + " 含 SAA_WORKFLOW 节点 " + ref.nodeId()
+                    + "，但未找到 SaaWorkflowNodeFactory；请引入 ace-graph-dsl-saa-agent 依赖");
+        }
+        SaaWorkflowSpec spec = ref.saaSpec();
+        if (spec == null) {
+            throw new GraphStateException("SAA_WORKFLOW 节点缺少 saaSpec: " + ref.nodeId());
+        }
+        log.info("编译 SAA_WORKFLOW 节点, graphId={}, nodeId={}, pattern={}, subAgents={}",
+                def.graphId(), ref.nodeId(), spec.pattern(),
+                spec.subAgents() == null ? 0 : spec.subAgents().size());
+        return factory.create(def.graphId(), ref.nodeId(), spec, nodeCtx);
     }
 
     /**
@@ -619,6 +701,9 @@ public class DynamicGraphBuilder {
      * 编译操作本身频率低（启动、发布、回滚、多实例懒刷新），因此无性能顾虑。</p>
      */
     private void ensureScriptNodesLoaded(GraphDefinition def) {
+        if (nodeDefRepository == null || scriptNodeFactory == null) {
+            return;
+        }
         for (NodeRef ref : def.nodes()) {
             String nodeId = ref.nodeId();
             if (!nodeId.startsWith("script:")) continue;
@@ -632,6 +717,61 @@ public class DynamicGraphBuilder {
                 }
             } catch (Exception e) {
                 log.warn("脚本节点加载失败, nodeId={}, error={}", nodeId, e.getMessage());
+            }
+        }
+    }
+
+    /**
+     * 编译前把图引用的注册式 GenericAgent 从 DB 重新加载进注册中心。
+     *
+     * <p>与 {@link #ensureScriptNodesLoaded} 对称：脚本节点早就有「编译前刷 DB」，
+     * Agent 节点此前只信进程内 {@link GraphNodeRegistry}，导致「设计器已改 prompt /
+     * 图已发新版本，执行实例仍用启动时旧 Spec」。</p>
+     *
+     * <p>内联 {@code agentSpec != null} 的节点以图 JSON 为准，不从此处覆盖。</p>
+     */
+    private void ensureGenericAgentNodesLoaded(GraphDefinition def) {
+        GenericAgentDefinitionRepository repo = agentDefRepository == null
+                ? null : agentDefRepository.getIfAvailable();
+        GenericAgentNodeFactory factory = agentNodeFactory == null
+                ? null : agentNodeFactory.getIfAvailable();
+        if (repo == null || factory == null) {
+            return;
+        }
+        for (NodeRef ref : def.nodes()) {
+            // 内联 Spec：以图 JSON 为准
+            if (ref.agentSpec() != null) {
+                continue;
+            }
+            String nodeId = ref.nodeId();
+            if (nodeId == null || nodeId.isBlank()) {
+                continue;
+            }
+            boolean looksAgent = nodeId.startsWith(GenericAgentDefinition.AGENT_ID_PREFIX)
+                    || "GENERIC_AGENT".equals(ref.category());
+            if (!looksAgent) {
+                continue;
+            }
+            try {
+                GenericAgentDefinition agentDef = repo.findById(nodeId).orElse(null);
+                if (agentDef == null || !agentDef.enabled()) {
+                    continue;
+                }
+                GraphBoundAgentNode node = factory.create(
+                        agentDef.nodeId(),
+                        null,
+                        agentDef.spec(),
+                        agentDef.displayName(),
+                        agentDef.description(),
+                        agentDef.version(),
+                        agentDef.permissionTags());
+                nodeRegistry.registerDynamic(node);
+                int promptChars = agentDef.spec() != null && agentDef.spec().prompt() != null
+                        ? agentDef.spec().prompt().length() : 0;
+                log.info("编译前刷新 GenericAgent 节点, nodeId={}, promptChars={}, updatedAt={}",
+                        nodeId, promptChars, agentDef.updatedAt());
+            } catch (Exception e) {
+                log.warn("GenericAgent 节点加载失败, nodeId={}, error={}", nodeId, e.getMessage());
             }
         }
     }

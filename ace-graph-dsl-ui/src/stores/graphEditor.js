@@ -6,6 +6,7 @@ import { canonicalContent, bumpPatchVersion, maxSemver, compareSemver } from '..
 import { validateEdgeParamReachability } from '../utils/edgeParamValidation'
 import { validateTopology } from '../utils/topologyValidation'
 import { graphDefinitionToMermaid } from '../utils/generateMermaid'
+import { SAA_SUB_STEPS_KEY, SAA_SUB_STEPS_META_KEY } from '../utils/saaSubSteps'
 
 export const useGraphEditorStore = defineStore('aceGraphEditor', () => {
   /** 子图最大下钻深度（与后端 GraphValidator/DynamicGraphBuilder 一致） */
@@ -28,6 +29,8 @@ export const useGraphEditorStore = defineStore('aceGraphEditor', () => {
   const baselineCanonical = ref('')
   const baselineVersion = ref('')
   const saving = ref(false)
+  /** 最近一次已落盘草稿中的画布节点（不含 START/END）；仅 load/save 时刷新，不跟画布实时同步 */
+  const savedGraphNodes = ref([])
   const publishing = ref(false)
   const selectedNode = ref(null)
   const selectedLfNodeId = ref(null)
@@ -85,9 +88,29 @@ export const useGraphEditorStore = defineStore('aceGraphEditor', () => {
     return RESERVED_NODE_IDS.has(nodeId)
   }
 
+  /**
+   * 节点显示名双向同步：UI 用顶层 displayName，落库用 config.label（NodeRef 无 displayName 字段）。
+   */
+  function hydrateNodeDisplayName(n) {
+    if (!n) return n
+    const label = (n.displayName && String(n.displayName).trim())
+      || (n.config && n.config.label && String(n.config.label).trim())
+      || ''
+    const config = { ...(n.config || {}) }
+    if (label) config.label = label
+    else delete config.label
+    return { ...n, displayName: label, config }
+  }
+
+  function withPersistedNodeLabels(nodeList) {
+    return (nodeList || []).map(hydrateNodeDisplayName)
+  }
+
   /** 清洗 DSL：去掉误入的业务节点，统一 START/END 保留字，去重条件边 */
   function normalizeDefinition(def) {
-    const normalizedNodes = (def.nodes || []).filter(n => !isReservedNodeId(n.nodeId))
+    const normalizedNodes = withPersistedNodeLabels(
+      (def.nodes || []).filter(n => !isReservedNodeId(n.nodeId))
+    )
 
     const normalEdges = []
     const conditionalByKey = new Map()
@@ -134,6 +157,42 @@ export const useGraphEditorStore = defineStore('aceGraphEditor', () => {
     }
   }
 
+  /**
+   * 刷新「当前图」页签快照。只应在加载已保存定义或保存草稿成功后调用，
+   * 避免画布未保存的增删立刻出现在节点面板。
+   */
+  function captureSavedGraphNodes(def) {
+    const list = (def && def.nodes) ? def.nodes : []
+    savedGraphNodes.value = list
+      .filter((n) => {
+        const id = n && n.nodeId
+        return id && id !== '__START__' && id !== '__END__' && id !== '__ERROR__'
+      })
+      .map((n) => {
+        const row = {
+          nodeId: n.nodeId,
+          category: n.category || '',
+          displayName: (n.config && n.config.label) || n.displayName || n.nodeId
+        }
+        // 供「当前图」展开 SAA 子 Agent 卡片（与画布未保存态以 editor.nodes 为准）
+        if (n.category === 'SAA_WORKFLOW' && n.saaSpec) {
+          row.saaSpec = {
+            pattern: n.saaSpec.pattern || 'SEQUENTIAL',
+            subAgents: Array.isArray(n.saaSpec.subAgents)
+              ? n.saaSpec.subAgents.map((s, i) => ({
+                  name: s?.name || `agent_${i + 1}`,
+                  impl: s?.impl || 'GENERIC_AGENT',
+                  ref: s?.ref || '',
+                  outputKey: s?.outputKey || ''
+                }))
+              : []
+          }
+        }
+        return row
+      })
+    console.info('[graphEditor] 当前图节点快照已更新', graphId.value, savedGraphNodes.value.length)
+  }
+
   function snapshotBaseline(def) {
     const snapshot = def || buildDefinition()
     baselineCanonical.value = canonicalContent(snapshot)
@@ -175,17 +234,18 @@ export const useGraphEditorStore = defineStore('aceGraphEditor', () => {
       .map(n => {
         const nodeId = n.properties?.nodeId || n.id
         nodeIdMap[n.id] = nodeId
-        return {
+        return hydrateNodeDisplayName({
           nodeId,
           category: n.properties?.category || 'NORMAL',
-          displayName: n.properties?.displayName || '',
+          displayName: n.properties?.displayName || n.properties?.config?.label || '',
           subgraphRef: n.properties?.subgraphRef || '',
           subgraph: n.properties?.subgraph || null,
           agentSpec: n.properties?.agentSpec || null,
+          saaSpec: n.properties?.saaSpec || null,
           config: n.properties?.config || {},
           x: n.x,
           y: n.y
-        }
+        })
       })
       .filter(n => !isReservedNodeId(n.nodeId))
     if (startNode) nodeIdMap[startNode.id] = '__START__'
@@ -245,7 +305,37 @@ export const useGraphEditorStore = defineStore('aceGraphEditor', () => {
     for (const k of allOutputKeys) {
       if (!keyStrategies[k]) keyStrategies[k] = 'REPLACE'
     }
+    ensureSaaKeyStrategies()
     refreshEdgeParamValidation(nodeDescriptors)
+  }
+
+  /**
+   * SAA 节点会写子步骤轨迹键；校验器要求 keyStrategies 声明它们。
+   * 框架内部键，设计器自动补 REPLACE，无需用户点「新增 Key」。
+   */
+  function ensureSaaKeyStrategies() {
+    const hasSaa = (nodes.value || []).some(n => n.category === 'SAA_WORKFLOW' || n.saaSpec)
+    if (!hasSaa) return
+    const add = (k) => {
+      const key = (k || '').trim()
+      if (key && !keyStrategies[key]) keyStrategies[key] = 'REPLACE'
+    }
+    add(SAA_SUB_STEPS_KEY)
+    add(SAA_SUB_STEPS_META_KEY)
+    for (const n of nodes.value || []) {
+      const spec = n.saaSpec
+      if (!spec) continue
+      add(spec.outputKey)
+      for (const sub of spec.subAgents || []) {
+        add(sub.outputKey)
+      }
+      const raw = spec.inputKeys
+      if (typeof raw === 'string') {
+        raw.split(',').forEach(add)
+      } else if (Array.isArray(raw)) {
+        raw.forEach(add)
+      }
+    }
   }
 
   function refreshEdgeParamValidation(nodeDescriptors) {
@@ -258,6 +348,7 @@ export const useGraphEditorStore = defineStore('aceGraphEditor', () => {
 
   /** 构建完整的 GraphDefinition 对象 */
   function buildDefinition() {
+    ensureSaaKeyStrategies()
     return normalizeDefinition({
       graphId: graphId.value,
       displayName: displayName.value,
@@ -288,10 +379,12 @@ export const useGraphEditorStore = defineStore('aceGraphEditor', () => {
       const def = buildDefinition()
       const result = await saveDraft(graphId.value, def, baselineVersion.value || def.version)
       if (!result.changed) {
+        captureSavedGraphNodes(def)
         return { ok: true, unchanged: true, result, collapsedToRoot }
       }
       baselineVersion.value = def.version
       snapshotBaseline(result.definition || def)
+      captureSavedGraphNodes(result.definition || def)
       await fetchVersions()
       defCache.clear()
       return { ok: true, unchanged: false, result, collapsedToRoot }
@@ -363,6 +456,7 @@ export const useGraphEditorStore = defineStore('aceGraphEditor', () => {
         enabledVersion.value = def.version
         baselineVersion.value = def.version
         snapshotBaseline(def)
+        captureSavedGraphNodes(def)
         await fetchVersions()
       }
       return result
@@ -398,6 +492,7 @@ export const useGraphEditorStore = defineStore('aceGraphEditor', () => {
     topologyIssues.value = []
     groups.value = []
     scopeStack.value = []
+    savedGraphNodes.value = []
   }
 
   async function loadLatest() {
@@ -412,6 +507,7 @@ export const useGraphEditorStore = defineStore('aceGraphEditor', () => {
       return null
     }
     const normalized = applyDefinition(def)
+    captureSavedGraphNodes(normalized)
     try {
       await fetchVersions()
     } catch (e) {
@@ -445,6 +541,7 @@ export const useGraphEditorStore = defineStore('aceGraphEditor', () => {
     scopeStack.value = []
     Object.keys(keyStrategies).forEach(k => delete keyStrategies[k])
     snapshotBaseline(buildDefinition())
+    captureSavedGraphNodes(buildDefinition())
   }
 
   function resetEditor() {
@@ -465,6 +562,7 @@ export const useGraphEditorStore = defineStore('aceGraphEditor', () => {
     minimapVisible.value = true
     groups.value = []
     scopeStack.value = []
+    savedGraphNodes.value = []
     Object.keys(keyStrategies).forEach(k => delete keyStrategies[k])
   }
 
@@ -556,10 +654,25 @@ export const useGraphEditorStore = defineStore('aceGraphEditor', () => {
     nodes.value.splice(idx, 1, next)
   }
 
+  /**
+   * 将属性面板编辑的 saaSpec 写回选中节点（store 层）；Canvas.vue 会监听并同步到 lf properties。
+   * 与 updateSelectedAgentSpec 同理：更新 nodes 中完整节点，而非 selectedNode 浅引用。
+   */
+  function updateSelectedSaaSpec(spec) {
+    const target = selectedNode.value
+    if (!target) return
+    const idx = nodes.value.findIndex(n => n.nodeId === target.nodeId)
+    if (idx < 0) return
+    const current = nodes.value[idx]
+    const next = { ...current, saaSpec: spec ? { ...spec } : null }
+    nodes.value.splice(idx, 1, next)
+  }
+
   function loadVersionAsBaseline(def) {
     const normalized = applyDefinition(def)
     baselineVersion.value = normalized.version
     snapshotBaseline(normalized)
+    captureSavedGraphNodes(normalized)
     return normalized
   }
 
@@ -789,11 +902,16 @@ export const useGraphEditorStore = defineStore('aceGraphEditor', () => {
 
   /** 修改子图节点的元信息（名称 / 引用 / 内联模式）。
    *  切模式本身不做破坏性 mutation（不清空 subgraph/subgraphRef），避免触发画布重渲染导致选中丢失；
-   *  真正清空内联子图发生在用户**显式选择**引用目标后。 */
+   *  真正清空内联子图发生在用户**显式选择**引用目标后。
+   *  displayName / 引用切换均不 requestRerender：整图重建会 clearSelectedNode，输入一键即失焦。 */
   function updateSubgraphNodeMeta({ nodeId, displayName, subgraphRef, mode }) {
     const node = nodes.value.find(n => n.nodeId === nodeId)
     if (!node) return
-    if (displayName !== undefined) node.displayName = displayName
+    if (displayName !== undefined) {
+      node.displayName = displayName
+      node.config = { ...(node.config || {}), label: displayName || undefined }
+      if (!displayName && node.config) delete node.config.label
+    }
     if (mode === 'reference') {
       // 仅在显式传入非空 subgraphRef 时覆盖引用；保留已有值，避免切 radio 就丢选择
       if (subgraphRef) {
@@ -815,10 +933,10 @@ export const useGraphEditorStore = defineStore('aceGraphEditor', () => {
         }
       }
     }
-    requestRerender()
   }
 
-  /** 重命名当前选中的结构型节点（子图 / Agent），同步更新相关边 */
+  /** 重命名当前选中的结构型节点（子图 / Agent），同步更新相关边。
+   *  不 requestRerender：LF 节点 id 不变，仅 properties.nodeId 由 Canvas watcher 就地同步。 */
   function renameSelectedNode(newId) {
     if (!selectedNode.value) return
     const oldId = selectedNode.value.nodeId
@@ -835,7 +953,6 @@ export const useGraphEditorStore = defineStore('aceGraphEditor', () => {
       }
     })
     selectedNode.value = { ...selectedNode.value, nodeId: newId }
-    requestRerender()
   }
 
   async function loadGraphIds() {
@@ -899,6 +1016,7 @@ export const useGraphEditorStore = defineStore('aceGraphEditor', () => {
     graphId, version, displayName, description, keyStrategies,
     nodes, edges, interruptBefore, saver,
     validationErrors, edgeParamIssues, plantUmlContent, versions, enabledVersion, baselineVersion,
+    savedGraphNodes,
     saving, publishing,     selectedNode, selectedLfNodeId, selectedEdge, edgeEditCommand, edgeConvertCommand,
     canUndo, canRedo, conditionalDrawMode, topologyIssues, minimapVisible, groups,
     scopeStack, rerenderToken, graphIds, subgraphLoading,
@@ -913,6 +1031,7 @@ export const useGraphEditorStore = defineStore('aceGraphEditor', () => {
     maxKnownVersion, versionExists,
     publishCurrent, loadLatest, loadEnabledVersion, fetchVersions, selectGraph, initNewGraph, resetEditor,
     setSelectedNode, clearSelectedNode, updateSelectedNodeConfig, updateSelectedAgentSpec,
+    updateSelectedSaaSpec,
     setSelectedEdge, clearSelectedEdge, updateSelectedEdgeParallel, updateSelectedEdgeAggregation, requestEdgeEdit, requestEdgeConvert, clearEdgeCommands,
     enterSubgraph, exitSubgraph, goToBreadcrumb, updateSubgraphNodeMeta, renameSelectedNode, requestRerender, loadGraphIds,
     openSubgraphPreview, closeSubgraphPreview,

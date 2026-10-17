@@ -39,6 +39,24 @@ class DraftSaveValidatorTest {
     }
 
     @Test
+    void sameMetaIgnoresExecutableContent() {
+        GraphDefinition a = new GraphDefinition(
+                "g1", "demo", "1.0.0", "d1",
+                Map.of(), List.of(new NodeRef("a", Map.of(), null, null)),
+                List.of(), CompileConfigDto.defaultConfig(), null);
+        GraphDefinition b = new GraphDefinition(
+                "g1", "demo", "1.0.0", "d1",
+                Map.of(), List.of(new NodeRef("b", Map.of(), null, null)),
+                List.of(), CompileConfigDto.defaultConfig(), null);
+        assertTrue(DraftSaveValidator.sameMeta(a, b));
+        GraphDefinition c = new GraphDefinition(
+                "g1", "demo", "1.0.0", "d2",
+                Map.of(), List.of(new NodeRef("a", Map.of(), null, null)),
+                List.of(), CompileConfigDto.defaultConfig(), null);
+        assertFalse(DraftSaveValidator.sameMeta(a, c));
+    }
+
+    @Test
     void rejectOverwriteExistingVersion() {
         GraphDefinition base = def("g1", "1.0.0", "a");
         VersionConflictException ex = assertThrows(VersionConflictException.class,

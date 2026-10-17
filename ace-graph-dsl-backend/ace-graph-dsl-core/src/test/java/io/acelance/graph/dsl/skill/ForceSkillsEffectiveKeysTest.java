@@ -37,4 +37,13 @@ class ForceSkillsEffectiveKeysTest {
 
         assertEquals(List.of("excel-summary-report"), effective);
     }
+
+    @Test
+    void readLabels_prefersForceSkillLabels() {
+        Map<String, Object> data = new HashMap<>();
+        data.put(LlmRequestContext.ACE_FORCE_SKILLS_KEY, List.of("attendance-ot-calculator"));
+        data.put(LlmRequestContext.ACE_FORCE_SKILL_LABELS_KEY, List.of("实用加班工时计算"));
+        OverAllState state = new OverAllState(data);
+        assertEquals(List.of("实用加班工时计算"), ForceSkills.readLabels(state, "biz"));
+    }
 }

@@ -9,7 +9,8 @@ import '@logicflow/extension/lib/style/index.css'
 import { useNodeRegistryStore } from '../../stores/nodeRegistry'
 import { useGraphEditorStore } from '../../stores/graphEditor'
 import { useI18n } from '../../i18n'
-import { DspRectNode, DspDiamondNode, DspCircleNode, DspGroupNode, DspSubgraphNode, DspAgentNode, DspGenericAgentNode, resolveNodeType } from './DspNode.js'
+import { DspRectNode, DspDiamondNode, DspCircleNode, DspGroupNode, DspSubgraphNode, DspAgentNode, DspGenericAgentNode, DspSaaWorkflowNode, resolveNodeType } from './DspNode.js'
+import { defaultSaaSpec, normalizeSaaSpec } from '../../utils/saaWorkflow'
 import { DspBezierEdge } from './DspEdge.js'
 
 const nodeStore = useNodeRegistryStore()
@@ -77,6 +78,81 @@ watch(() => {
     suppressSync = false
   }
 }, { deep: true })
+
+/** 属性面板编辑 saaSpec 后同步到 lf 节点 properties */
+watch(() => {
+  const sel = editor.selectedNode
+  if (!sel) return null
+  const meta = editor.nodes.find(n => n.nodeId === sel.nodeId)
+  return meta?.saaSpec
+}, (spec) => {
+  if (!lf || !editor.selectedLfNodeId) return
+  const model = lf.getNodeModelById(editor.selectedLfNodeId)
+  if (!model) return
+  suppressSync = true
+  try {
+    lf.setProperties(editor.selectedLfNodeId, { ...model.properties, saaSpec: spec ? { ...spec } : null })
+  } finally {
+    suppressSync = false
+  }
+}, { deep: true })
+
+/** 就地更新 LF 节点文案（避免整图重渲染丢选中） */
+function patchSelectedLfText(text) {
+  const id = editor.selectedLfNodeId
+  if (!lf || !id) return
+  const value = text == null ? '' : String(text)
+  if (typeof lf.updateText === 'function') {
+    lf.updateText(id, value)
+    return
+  }
+  const model = lf.getNodeModelById(id)
+  if (model && typeof model.updateText === 'function') model.updateText(value)
+}
+
+/** 属性面板改显示名：同步 LF properties + 画布文案，不整图重建 */
+watch(() => {
+  const sel = editor.selectedNode
+  if (!sel) return null
+  const meta = editor.nodes.find(n => n.nodeId === sel.nodeId)
+  if (!meta) return null
+  return meta.displayName ?? ''
+}, (displayName) => {
+  if (!lf || !editor.selectedLfNodeId || displayName == null) return
+  const model = lf.getNodeModelById(editor.selectedLfNodeId)
+  if (!model) return
+  const nodeId = editor.selectedNode?.nodeId || model.properties?.nodeId || ''
+  const label = displayName || undefined
+  const nextConfig = { ...(model.properties?.config || {}) }
+  if (label) nextConfig.label = label
+  else delete nextConfig.label
+  suppressSync = true
+  try {
+    lf.setProperties(editor.selectedLfNodeId, {
+      ...model.properties,
+      displayName: displayName || '',
+      config: nextConfig
+    })
+    patchSelectedLfText(displayName || nodeId)
+  } finally {
+    suppressSync = false
+  }
+})
+
+/** 属性面板改节点 ID：仅更新 LF properties.nodeId（LF 元素 id 保持不变） */
+watch(() => editor.selectedNode?.nodeId, (nodeId) => {
+  if (!lf || !editor.selectedLfNodeId || !nodeId) return
+  const model = lf.getNodeModelById(editor.selectedLfNodeId)
+  if (!model || model.properties?.nodeId === nodeId) return
+  const displayName = model.properties?.displayName || ''
+  suppressSync = true
+  try {
+    lf.setProperties(editor.selectedLfNodeId, { ...model.properties, nodeId })
+    if (!displayName) patchSelectedLfText(nodeId)
+  } finally {
+    suppressSync = false
+  }
+})
 
 watch(() => editor.edgeParamIssues, () => {
   applyEdgeValidationStyles()
@@ -307,6 +383,7 @@ function registerCustomElements() {
   lf.register(DspSubgraphNode)
   lf.register(DspAgentNode)
   lf.register(DspGenericAgentNode)
+  lf.register(DspSaaWorkflowNode)
   lf.register(DspBezierEdge)
   lf.setDefaultEdgeType('dsp-bezier')
   applyLfTheme()
@@ -514,7 +591,10 @@ function onNodeDrag(descriptor) {
   let nodeId = descriptor.nodeId
   let displayName = descriptor.displayName
   if (descriptor.isStructural) {
-    const base = category === 'SUBGRAPH' ? 'subgraph' : category === 'AGENT' ? 'agent' : category.toLowerCase()
+    const base = category === 'SUBGRAPH' ? 'subgraph'
+      : category === 'AGENT' ? 'agent'
+        : category === 'SAA_WORKFLOW' ? 'saa_workflow'
+          : category.toLowerCase()
     nodeId = `${base}_${Date.now()}`
     displayName = descriptor.displayName || nodeId
   }
@@ -537,7 +617,8 @@ function onNodeDrag(descriptor) {
       // 通用 Agent 统一走注册式（先定义→入库→复用）：从节点面板「通用 Agent」tab 拖入的节点不携带内联 agentSpec，
       // 由编译期 DynamicGraphBuilder 从 GraphNodeRegistry 按 nodeId 解析。
       // 注：内联通道（结构型 GENERIC_AGENT 拖入）已从面板移除，此分支保留仅为向后兼容旧图数据。
-      agentSpec: (category === 'GENERIC_AGENT' && descriptor.isStructural) ? { modelBaseUrl: '', modelApiKey: '', apiKeyMasked: false, modelId: '', prompt: '', inputKeys: '', outputKey: 'agent_result', mediaInputKey: '', enablePrompt: false, promptKeys: [], enableModel: false, modelConfigKey: '', enableMcp: false, mcpKeys: [], mcpToolWhitelist: {}, enableSkill: false, skillKeys: [], enableLocalTools: false, localToolKeys: [], streamResponseKind: '', memoryMode: 'NONE', applyDeepThinking: false, enableBizParams: false, bizParamInterpreterId: '', bizParamRaw: '' } : null
+      agentSpec: (category === 'GENERIC_AGENT' && descriptor.isStructural) ? { modelBaseUrl: '', modelApiKey: '', apiKeyMasked: false, modelId: '', prompt: '', inputKeys: '', outputKey: 'agent_result', mediaInputKey: '', enablePrompt: false, promptKeys: [], enableModel: false, modelConfigKey: '', enableMcp: false, mcpKeys: [], mcpToolWhitelist: {}, enableSkill: false, skillKeys: [], enableLocalTools: false, localToolKeys: [], streamResponseKind: '', memoryMode: 'NONE', applyDeepThinking: false, enableBizParams: false, bizParamInterpreterId: '', bizParamRaw: '' } : null,
+      saaSpec: category === 'SAA_WORKFLOW' ? defaultSaaSpec() : null
     })
   })
 }
@@ -568,17 +649,18 @@ function renderFromDefinition(def) {
       type: resolveNodeType(category),
       x: px,
       y: py,
-      text: n.displayName || desc?.displayName || n.nodeId,
+      text: n.displayName || n.config?.label || desc?.displayName || n.nodeId,
       properties: baseProperties({
         nodeId: n.nodeId,
-        displayName: n.displayName || desc?.displayName || '',
+        displayName: n.displayName || n.config?.label || desc?.displayName || '',
         category,
         config: n.config || {},
         inputKeys: desc?.inputKeys || [],
         outputKeys: desc?.outputKeys || [],
         subgraphRef: n.subgraphRef || '',
         subgraph: n.subgraph || null,
-        agentSpec: n.agentSpec || null
+        agentSpec: n.agentSpec || null,
+        saaSpec: normalizeSaaSpec(n.saaSpec)
       })
     })
   })
@@ -1146,7 +1228,8 @@ function extractSelectionToSubgraph() {
     y: n.y,
     subgraphRef: n.properties?.subgraphRef || '',
     subgraph: n.properties?.subgraph || null,
-    agentSpec: n.properties?.agentSpec || null
+    agentSpec: n.properties?.agentSpec || null,
+    saaSpec: n.properties?.saaSpec || null
   }))
 
   // 内部边（两端都在选中集合）

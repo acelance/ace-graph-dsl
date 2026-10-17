@@ -74,8 +74,8 @@
 | A1 | 有工具流式主路径不再「先 call 再切片推终稿」 |
 | A2 | 通道 A：终答开始后持续非空 chunk；拼接 == `outputKey` |
 | A3 | 假模型多轮 tool→final；无 `toolName == null` NPE（Merging） |
-| A4 | READ_WRITE：USER（SPI）+ ASSISTANT；bizParam.thinking 时 extras 可非空（依赖 O2+业务挂接） |
-| A5 | 出口 `writeUser=false` 不写假 USER |
+| A4 | `memoryWrites` / READ_WRITE：USER（SPI）+ THINKING Buffer / MAIN_TEXT ASSISTANT；bizParam.thinking 时 extras 可非空（依赖 O2+业务挂接） |
+| A5 | 出口无 `WRITE_USER`（或剥离）→ 不写假 USER |
 | A6 | 无工具流式回归绿 |
 | A7 | 工具仍可执行；框架路径不阻断业务侧后续接入 `progressFrame`（通道 B 不在本刀实现，但不得被 Template 过滤逻辑误伤） |
 | A8 | TokenChunk attrs 原样透传；不按 deepThinking 打 thinking 标记 |
@@ -166,7 +166,7 @@ else                                → syncCall
 |---|---|
 | 3.1 | streaming+hasTools 仍挂 Ordered Advisor |
 | 3.2 | ASSISTANT 在 stream 完成后写入；业务若挂 O2 → buffer 与 drain 时序正确 |
-| 3.3 | 多节点：biz READ_WRITE + out_put `writeUser=false` |
+| 3.3 | 多节点：biz=`WRITE_USER`+`WRITE_ASSISTANT_THINKING`；out_put=`WRITE_ASSISTANT_MAIN_TEXT`（兼容旧 out_put `writeUser=false`） |
 | 3.4 | SSE：`delta` / `deltaThinking` 仍仅业务 Adapter + bizParam |
 | 3.5 | 未改 Vertical 单节点路径 |
 
@@ -228,7 +228,7 @@ else                                → syncCall
 | ZTC biz 挂 MCP | 工具段可阻塞；终答开始后逐字 delta；工具确实被调用 |
 | bizParam.thinking=true | deltaThinking；O2+业务挂接后 extras.thinking |
 | deepThinking 开、bizParam.thinking=false | Options 生效；SSE 普通 delta |
-| 仅出口 READ_WRITE | 无假 USER |
+| 仅出口写 ASSISTANT（MAIN_TEXT；无 WRITE_USER） | 无假 USER |
 | 心跳 | 工具长空闲仍有空心跳（现网 withKeepAlive，回归即可） |
 
 ### 5.3 回滚

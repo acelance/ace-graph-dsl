@@ -4,7 +4,10 @@
 > 状态：草案  
 > 日期：2026-09-18  
 > 前置文档：[ACE-Graph-DSL-多智能体内核选型.md](./ACE-Graph-DSL-多智能体内核选型.md)  
-> 配套文档：[ACE-Graph-DSL-多智能体初步技术方案.md](./ACE-Graph-DSL-多智能体初步技术方案.md)
+> 配套文档：[ACE-Graph-DSL-多智能体初步技术方案.md](./ACE-Graph-DSL-多智能体初步技术方案.md)  
+> **模式分层口径**：[ACE-Graph-DSL-高阶模式集成目标说明.md](./ACE-Graph-DSL-高阶模式集成目标说明.md)（四种 pattern 与图级边对照，评审防偏）  
+> **FAQ / 统一口径**：[ACE-Graph-DSL-多智能体FAQ与统一口径.md](./ACE-Graph-DSL-多智能体FAQ与统一口径.md)  
+> **开发设计与计划**：[ACE-Graph-DSL-SAA高阶模式节点-开发设计与计划.md](./ACE-Graph-DSL-SAA高阶模式节点-开发设计与计划.md)
 
 ---
 
@@ -102,10 +105,10 @@ ACE 目前**没有** SAA Agent Framework 的 `SequentialAgent`、`ParallelAgent`
 
 | 能力 | 中期 | 说明 |
 |------|------|------|
-| 高阶节点 Sequential | 必达 | 子 Agent 有序执行，状态键向后传递 |
-| 高阶节点 Parallel | 必达 | 子 Agent 并行，结果汇入约定键 |
-| 高阶节点 Routing | 必达 | LLM 或规则路由到子 Agent |
-| 高阶节点 Loop | 必达 | 退出条件 + 最大轮次 |
+| 高阶节点 Sequential | 必达 | **节点内**子 Agent 有序协作（≠ 用 Sequential 替换图上串行边） |
+| 高阶节点 Parallel | 必达 | **节点内**子 Agent 并行再汇（≠ 重做图级 FanOut） |
+| 高阶节点 Routing | 必达 | **节点内**路由到子 Agent（≠ 替换图条件边） |
+| 高阶节点 Loop | 必达 | **节点内**退出条件 + 最大轮次（≠ 图边自环 / ≠ 工具 ReAct 循环） |
 | 子 Agent = GENERIC_AGENT 引用 | 必达 | `ref: generic:{nodeId}` |
 | 子 Agent = AgentScope ReActAgent | 必达（可选开关） | 未启用模块时校验失败信息明确，不影响旧图 |
 | 设计器属性面板 | 必达 | pattern、子 Agent 列表、输入输出键、循环条件 |
@@ -216,7 +219,7 @@ M3 依赖 M1 的子 Agent 接口稳定，不依赖 M2 四种模式全部完成�
 | 风险 | 级别 | 对策 |
 |------|------|------|
 | Framework 与 graph-core 版本错位 | 高 | 只通过现有 SAA BOM 引入，禁止单独写死冲突版本 |
-| FlowAgent 无法导出 `CompiledGraph`，轨迹变粗 | 中 | M1 先做 NodeAction 适配；导出能力作为增强，不阻塞模式交付 |
+| FlowAgent 无法导出 `CompiledGraph`，轨迹变粗 | 中 | **已定先做 NodeAction（A）**；导出能力作增强升 B，**不阻塞**模式交付 |
 | AgentScope 与 OverAllState 双状态 | 高 | M3 只允许适配器边界做 Msg ↔ state key 转换，禁止业务图直接依赖 Msg |
 | 与图级 FanOut / 条件边概念混淆 | 中 | 设计器文案固定：「图级并行/条件」与「节点内模式」分开展示 |
 | 流式 BIZ/OUTPUT、MCP session 在子 Agent 中丢失 | 高 | M1 即把 streamResponseKind、MCP session 列入必测项 |

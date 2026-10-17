@@ -188,7 +188,17 @@ function onImportFileChange(e) {
   reader.readAsText(file)
 }
 
-defineExpose({ onNodeDrag, canvasRef })
+function onNodeLocate(nodeId) {
+  const hits = canvasRef.value?.getSearchableNodes?.() || []
+  const hit = hits.find(n => n.nodeId === nodeId)
+  if (hit) {
+    canvasRef.value.focusNode(hit.id)
+    return
+  }
+  ElMessage.warning(t('nodePanel.locateFailed'))
+}
+
+defineExpose({ onNodeDrag, canvasRef, locateCanvasNode: onNodeLocate })
 </script>
 
 <template>

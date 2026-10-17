@@ -87,6 +87,8 @@ export function createGraphApi(options = '/') {
       inputs: inputs || {}
     }).then(r => r.data),
     getMenuPermissions: () => http.get(`${p}/permissions/menus`).then(r => r.data),
+    /** SAA 高阶模块是否启用（宿主是否引入 ace-graph-dsl-saa-agent） */
+    getSaaCapabilities: () => http.get(`${p}/capabilities/saa`).then(r => r.data),
 
     // ── 图执行 API（/execution/* 端点，需后端开启 ace.graph.dsl.web.execution.enabled=true）──
 
@@ -223,6 +225,7 @@ export const rollback = (...args) => defaultApi.rollback(...args)
 export const getEnabled = (...args) => defaultApi.getEnabled(...args)
 export const dryRunGraph = (...args) => defaultApi.dryRunGraph(...args)
 export const getMenuPermissions = (...args) => defaultApi.getMenuPermissions(...args)
+export const getSaaCapabilities = (...args) => defaultApi.getSaaCapabilities(...args)
 export const getExecutionState = (...args) => defaultApi.getExecutionState(...args)
 export const getSubgraphState = (...args) => defaultApi.getSubgraphState(...args)
 export const streamGraph = (...args) => defaultApi.streamGraph(...args)

@@ -123,7 +123,7 @@ class GenericAgentFanOutIntegrationTest {
 
     private static NodeRef ref(String nodeId, String prompt, String inputKeys, String outputKey) {
         return new NodeRef(nodeId, "GENERIC_AGENT", null, 0.0, 0.0, null, null, null,
-                spec(prompt, inputKeys, outputKey));
+                spec(prompt, inputKeys, outputKey), null);
     }
 
     private static GenericAgentSpec spec(String prompt, String inputKeys, String outputKey) {
@@ -133,7 +133,7 @@ class GenericAgentFanOutIntegrationTest {
                 prompt, inputKeys, outputKey, null, null,
                 true, List.of(), false, null, false, List.of(),
                 false, List.of(), Map.of(), false, List.of(),
-                io.acelance.graph.dsl.llm.MemoryMode.NONE, false,
+                io.acelance.graph.dsl.llm.MemoryMode.NONE, null, false,
                     false, null, null);
     }
 

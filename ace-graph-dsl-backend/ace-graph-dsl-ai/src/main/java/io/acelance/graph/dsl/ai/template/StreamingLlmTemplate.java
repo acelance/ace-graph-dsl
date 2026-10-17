@@ -8,6 +8,8 @@ import io.acelance.graph.dsl.ai.media.DefaultMediaRefResolver;
 import io.acelance.graph.dsl.ai.media.MediaMaterialSupport;
 import io.acelance.graph.dsl.ai.media.MediaRefResolver;
 import io.acelance.graph.dsl.ai.memory.MemoryDisplayUserTextResolver;
+import io.acelance.graph.dsl.ai.memory.MemoryUserPersistMeta;
+import io.acelance.graph.dsl.ai.memory.MemoryUserPersistMetadataResolver;
 import io.acelance.graph.dsl.ai.model.ChatModelFactory;
 import io.acelance.graph.dsl.ai.model.InlineModel;
 import io.acelance.graph.dsl.ai.model.ModelEndpoint;
@@ -21,6 +23,7 @@ import io.acelance.graph.dsl.ai.tool.ToolConflictPolicy;
 import io.acelance.graph.dsl.ai.tool.ToolDeduper;
 import io.acelance.graph.dsl.llm.LlmRequestContext;
 import io.acelance.graph.dsl.llm.MemoryMode;
+import io.acelance.graph.dsl.llm.MemoryWriteFlag;
 import io.acelance.graph.dsl.media.MediaRef;
 import io.acelance.graph.dsl.media.MediaRefs;
 import io.acelance.graph.dsl.prompt.PromptContentResolver;
@@ -89,6 +92,8 @@ public class StreamingLlmTemplate {
     private final LlmChatOptionsCustomizer optionsCustomizer;
     /** 可选：业务侧决定记忆 USER 展示正文从哪些 state key 取 */
     private final MemoryDisplayUserTextResolver memoryDisplayUserTextResolver;
+    /** 可选：业务侧把中性落盘载荷映射为记忆 extras 键 */
+    private MemoryUserPersistMetadataResolver memoryUserPersistMetadataResolver;
     /** 流式+工具手动多轮上限，默认 30；可用 {@code ace.graph.dsl.llm.stream-tool-max-rounds} 配置 */
     private int streamToolMaxRounds = 30;
 
@@ -215,6 +220,13 @@ public class StreamingLlmTemplate {
     }
 
     /**
+     * 注入记忆 extras 映射 SPI。未设置时不往 USER metadata 写协议键。
+     */
+    public void setMemoryUserPersistMetadataResolver(MemoryUserPersistMetadataResolver resolver) {
+        this.memoryUserPersistMetadataResolver = resolver;
+    }
+
+    /**
      * 设置流式+工具多轮上限（默认 30）。&lt;=0 回退 30。
      */
     public void setStreamToolMaxRounds(int streamToolMaxRounds) {
@@ -272,6 +284,9 @@ public class StreamingLlmTemplate {
         }
 
         MediaRefResolver.ResolveResult mediaResult = resolveMedia(ctx, req.mediaInputKey());
+        List<MediaRef> mediaRefs = MediaRefs.readFrom(ctx.state(), req.mediaInputKey());
+        MemoryUserPersistMeta.SplitUrls persistUrls = MemoryUserPersistMeta.splitUrls(mediaRefs);
+        List<String> skillLabels = ForceSkills.readLabels(ctx.state(), ctx.nodeId());
         if (!mediaResult.materialNotes().isEmpty() || !mediaResult.skippedNotes().isEmpty()) {
             StringBuilder footnote = new StringBuilder(user);
             for (String note : mediaResult.materialNotes()) {
@@ -300,16 +315,23 @@ public class StreamingLlmTemplate {
                 req.memoryMode(), ctx.conversationId());
 
         List<Message> messages = buildMessages(system, user, forced, mediaResult.medias(),
-                resolveMemoryDisplayUserText(ctx, req.variables(), user));
+                resolveMemoryDisplayUserText(ctx, req.variables(), user),
+                persistUrls, skillLabels, ctx);
         String full;
         boolean wantStream = req.streaming() && ctx.runId() != null && !ctx.runId().isBlank();
+        String resolvedModelId = endpoint.modelId();
         if (wantStream && modelTools.isEmpty()) {
-            full = streamCall(model, messages, modelTools, req, ctx, req.streamResponseKind());
+            // 流式不挂记忆 Advisor：调模型前读历史进 Prompt；echo 仍用原始 seed 落盘
+            List<Message> promptMessages = mergeHistoryForStreamingPrompt(messages, req, false);
+            full = streamCall(model, promptMessages, modelTools, req, ctx, req.streamResponseKind(),
+                    resolvedModelId);
+            persistMemoryAfterToolStream(messages, full, req);
         } else if (wantStream) {
             log.info("节点 {} 流式+工具：ChatClient.stream().chatResponse() 真流式（通道 A）", ctx.nodeId());
-            full = streamCallWithTools(model, messages, modelTools, req, ctx, req.streamResponseKind());
+            full = streamCallWithTools(model, messages, modelTools, req, ctx, req.streamResponseKind(),
+                    resolvedModelId);
         } else {
-            full = syncCall(model, messages, modelTools, req);
+            full = syncCall(model, messages, modelTools, req, resolvedModelId);
             log.info("节点 {} 同步调用完成: chars={}, kind={}, elapsedMs={}",
                     ctx.nodeId(), full.length(), req.streamResponseKind(),
                     (System.nanoTime() - start) / 1_000_000);
@@ -380,7 +402,8 @@ public class StreamingLlmTemplate {
     private ChatClient.ChatClientRequestSpec prepareSpec(ChatModel model,
                                                          List<Message> messages,
                                                          List<ToolCallback> tools,
-                                                         LlmCallRequest req) {
+                                                         LlmCallRequest req,
+                                                         String resolvedModelId) {
         LlmRequestContext ctx = req.context();
         MemoryMode mode = req.memoryMode() == null ? MemoryMode.NONE : req.memoryMode();
         boolean hasTools = tools != null && !tools.isEmpty();
@@ -405,14 +428,15 @@ public class StreamingLlmTemplate {
         }
 
         ChatClientAdvisorBundle mem = ChatClientAdvisorBundle.empty();
-        // 流式+工具手动多轮：中间轮不挂记忆；终答后由 persistMemoryAfterToolStream echo 落盘。
-        boolean allowMemory = !(hasTools && req.streaming());
-        if (allowMemory
+        // 流式路径不挂记忆 Advisor（stream after 可能丢 ASSISTANT）；读历史已在
+        // mergeHistoryForStreamingPrompt 前置。写 ASSISTANT 仍由 echo（streaming=false）触发。
+        boolean allowMemoryAdvisor = !req.streaming();
+        if (allowMemoryAdvisor
                 && mode != MemoryMode.NONE
                 && ctx.conversationId() != null && !ctx.conversationId().isBlank()
                 && advisorProvider != null) {
             mem = advisorProvider.provide(new ChatClientAdvisorRequest(
-                    ctx, mode, req.streaming(), hasTools));
+                    ctx, mode, req.memoryWrites(), req.streaming(), hasTools));
             if (mem == null) {
                 mem = ChatClientAdvisorBundle.empty();
             }
@@ -449,31 +473,52 @@ public class StreamingLlmTemplate {
         }
 
         if (hasTools) {
-            ToolCallingChatOptions options = ToolCallingChatOptions.builder()
+            // 先播种已解析 modelId，避免 OptionsCustomizer 重建请求级 Options 时丢失，
+            // 回落到 spring.ai.openai.chat.options.model。
+            ToolCallingChatOptions.Builder optBuilder = ToolCallingChatOptions.builder()
                     .toolCallbacks(tools)
-                    .internalToolExecutionEnabled(false)
-                    .build();
-            ChatOptions finalOptions = applyOptionsCustomizer(options, req);
+                    .internalToolExecutionEnabled(false);
+            if (resolvedModelId != null && !resolvedModelId.isBlank()) {
+                optBuilder.model(resolvedModelId.trim());
+            }
+            ChatOptions seeded = optBuilder.build();
+            log.info("节点 {} 请求级 Options 播种: resolvedModelId={}, seeded.getModel()={}, tools={}",
+                    ctx.nodeId(), resolvedModelId, seeded.getModel(), tools.size());
+            ChatOptions finalOptions = applyOptionsCustomizer(seeded, req, resolvedModelId);
+            log.info("节点 {} 最终请求级 Options: resolvedModelId={}, final.getModel()={}, type={}",
+                    ctx.nodeId(), resolvedModelId,
+                    finalOptions != null ? finalOptions.getModel() : null,
+                    finalOptions != null ? finalOptions.getClass().getSimpleName() : null);
             spec = spec.toolCallbacks(tools).options(finalOptions);
         }
         else {
-            ChatOptions customized = applyOptionsCustomizer(null, req);
+            ChatOptions customized = applyOptionsCustomizer(null, req, resolvedModelId);
             if (customized != null) {
+                log.info("节点 {} 无工具最终 Options: resolvedModelId={}, final.getModel()={}, type={}",
+                        ctx.nodeId(), resolvedModelId, customized.getModel(),
+                        customized.getClass().getSimpleName());
                 spec = spec.options(customized);
             }
         }
         return spec;
     }
 
-    private ChatOptions applyOptionsCustomizer(ChatOptions base, LlmCallRequest req) {
+    private ChatOptions applyOptionsCustomizer(ChatOptions base, LlmCallRequest req,
+                                               String resolvedModelId) {
         if (optionsCustomizer == null) {
             return base;
         }
         try {
             ChatOptions out = optionsCustomizer.customize(base, req);
             if (out != null) {
-                log.info("节点 {} ChatOptions 已由 LlmChatOptionsCustomizer 定制: deepThinking={}, type={}",
-                        req.context().nodeId(), req.deepThinking(), out.getClass().getSimpleName());
+                log.info("节点 {} ChatOptions 已由 LlmChatOptionsCustomizer 定制: deepThinking={}, type={}, "
+                                + "resolvedModelId={}, base.getModel()={}, out.getModel()={}, inlineModelId={}, overrideModelId={}",
+                        req.context().nodeId(), req.deepThinking(), out.getClass().getSimpleName(),
+                        resolvedModelId,
+                        base != null ? base.getModel() : null,
+                        out.getModel(),
+                        req.inlineModel() != null ? req.inlineModel().modelId() : null,
+                        req.modelOverride() != null ? req.modelOverride().modelId() : null);
                 return out;
             }
         }
@@ -485,8 +530,9 @@ public class StreamingLlmTemplate {
     }
 
     private String syncCall(ChatModel model, List<Message> messages,
-                            List<ToolCallback> tools, LlmCallRequest req) {
-        ChatClient.ChatClientRequestSpec spec = prepareSpec(model, messages, tools, req);
+                            List<ToolCallback> tools, LlmCallRequest req,
+                            String resolvedModelId) {
+        ChatClient.ChatClientRequestSpec spec = prepareSpec(model, messages, tools, req, resolvedModelId);
         String content = spec.call().content();
         log.info("节点 {} ChatClient.call 返回 chars={}",
                 req.context().nodeId(), content == null ? 0 : content.length());
@@ -495,9 +541,10 @@ public class StreamingLlmTemplate {
 
     private String streamCall(ChatModel model, List<Message> messages,
                               List<ToolCallback> tools, LlmCallRequest req,
-                              LlmRequestContext ctx, String kind) {
+                              LlmRequestContext ctx, String kind,
+                              String resolvedModelId) {
         StringBuilder sb = new StringBuilder();
-        ChatClient.ChatClientRequestSpec spec = prepareSpec(model, messages, tools, req);
+        ChatClient.ChatClientRequestSpec spec = prepareSpec(model, messages, tools, req, resolvedModelId);
         try {
             spec.stream()
                     .content()
@@ -528,10 +575,14 @@ public class StreamingLlmTemplate {
      */
     private String streamCallWithTools(ChatModel model, List<Message> messages,
                                        List<ToolCallback> tools, LlmCallRequest req,
-                                       LlmRequestContext ctx, String kind) {
+                                       LlmRequestContext ctx, String kind,
+                                       String resolvedModelId) {
         ToolCallingManager toolManager = new StreamingToolCallMergingManager(
                 DefaultToolCallingManager.builder().build());
-        List<Message> conversation = new ArrayList<>(messages);
+        // seed 仅用于 echo 落盘；Prompt 在循环外合并历史一次，避免工具多轮重复读 remote
+        List<Message> seedForPersist = messages;
+        List<Message> conversation = new ArrayList<>(
+                mergeHistoryForStreamingPrompt(messages, req, true));
         StringBuilder visible = new StringBuilder();
         Map<String, Object> attrs = req.streamAttrs();
         final int maxRounds = streamToolMaxRounds;
@@ -539,7 +590,8 @@ public class StreamingLlmTemplate {
             for (int round = 0; round < maxRounds; round++) {
                 List<ChatResponse> frames = new ArrayList<>();
                 StringBuilder roundText = new StringBuilder();
-                ChatClient.ChatClientRequestSpec spec = prepareSpec(model, conversation, tools, req);
+                ChatClient.ChatClientRequestSpec spec =
+                        prepareSpec(model, conversation, tools, req, resolvedModelId);
                 spec.stream()
                         .chatResponse()
                         .doOnNext(cr -> {
@@ -568,21 +620,28 @@ public class StreamingLlmTemplate {
                     log.info("节点 {} 流式工具中间轮不进 visible: round={}, intermediateChars={}（C2）",
                             ctx.nodeId(), round + 1, roundText.length());
                 }
-                ToolCallingChatOptions opts = ToolCallingChatOptions.builder()
+                ToolCallingChatOptions.Builder optsBuilder = ToolCallingChatOptions.builder()
                         .toolCallbacks(tools)
-                        .internalToolExecutionEnabled(false)
-                        .build();
-                ChatOptions finalOpts = applyOptionsCustomizer(opts, req);
+                        .internalToolExecutionEnabled(false);
+                if (resolvedModelId != null && !resolvedModelId.isBlank()) {
+                    optsBuilder.model(resolvedModelId.trim());
+                }
+                ToolCallingChatOptions opts = optsBuilder.build();
+                ChatOptions finalOpts = applyOptionsCustomizer(opts, req, resolvedModelId);
                 ToolCallingChatOptions toolOpts = opts;
                 if (finalOpts instanceof ToolCallingChatOptions customized) {
                     // 流式手动多轮必须关闭内置执行，避免与 Template 循环重复跑工具
-                    toolOpts = ToolCallingChatOptions.builder()
+                    ToolCallingChatOptions.Builder toolBuilder = ToolCallingChatOptions.builder()
                             .toolCallbacks(customized.getToolCallbacks() != null
                                     ? customized.getToolCallbacks() : tools)
                             .toolNames(customized.getToolNames())
                             .toolContext(customized.getToolContext())
-                            .internalToolExecutionEnabled(false)
-                            .build();
+                            .internalToolExecutionEnabled(false);
+                    String mid = firstNonBlank(customized.getModel(), resolvedModelId);
+                    if (mid != null) {
+                        toolBuilder.model(mid);
+                    }
+                    toolOpts = toolBuilder.build();
                 }
                 Prompt prompt = new Prompt(conversation, toolOpts);
                 List<String> requestedNames = StreamingToolCallMergingManager.requestedToolNames(toolRound);
@@ -596,12 +655,72 @@ public class StreamingLlmTemplate {
                         ctx.nodeId(), round + 1, conversation.size(), requestedNames);
             }
             // 终答已推完：用 Echo ChatModel + 记忆 Advisor 走一遍 call，落 USER/ASSISTANT（含 thinking drain）
-            persistMemoryAfterToolStream(messages, visible.toString(), req);
+            persistMemoryAfterToolStream(seedForPersist, visible.toString(), req);
         } finally {
             emitFinished(ctx, kind, attrs);
             log.info("节点 {} 流式+工具完成: chars={}, kind={}", ctx.nodeId(), visible.length(), kind);
         }
         return visible.toString();
+    }
+
+    /**
+     * 流式调模型前读历史进 Prompt（只调用一次）。不落盘。
+     *
+     * @param seed     本轮种子消息（echo 落盘仍用此列表）
+     * @param hasTools 是否流式+工具（仅打日志）
+     */
+    private List<Message> mergeHistoryForStreamingPrompt(List<Message> seed, LlmCallRequest req,
+                                                         boolean hasTools) {
+        if (seed == null) {
+            return List.of();
+        }
+        if (advisorProvider == null) {
+            return seed;
+        }
+        MemoryMode mode = req.memoryMode() == null ? MemoryMode.NONE : req.memoryMode();
+        Set<MemoryWriteFlag> writes = req.memoryWrites() == null ? Set.of() : req.memoryWrites();
+        LlmRequestContext ctx = req.context();
+        if ((mode == MemoryMode.NONE && writes.isEmpty())
+                || ctx.conversationId() == null || ctx.conversationId().isBlank()) {
+            return seed;
+        }
+        ChatClientAdvisorRequest advisorReq = new ChatClientAdvisorRequest(
+                ctx, mode, writes, true, hasTools);
+        List<Message> merged;
+        try {
+            merged = advisorProvider.mergeHistoryForPrompt(advisorReq, seed);
+        }
+        catch (RuntimeException ex) {
+            log.warn("节点 {} 流式前合并历史失败，回退 seed: {}", ctx.nodeId(), ex.toString());
+            return seed;
+        }
+        if (merged == null || merged.isEmpty()) {
+            return seed;
+        }
+        int materialNotes = countMaterialNotes(merged);
+        log.info("节点 {} 流式前已合并历史消息: seedCount={}, mergedCount={}, materialNotes={}, "
+                        + "hasTools={}, conversationId={}",
+                ctx.nodeId(), seed.size(), merged.size(), materialNotes, hasTools, ctx.conversationId());
+        return merged;
+    }
+
+    private static int countMaterialNotes(List<Message> messages) {
+        if (messages == null || messages.isEmpty()) {
+            return 0;
+        }
+        int n = 0;
+        String prefix = MediaMaterialSupport.MATERIAL_NOTE_PREFIX;
+        for (Message m : messages) {
+            if (m == null || m.getText() == null || !m.getText().contains(prefix)) {
+                continue;
+            }
+            for (String line : m.getText().split("\n", -1)) {
+                if (line != null && line.trim().startsWith(prefix)) {
+                    n++;
+                }
+            }
+        }
+        return n;
     }
 
     /**
@@ -617,14 +736,15 @@ public class StreamingLlmTemplate {
     }
 
     /**
-     * 流式+工具多轮不挂记忆 Advisor；终答后用 Echo 模型触发 Advisor before/after 落盘，
-     * 不二次调用真实 LLM。
+     * 流式路径不挂记忆 Advisor（读已前置 merge）；终答后用 Echo 模型触发 Advisor before/after 落盘，
+     * 不二次调用真实 LLM。{@code seedMessages} 须为本轮原始种子，禁止传入已拼历史的 Prompt。
      */
     private void persistMemoryAfterToolStream(List<Message> seedMessages,
                                               String assistantText,
                                               LlmCallRequest req) {
         MemoryMode mode = req.memoryMode() == null ? MemoryMode.NONE : req.memoryMode();
-        if (mode == MemoryMode.NONE || advisorProvider == null) {
+        Set<MemoryWriteFlag> writes = req.memoryWrites() == null ? Set.of() : req.memoryWrites();
+        if ((mode == MemoryMode.NONE && writes.isEmpty()) || advisorProvider == null) {
             return;
         }
         LlmRequestContext ctx = req.context();
@@ -646,13 +766,14 @@ public class StreamingLlmTemplate {
                     .mediaInputKey(req.mediaInputKey())
                     .conflictPolicy(req.conflictPolicy())
                     .memoryMode(mode)
+                    .memoryWrites(writes)
                     .deepThinking(req.deepThinking())
                     .streamAttrs(req.streamAttrs())
                     .build();
             ChatModel echo = new EchoAssistantChatModel(assistantText == null ? "" : assistantText);
-            ChatClient.ChatClientRequestSpec spec = prepareSpec(echo, seedMessages, List.of(), echoReq);
+            ChatClient.ChatClientRequestSpec spec = prepareSpec(echo, seedMessages, List.of(), echoReq, null);
             spec.call().content();
-            log.info("节点 {} 流式+工具终答记忆已 echo 落盘: chars={}", ctx.nodeId(),
+            log.info("节点 {} 流式终答记忆已 echo 落盘: chars={}", ctx.nodeId(),
                     assistantText == null ? 0 : assistantText.length());
         }
         catch (RuntimeException ex) {
@@ -715,7 +836,7 @@ public class StreamingLlmTemplate {
 
     /**
      * 记忆 USER 展示正文：委托业务 {@link MemoryDisplayUserTextResolver}；
-     * 未注册 SPI 时返回 null（不写 display_content，落库用 LLM user 全文）。
+     * 未注册 SPI 时返回 null（展示正文不分离，落库用 LLM user 全文）。
      */
     private String resolveMemoryDisplayUserText(LlmRequestContext ctx,
                                                 Map<String, Object> variables,
@@ -730,16 +851,19 @@ public class StreamingLlmTemplate {
                 return resolved.trim();
             }
         } catch (RuntimeException ex) {
-            log.warn("节点 {} MemoryDisplayUserTextResolver 失败，跳过 display_content: {}",
+            log.warn("节点 {} MemoryDisplayUserTextResolver 失败，跳过展示正文: {}",
                     ctx != null ? ctx.nodeId() : "?", ex.toString());
         }
         return null;
     }
 
-    private static List<Message> buildMessages(String system, String user,
-                                               List<ForceSkillActivator.ActivatedSkill> forced,
-                                               List<Media> medias,
-                                               String displayUserText) {
+    private List<Message> buildMessages(String system, String user,
+                                        List<ForceSkillActivator.ActivatedSkill> forced,
+                                        List<Media> medias,
+                                        String displayUserText,
+                                        MemoryUserPersistMeta.SplitUrls persistUrls,
+                                        List<String> skillLabels,
+                                        LlmRequestContext ctx) {
         List<Message> messages = new ArrayList<>();
         if (system != null && !system.isBlank()) {
             messages.add(new SystemMessage(system));
@@ -751,6 +875,7 @@ public class StreamingLlmTemplate {
             }
         }
         String userText = user == null || user.isBlank() ? " " : user;
+        String nodeId = ctx != null ? ctx.nodeId() : "?";
         // SPI 优先；若无 SPI 但含材料注记，则剥注记作为展示正文（C3）
         String display = displayUserText != null && !displayUserText.isBlank()
                 ? displayUserText.trim()
@@ -761,11 +886,11 @@ public class StreamingLlmTemplate {
                 display = stripped;
             }
         }
-        Map<String, Object> meta = new LinkedHashMap<>();
-        if (display != null && !display.isBlank() && !display.equals(userText)) {
-            // 与 lesso LessoChatMemoryExtras.DISPLAY_CONTENT 同名，避免框架依赖 memory 模块
-            meta.put("display_content", display);
-        }
+        MemoryUserPersistMeta.SplitUrls urls = persistUrls == null
+                ? MemoryUserPersistMeta.SplitUrls.empty()
+                : persistUrls;
+        String persistDisplay = display != null && !display.equals(userText) ? display : null;
+        Map<String, Object> meta = resolvePersistMetadata(ctx, persistDisplay, urls, skillLabels, nodeId);
         var builder = UserMessage.builder().text(userText);
         if (!meta.isEmpty()) {
             builder.metadata(meta);
@@ -774,18 +899,70 @@ public class StreamingLlmTemplate {
             builder.media(medias);
         }
         messages.add(builder.build());
-        if (meta.containsKey("display_content")) {
-            log.info("记忆 USER display_content 已挂: displayChars={}, llmUserChars={}",
-                    display.length(), userText.length());
+        if (persistDisplay != null && !meta.isEmpty()) {
+            log.info("记忆 USER 展示正文已交 extras SPI: nodeId={}, displayChars={}, llmUserChars={}, metaKeys={}",
+                    nodeId, persistDisplay.length(), userText.length(), meta.keySet());
         }
-        else if (userText.contains(MediaMaterialSupport.MATERIAL_NOTE_PREFIX)) {
-            log.warn("LLM user 含材料注记但未挂 display_content，历史 USER 可能被污染: llmUserChars={}",
-                    userText.length());
+        else if (userText.contains(MediaMaterialSupport.MATERIAL_NOTE_PREFIX) && meta.isEmpty()) {
+            log.warn("LLM user 含材料注记但 persist metadata 为空，历史 USER 可能被污染: nodeId={}, llmUserChars={}",
+                    nodeId, userText.length());
         }
         return messages;
     }
 
+    /**
+     * 委托业务 SPI 把中性载荷写成 extras；框架不写协议键名。
+     */
+    private Map<String, Object> resolvePersistMetadata(LlmRequestContext ctx,
+                                                       String displayUserText,
+                                                       MemoryUserPersistMeta.SplitUrls urls,
+                                                       List<String> skillLabels,
+                                                       String nodeId) {
+        int imageCount = urls == null ? 0 : urls.images().size();
+        int fileCount = urls == null ? 0 : urls.files().size();
+        int labelCount = skillLabels == null ? 0 : skillLabels.size();
+        boolean hasPayload = (displayUserText != null && !displayUserText.isBlank())
+                || imageCount > 0 || fileCount > 0 || labelCount > 0;
+        if (!hasPayload) {
+            return Map.of();
+        }
+        if (memoryUserPersistMetadataResolver == null) {
+            log.warn("未注册 MemoryUserPersistMetadataResolver，跳过记忆 extras: nodeId={}, imageUrls={}, fileUrls={}, skillLabels={}",
+                    nodeId, imageCount, fileCount, labelCount);
+            return Map.of();
+        }
+        try {
+            Map<String, Object> meta = memoryUserPersistMetadataResolver.resolve(
+                    new MemoryUserPersistMetadataResolver.MemoryUserPersistMetadataRequest(
+                            ctx,
+                            displayUserText,
+                            urls == null ? List.of() : urls.images(),
+                            urls == null ? List.of() : urls.files(),
+                            skillLabels == null ? List.of() : skillLabels));
+            if (meta == null || meta.isEmpty()) {
+                return Map.of();
+            }
+            log.info("记忆 USER persist metadata 已挂: nodeId={}, keys={}, imageUrls={}, fileUrls={}, skillLabels={}",
+                    nodeId, meta.keySet(), imageCount, fileCount, labelCount);
+            return meta;
+        } catch (RuntimeException ex) {
+            log.warn("节点 {} MemoryUserPersistMetadataResolver 失败，跳过 extras: {}",
+                    nodeId, ex.toString());
+            return Map.of();
+        }
+    }
+
     private static String nullToEmpty(String s) {
         return s == null ? "" : s;
+    }
+
+    private static String firstNonBlank(String a, String b) {
+        if (a != null && !a.isBlank()) {
+            return a.trim();
+        }
+        if (b != null && !b.isBlank()) {
+            return b.trim();
+        }
+        return null;
     }
 }
