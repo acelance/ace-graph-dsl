@@ -23,6 +23,8 @@ const canDeleteSelection = ref(false)
 const hasStreamingNode = computed(() => (editor.nodes || []).some(n => n.config && n.config.streaming))
 /** 框选模式（SelectionSelect 独占）是否开启 */
 const selectionSelectActive = ref(false)
+/** 回收预览等静默只读模式 */
+let silentMode = false
 let lf = null
 let suppressSync = false
 let groupLastPos = {}
@@ -195,7 +197,7 @@ function isReservedNodeData(data) {
 }
 
 function refreshSelectionState() {
-  if (!lf) {
+  if (!lf || silentMode) {
     canDeleteSelection.value = false
     return
   }
@@ -205,7 +207,7 @@ function refreshSelectionState() {
 }
 
 function deleteSelectedElements() {
-  if (!lf) return false
+  if (!lf || silentMode) return false
   const elements = lf.getSelectElements(true)
   const nodes = elements.nodes.filter(n => !isReservedNodeData(n))
   const edges = elements.edges
@@ -1304,6 +1306,33 @@ function extractSelectionToSubgraph() {
   ElMessage.success(t('canvas.extractSuccess', { n: bizNodes.length }))
 }
 
+/**
+ * 切换静默只读：禁止拖节点/改边/删除（回收预览用）。
+ * @param {boolean} silent
+ */
+function setSilentMode(silent) {
+  silentMode = !!silent
+  if (!lf) return
+  try {
+    lf.updateEditConfig({
+      isSilentMode: silentMode,
+      adjustEdge: !silentMode,
+      adjustNodePosition: !silentMode,
+      hideAnchors: silentMode
+    })
+    if (silentMode) {
+      lf.keyboard?.off?.(['delete'])
+      canDeleteSelection.value = false
+    } else {
+      registerDeleteShortcut()
+      refreshSelectionState()
+    }
+    console.info('[Canvas] setSilentMode=', silentMode)
+  } catch (e) {
+    console.error('[Canvas] setSilentMode failed', e)
+  }
+}
+
 defineExpose({
   onNodeDrag,
   renderFromDefinition,
@@ -1311,6 +1340,7 @@ defineExpose({
   deleteSelectedElements,
   applyConditionalEdgeEdit,
   convertEdgeToConditional,
+  setSilentMode,
   undo,
   redo,
   zoomIn,

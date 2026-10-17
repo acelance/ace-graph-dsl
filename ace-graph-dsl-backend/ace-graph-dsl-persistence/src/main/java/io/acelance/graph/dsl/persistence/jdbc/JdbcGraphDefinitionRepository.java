@@ -36,5 +36,17 @@ public class JdbcGraphDefinitionRepository extends AbstractJdbcGraphDefinitionRe
                     enabled_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
                 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
                 """.formatted(enabledTable()));
+        // snapshot_json 使用 MEDIUMTEXT，避免大图被 TEXT 64KB 截断
+        jdbcTemplate.execute("""
+                CREATE TABLE IF NOT EXISTS %s (
+                    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+                    graph_id VARCHAR(128) NOT NULL,
+                    recycle_version VARCHAR(64) NOT NULL,
+                    display_name VARCHAR(256),
+                    snapshot_json MEDIUMTEXT NOT NULL,
+                    deleted_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    UNIQUE KEY uk_graph_recycle (graph_id, recycle_version)
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+                """.formatted(recycleTable()));
     }
 }

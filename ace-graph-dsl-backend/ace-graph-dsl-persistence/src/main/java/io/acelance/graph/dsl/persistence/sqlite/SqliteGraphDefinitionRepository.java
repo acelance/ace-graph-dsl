@@ -36,5 +36,17 @@ public class SqliteGraphDefinitionRepository extends AbstractJdbcGraphDefinition
                     enabled_at TIMESTAMP NOT NULL
                 )
                 """.formatted(enabledTable()));
+        // SQLite TEXT 无 64KB 上限，与 MEDIUMTEXT 语义对齐
+        jdbcTemplate.execute("""
+                CREATE TABLE IF NOT EXISTS %s (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    graph_id TEXT NOT NULL,
+                    recycle_version TEXT NOT NULL,
+                    display_name TEXT,
+                    snapshot_json TEXT NOT NULL,
+                    deleted_at TIMESTAMP NOT NULL,
+                    UNIQUE (graph_id, recycle_version)
+                )
+                """.formatted(recycleTable()));
     }
 }

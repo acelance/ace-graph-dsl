@@ -20,7 +20,9 @@ const props = defineProps({
   floatingActions: { type: Boolean, default: false },
   showMeta: { type: Boolean, default: true },
   showActions: { type: Boolean, default: true },
-  readOnly: { type: Boolean, default: false }
+  readOnly: { type: Boolean, default: false },
+  /** 回收预览模式（与内置图 readOnly 区分文案） */
+  recyclePreview: { type: Boolean, default: false }
 })
 const emit = defineEmits(['save', 'validate', 'preview', 'publish', 'undo', 'redo', 'dryRun', 'debugStream', 'importDsl', 'exportDsl', 'topology', 'zoomIn', 'zoomOut', 'fit', 'resetZoom', 'autoLayout', 'toggleMinimap', 'createGroup', 'toggleBoxSelect', 'extractSubgraph'])
 
@@ -371,7 +373,8 @@ async function onPublish() {
           {{ t('toolbar.versionHistory') }}
         </el-button>
       </el-button-group>
-      <el-tag v-if="readOnly" type="warning" effect="plain" size="small">{{ t('toolbar.readOnly') || '只读' }}</el-tag>
+      <el-tag v-if="recyclePreview" type="info" effect="plain" size="small">{{ t('toolbar.recyclePreview') || '回收预览 · 只读' }}</el-tag>
+      <el-tag v-else-if="readOnly" type="warning" effect="plain" size="small">{{ t('toolbar.readOnly') || '只读' }}</el-tag>
       </div>
       <span v-if="floatingActions" class="toolbar-drag-handle toolbar-drag-handle--end" :title="t('toolbar.dragHint') || '拖动移动'" @mousedown="onDragStart">
         <Rank />

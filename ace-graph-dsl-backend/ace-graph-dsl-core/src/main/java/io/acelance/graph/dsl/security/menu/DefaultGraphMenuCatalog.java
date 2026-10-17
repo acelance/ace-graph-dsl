@@ -3,8 +3,11 @@ package io.acelance.graph.dsl.security.menu;
 import java.util.List;
 
 import static io.acelance.graph.dsl.security.menu.GraphMenuPermissions.GRAPH_CREATE;
+import static io.acelance.graph.dsl.security.menu.GraphMenuPermissions.GRAPH_DELETE;
 import static io.acelance.graph.dsl.security.menu.GraphMenuPermissions.GRAPH_PREVIEW;
 import static io.acelance.graph.dsl.security.menu.GraphMenuPermissions.GRAPH_PUBLISH;
+import static io.acelance.graph.dsl.security.menu.GraphMenuPermissions.GRAPH_PURGE;
+import static io.acelance.graph.dsl.security.menu.GraphMenuPermissions.GRAPH_RESTORE;
 import static io.acelance.graph.dsl.security.menu.GraphMenuPermissions.GRAPH_ROLLBACK;
 import static io.acelance.graph.dsl.security.menu.GraphMenuPermissions.GRAPH_SAVE;
 import static io.acelance.graph.dsl.security.menu.GraphMenuPermissions.GRAPH_VALIDATE;
@@ -34,6 +37,9 @@ public class DefaultGraphMenuCatalog implements GraphMenuCatalog {
             new MenuDescriptor(GRAPH_PREVIEW, "预览", GROUP_GRAPH),
             new MenuDescriptor(GRAPH_PUBLISH, "发布", GROUP_GRAPH),
             new MenuDescriptor(GRAPH_ROLLBACK, "回滚", GROUP_GRAPH),
+            new MenuDescriptor(GRAPH_DELETE, "删除图进回收箱", GROUP_GRAPH),
+            new MenuDescriptor(GRAPH_RESTORE, "从回收箱恢复", GROUP_GRAPH),
+            new MenuDescriptor(GRAPH_PURGE, "彻底清除回收图", GROUP_GRAPH),
             new MenuDescriptor(SCRIPT_NODE_VIEW, "查看脚本节点", GROUP_SCRIPT_NODE),
             new MenuDescriptor(SCRIPT_NODE_CREATE, "新建/编辑脚本节点", GROUP_SCRIPT_NODE),
             new MenuDescriptor(SCRIPT_NODE_DELETE, "删除脚本节点", GROUP_SCRIPT_NODE),

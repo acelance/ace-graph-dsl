@@ -1,7 +1,15 @@
 <script setup>
 import { ref, onMounted, watch, computed, provide } from 'vue'
 import { ElMessage } from 'element-plus'
-import { listSummaries } from '../api/graph'
+import {
+  listSummaries,
+  listRecycle,
+  listSubgraphReferrers,
+  recycleDefinition,
+  getRecycleSnapshot,
+  restoreRecycle,
+  purgeRecycle
+} from '../api/graph'
 import { usePermissionStore, MENU } from '../stores/permissions'
 import { configureGraphDslI18n, useI18n } from '../i18n'
 import {
@@ -13,7 +21,7 @@ import {
 import GraphDslDesigner from './GraphDslDesigner.vue'
 import PropertyPanel from './Designer/PropertyPanel.vue'
 import NodePanel from './Designer/NodePanel.vue'
-import { ArrowLeft, ArrowRight } from '@element-plus/icons-vue'
+import { ArrowLeft, ArrowRight, Delete, RefreshRight, CloseBold } from '@element-plus/icons-vue'
 
 const props = defineProps({
   title: { type: String, default: '' },
@@ -63,6 +71,15 @@ const catalogFilterText = ref('')
 /** 已生效的精确匹配过滤串（空 = 全量） */
 const appliedFilter = ref('')
 
+/** 回收箱抽屉是否展开（未点击不出现） */
+const recycleDrawerOpen = ref(false)
+const recycleLoading = ref(false)
+const recycleEntries = ref([])
+/** 当前选中的回收项 */
+const selectedRecycle = ref(null)
+/** 回收预览灌入画布的定义 */
+const recyclePreviewDef = ref(null)
+
 const visibleSummaries = computed(() => {
   const f = (appliedFilter.value || '').trim()
   if (!f) return summaries.value
@@ -94,15 +111,64 @@ const selectedSummary = computed(() =>
   summaries.value.find(s => s.graphId === selectedGraphId.value)
 )
 
-const selectedDisplayName = computed(() =>
-  selectedSummary.value?.displayName || selectedGraphId.value || ''
-)
+const selectedDisplayName = computed(() => {
+  if (selectedRecycle.value) {
+    return selectedRecycle.value.displayName || selectedRecycle.value.graphId || ''
+  }
+  return selectedSummary.value?.displayName || selectedGraphId.value || ''
+})
 
 const isSelectedBootstrap = computed(() =>
   Boolean(selectedSummary.value?.bootstrap)
 )
 
-const showDesigner = computed(() => Boolean(selectedGraphId.value && panelExpanded.value))
+const isRecyclePreview = computed(() => Boolean(selectedRecycle.value && recyclePreviewDef.value))
+
+const showDesigner = computed(() => {
+  if (isRecyclePreview.value) return true
+  return Boolean(selectedGraphId.value && panelExpanded.value)
+})
+
+/** 删除确认框 */
+const showDeleteDialog = ref(false)
+const deleteTarget = ref(null)
+const deleteConfirmInput = ref('')
+const deleteReferrers = ref([])
+const deleteReferrersLoading = ref(false)
+const deleteSubmitting = ref(false)
+const deleteConfirmOk = computed(() =>
+  !!deleteTarget.value && deleteConfirmInput.value === deleteTarget.value.graphId
+)
+
+/** 清除确认框 */
+const showPurgeDialog = ref(false)
+const purgeTarget = ref(null)
+const purgeConfirmGraphId = ref('')
+const purgeConfirmSuffix = ref('')
+const purgeSubmitting = ref(false)
+const purgeConfirmOk = computed(() => {
+  if (!purgeTarget.value) return false
+  return purgeConfirmGraphId.value === purgeTarget.value.graphId
+    && purgeConfirmSuffix.value === recycleSuffix(purgeTarget.value.recycleVersion)
+})
+
+function recycleSuffix(recycleVersion) {
+  if (!recycleVersion || recycleVersion.length < 4) return recycleVersion || ''
+  return recycleVersion.slice(-4)
+}
+
+/**
+ * 从快照挑选预览定义：优先启用版本，否则取列表末条。
+ */
+function pickPreviewDefinition(snapshot) {
+  const defs = snapshot?.definitions || []
+  if (!defs.length) return null
+  if (snapshot.enabledVersion) {
+    const found = defs.find(d => d.version === snapshot.enabledVersion)
+    if (found) return found
+  }
+  return defs[defs.length - 1]
+}
 
 function reconcileSelectionAfterFilter() {
   const list = visibleSummaries.value
@@ -110,7 +176,7 @@ function reconcileSelectionAfterFilter() {
     selectedGraphId.value = ''
     panelExpanded.value = false
   }
-  if (list.length === 1) {
+  if (list.length === 1 && !selectedRecycle.value) {
     selectedGraphId.value = list[0].graphId
     panelExpanded.value = true
   }
@@ -145,7 +211,44 @@ async function refreshCatalog() {
   }
 }
 
+async function refreshRecycle() {
+  recycleLoading.value = true
+  try {
+    recycleEntries.value = await listRecycle() || []
+    if (selectedRecycle.value) {
+      const still = recycleEntries.value.find(
+        e => e.graphId === selectedRecycle.value.graphId
+          && e.recycleVersion === selectedRecycle.value.recycleVersion
+      )
+      if (!still) {
+        clearRecycleSelection()
+      }
+    }
+  } catch (e) {
+    console.error('[GraphDslManager] refreshRecycle failed', e)
+    ElMessage.error(e?.response?.data?.error || e?.message || 'load recycle failed')
+  } finally {
+    recycleLoading.value = false
+  }
+}
+
+function clearRecycleSelection() {
+  selectedRecycle.value = null
+  recyclePreviewDef.value = null
+}
+
+async function toggleRecycleDrawer() {
+  recycleDrawerOpen.value = !recycleDrawerOpen.value
+  if (recycleDrawerOpen.value) {
+    await refreshRecycle()
+  } else {
+    clearRecycleSelection()
+  }
+}
+
 function toggleGraph(graphId) {
+  // 选正式图时退出回收预览
+  clearRecycleSelection()
   if (selectedGraphId.value === graphId && panelExpanded.value) {
     selectedGraphId.value = ''
     panelExpanded.value = false
@@ -155,10 +258,42 @@ function toggleGraph(graphId) {
   panelExpanded.value = true
 }
 
+async function selectRecycleItem(item) {
+  selectedGraphId.value = ''
+  panelExpanded.value = false
+  selectedRecycle.value = item
+  recyclePreviewDef.value = null
+  try {
+    const snapshot = await getRecycleSnapshot(item.graphId, item.recycleVersion)
+    const def = pickPreviewDefinition(snapshot)
+    if (!def) {
+      ElMessage.warning(t('manager.recycleEmpty'))
+      return
+    }
+    recyclePreviewDef.value = def
+    console.info('[GraphDslManager] recycle preview loaded', item.graphId, item.recycleVersion)
+  } catch (e) {
+    console.error('[GraphDslManager] getRecycleSnapshot failed', e)
+    ElMessage.error(e?.response?.data?.error || e?.message || 'load snapshot failed')
+    clearRecycleSelection()
+  }
+}
+
+function isActive(graphId) {
+  return !selectedRecycle.value && selectedGraphId.value === graphId && panelExpanded.value
+}
+
+function isRecycleActive(item) {
+  return selectedRecycle.value
+    && selectedRecycle.value.graphId === item.graphId
+    && selectedRecycle.value.recycleVersion === item.recycleVersion
+}
+
 function createGraph() {
   const id = newGraphId.value.trim()
   const displayName = newDisplayName.value.trim() || id
   if (!id) return
+  clearRecycleSelection()
   selectedGraphId.value = id
   panelExpanded.value = true
   showCreate.value = false
@@ -169,16 +304,109 @@ function createGraph() {
   }
 }
 
-function isActive(graphId) {
-  return selectedGraphId.value === graphId && panelExpanded.value
-}
-
 function onNodeDrag(descriptor) {
+  if (isRecyclePreview.value) return
   designerRef.value?.onNodeDrag(descriptor)
 }
 
 function onNodeLocate(nodeId) {
   designerRef.value?.locateCanvasNode?.(nodeId)
+}
+
+/** 打开删除确认：先拉子图引用预检 */
+async function openDeleteDialog(item, evt) {
+  evt?.stopPropagation?.()
+  if (!item || item.bootstrap) return
+  deleteTarget.value = item
+  deleteConfirmInput.value = ''
+  deleteReferrers.value = []
+  showDeleteDialog.value = true
+  deleteReferrersLoading.value = true
+  try {
+    const res = await listSubgraphReferrers(item.graphId)
+    deleteReferrers.value = res?.graphIds || []
+  } catch (e) {
+    console.error('[GraphDslManager] listSubgraphReferrers failed', e)
+    ElMessage.warning(t('manager.referrersLoadFailed', {
+      msg: e?.response?.data?.error || e?.message || ''
+    }))
+  } finally {
+    deleteReferrersLoading.value = false
+  }
+}
+
+async function confirmDelete() {
+  if (!deleteConfirmOk.value || !deleteTarget.value) return
+  deleteSubmitting.value = true
+  const graphId = deleteTarget.value.graphId
+  try {
+    await recycleDefinition(graphId, graphId)
+    ElMessage.success(t('manager.deleteSuccess'))
+    showDeleteDialog.value = false
+    if (selectedGraphId.value === graphId) {
+      selectedGraphId.value = ''
+      panelExpanded.value = false
+    }
+    await refreshCatalog()
+    if (recycleDrawerOpen.value) await refreshRecycle()
+  } catch (e) {
+    console.error('[GraphDslManager] recycleDefinition failed', e)
+    ElMessage.error(t('manager.deleteFailed', {
+      msg: e?.response?.data?.error || e?.message || ''
+    }))
+  } finally {
+    deleteSubmitting.value = false
+  }
+}
+
+async function onRestore(item, evt) {
+  evt?.stopPropagation?.()
+  if (!item) return
+  try {
+    await restoreRecycle(item.graphId, item.recycleVersion)
+    ElMessage.success(t('manager.restoreSuccess'))
+    if (isRecycleActive(item)) clearRecycleSelection()
+    await refreshRecycle()
+    await refreshCatalog()
+  } catch (e) {
+    console.error('[GraphDslManager] restoreRecycle failed', e)
+    ElMessage.error(t('manager.restoreFailed', {
+      msg: e?.response?.data?.error || e?.message || ''
+    }))
+  }
+}
+
+function openPurgeDialog(item, evt) {
+  evt?.stopPropagation?.()
+  purgeTarget.value = item
+  purgeConfirmGraphId.value = ''
+  purgeConfirmSuffix.value = ''
+  showPurgeDialog.value = true
+}
+
+async function confirmPurge() {
+  if (!purgeConfirmOk.value || !purgeTarget.value) return
+  purgeSubmitting.value = true
+  const item = purgeTarget.value
+  try {
+    // recycleVersion 全串由选中行带上，用户只输入 graphId 与末 4 位
+    await purgeRecycle(item.graphId, {
+      recycleVersion: item.recycleVersion,
+      confirmGraphId: purgeConfirmGraphId.value,
+      confirmSuffix: purgeConfirmSuffix.value
+    })
+    ElMessage.success(t('manager.purgeSuccess'))
+    showPurgeDialog.value = false
+    if (isRecycleActive(item)) clearRecycleSelection()
+    await refreshRecycle()
+  } catch (e) {
+    console.error('[GraphDslManager] purgeRecycle failed', e)
+    ElMessage.error(t('manager.purgeFailed', {
+      msg: e?.response?.data?.error || e?.message || ''
+    }))
+  } finally {
+    purgeSubmitting.value = false
+  }
 }
 
 onMounted(async () => {
@@ -230,6 +458,16 @@ onMounted(async () => {
                     <el-tag v-if="item.bootstrap" size="small" type="warning" effect="plain" style="margin-left: 6px;">内置</el-tag>
                   </small>
                 </div>
+                <el-button
+                  v-if="!item.bootstrap && perm.can(MENU.GRAPH_DELETE)"
+                  class="catalog-row-action"
+                  size="small"
+                  text
+                  type="danger"
+                  :icon="Delete"
+                  :title="t('manager.deleteGraph')"
+                  @click="openDeleteDialog(item, $event)"
+                />
               </div>
               <div
                 v-if="isActive(item.graphId)"
@@ -243,6 +481,74 @@ onMounted(async () => {
           </div>
           <el-empty v-else-if="!loading" :description="catalogEmptyDescription" />
         </div>
+
+        <!-- 目录底部：图回收箱入口 -->
+        <div class="recycle-footer">
+          <el-button
+            v-if="perm.can(MENU.GRAPH_VIEW)"
+            class="recycle-toggle"
+            text
+            @click="toggleRecycleDrawer"
+          >
+            {{ t('manager.recycleBin') }}
+            <el-icon style="margin-left:4px;">
+              <ArrowRight v-if="!recycleDrawerOpen" />
+              <ArrowLeft v-else />
+            </el-icon>
+          </el-button>
+        </div>
+
+        <!-- 回收箱抽屉：仅点击后出现 -->
+        <div v-if="recycleDrawerOpen" v-loading="recycleLoading" class="recycle-drawer">
+          <div class="recycle-drawer-head">
+            <span>{{ t('manager.recycleBin') }}</span>
+            <el-button size="small" text @click="refreshRecycle" :loading="recycleLoading">{{ t('common.refresh') }}</el-button>
+          </div>
+          <div v-if="recycleEntries.length" class="catalog-list recycle-list">
+            <div v-for="item in recycleEntries" :key="`${item.graphId}::${item.recycleVersion}`" class="catalog-block">
+              <div
+                class="catalog-item-row"
+                :class="{ active: isRecycleActive(item) }"
+                @click="selectRecycleItem(item)"
+              >
+                <div class="catalog-item">
+                  <strong>{{ item.displayName || item.graphId }}</strong>
+                  <small>{{ item.graphId }}</small>
+                  <small class="recycle-version">{{ item.recycleVersion }}</small>
+                </div>
+                <div class="catalog-row-actions" @click.stop>
+                  <el-button
+                    v-if="perm.can(MENU.GRAPH_RESTORE)"
+                    size="small"
+                    text
+                    type="primary"
+                    :icon="RefreshRight"
+                    :title="t('manager.restoreGraph')"
+                    @click="onRestore(item, $event)"
+                  />
+                  <el-button
+                    v-if="perm.can(MENU.GRAPH_PURGE)"
+                    size="small"
+                    text
+                    type="danger"
+                    :icon="CloseBold"
+                    :title="t('manager.purgeGraph')"
+                    @click="openPurgeDialog(item, $event)"
+                  />
+                </div>
+              </div>
+              <div
+                v-if="isRecycleActive(item)"
+                class="catalog-property-drawer"
+                @click.stop
+              >
+                <div class="drawer-title">{{ t('manager.recyclePreviewHint') }}</div>
+                <PropertyPanel embedded read-only />
+              </div>
+            </div>
+          </div>
+          <el-empty v-else-if="!recycleLoading" :description="t('manager.recycleEmpty')" />
+        </div>
       </template>
 
       <!-- 折叠态：竖向把手 -->
@@ -255,6 +561,18 @@ onMounted(async () => {
     <main class="designer-panel">
       <template v-if="showDesigner">
         <GraphDslDesigner
+          v-if="isRecyclePreview"
+          :key="`recycle-${selectedRecycle.graphId}-${selectedRecycle.recycleVersion}`"
+          :graph-id="selectedRecycle.graphId"
+          :title="selectedDisplayName"
+          :api-base-url="apiBaseUrl"
+          :locale="locale"
+          recycle-preview
+          :initial-definition="recyclePreviewDef"
+          read-only
+        />
+        <GraphDslDesigner
+          v-else
           ref="designerRef"
           :key="`${selectedGraphId}-${locale}`"
           :graph-id="selectedGraphId"
@@ -268,7 +586,13 @@ onMounted(async () => {
       <div v-else class="empty-center">
         <el-empty :description="t('manager.selectOrCreate')" />
       </div>
-      <NodePanel v-model:collapsed="nodePanelCollapsed" :class="['node-panel-right', { 'node-panel-right--collapsed': nodePanelCollapsed }]" @node-drag="onNodeDrag" @node-locate="onNodeLocate" />
+      <NodePanel
+        v-if="!isRecyclePreview"
+        v-model:collapsed="nodePanelCollapsed"
+        :class="['node-panel-right', { 'node-panel-right--collapsed': nodePanelCollapsed }]"
+        @node-drag="onNodeDrag"
+        @node-locate="onNodeLocate"
+      />
     </main>
 
     <el-dialog v-model="showCreate" :title="t('manager.createDialogTitle')" width="420px">
@@ -283,6 +607,73 @@ onMounted(async () => {
       <template #footer>
         <el-button @click="showCreate = false">{{ t('common.cancel') }}</el-button>
         <el-button type="primary" @click="createGraph">{{ t('common.create') }}</el-button>
+      </template>
+    </el-dialog>
+
+    <!-- 删除二次确认：输入 graphId；展示子图引用预检 -->
+    <el-dialog
+      v-model="showDeleteDialog"
+      :title="t('manager.deleteConfirmTitle')"
+      width="480px"
+      @closed="deleteTarget = null"
+    >
+      <p class="dialog-hint">{{ t('manager.deleteConfirmHint') }}</p>
+      <p v-if="deleteTarget" class="dialog-target">
+        <strong>{{ deleteTarget.displayName || deleteTarget.graphId }}</strong>
+        <small>{{ deleteTarget.graphId }}</small>
+      </p>
+      <div v-loading="deleteReferrersLoading" class="referrers-box">
+        <div class="referrers-title">{{ t('manager.referrersTitle') }}</div>
+        <ul v-if="deleteReferrers.length" class="referrers-list">
+          <li v-for="id in deleteReferrers" :key="id">{{ id }}</li>
+        </ul>
+        <div v-else-if="!deleteReferrersLoading" class="referrers-none">{{ t('manager.referrersNone') }}</div>
+      </div>
+      <el-input
+        v-model="deleteConfirmInput"
+        :placeholder="t('manager.deleteConfirmPlaceholder')"
+        style="margin-top: 12px;"
+      />
+      <template #footer>
+        <el-button @click="showDeleteDialog = false">{{ t('common.cancel') }}</el-button>
+        <el-button
+          type="danger"
+          :disabled="!deleteConfirmOk"
+          :loading="deleteSubmitting"
+          @click="confirmDelete"
+        >{{ t('manager.deleteConfirmOk') }}</el-button>
+      </template>
+    </el-dialog>
+
+    <!-- 清除二次确认：用户只输入 graphId 与末 4 位；全串由选中行带上 -->
+    <el-dialog
+      v-model="showPurgeDialog"
+      :title="t('manager.purgeConfirmTitle')"
+      width="480px"
+      @closed="purgeTarget = null"
+    >
+      <p class="dialog-hint">{{ t('manager.purgeConfirmHint') }}</p>
+      <p v-if="purgeTarget" class="dialog-target">
+        <strong>{{ purgeTarget.displayName || purgeTarget.graphId }}</strong>
+        <small>{{ purgeTarget.graphId }}</small>
+        <small class="recycle-version">{{ purgeTarget.recycleVersion }}</small>
+      </p>
+      <el-form label-width="100px" style="margin-top: 12px;">
+        <el-form-item :label="t('manager.graphId')" required>
+          <el-input v-model="purgeConfirmGraphId" :placeholder="t('manager.deleteConfirmPlaceholder')" />
+        </el-form-item>
+        <el-form-item :label="t('manager.purgeSuffixPlaceholder')" required>
+          <el-input v-model="purgeConfirmSuffix" maxlength="4" :placeholder="t('manager.purgeSuffixPlaceholder')" />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="showPurgeDialog = false">{{ t('common.cancel') }}</el-button>
+        <el-button
+          type="danger"
+          :disabled="!purgeConfirmOk"
+          :loading="purgeSubmitting"
+          @click="confirmPurge"
+        >{{ t('manager.purgeConfirmOk') }}</el-button>
       </template>
     </el-dialog>
   </div>
@@ -349,6 +740,9 @@ onMounted(async () => {
   cursor: pointer;
   border: 1px solid transparent;
   transition: background 0.15s, border-color 0.15s;
+  display: flex;
+  align-items: flex-start;
+  gap: 4px;
 }
 .catalog-item-row:hover:not(.active) {
   background: var(--agd-color-bg-hover, #f5f7fa);
@@ -364,7 +758,8 @@ onMounted(async () => {
   display: flex;
   flex-direction: column;
   line-height: 1.4;
-  pointer-events: none;
+  flex: 1;
+  min-width: 0;
 }
 .catalog-item strong {
   font-size: 13px;
@@ -374,6 +769,20 @@ onMounted(async () => {
 .catalog-item small {
   color: var(--agd-color-text-secondary, #909399);
   font-size: 11px;
+}
+.catalog-row-action,
+.catalog-row-actions {
+  flex-shrink: 0;
+  pointer-events: auto;
+}
+.catalog-row-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+.recycle-version {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  word-break: break-all;
 }
 .catalog-property-drawer {
   margin: 4px 10px 8px;
@@ -390,6 +799,36 @@ onMounted(async () => {
   color: var(--agd-color-primary, #409eff);
   background: var(--agd-color-bg-active, #ecf5ff);
   border-bottom: 1px solid rgba(64, 158, 255, 0.15);
+}
+.recycle-footer {
+  flex-shrink: 0;
+  border-top: 1px solid var(--agd-color-border, #e4e7ed);
+  padding: 6px 10px;
+}
+.recycle-toggle {
+  width: 100%;
+  justify-content: space-between;
+  color: var(--agd-color-text-secondary, #909399);
+}
+.recycle-drawer {
+  flex-shrink: 0;
+  max-height: 42%;
+  overflow-y: auto;
+  border-top: 1px solid var(--agd-color-border, #e4e7ed);
+  background: var(--agd-color-bg, #fff);
+  padding-bottom: 8px;
+}
+.recycle-drawer-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 16px 4px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--agd-color-text-secondary, #909399);
+}
+.recycle-list {
+  padding-top: 4px;
 }
 .designer-panel {
   flex: 1;
@@ -423,6 +862,41 @@ onMounted(async () => {
   justify-content: center;
   align-items: center;
   min-height: 0;
+}
+.dialog-hint {
+  margin: 0 0 8px;
+  color: var(--agd-color-text-secondary, #909399);
+  font-size: 13px;
+}
+.dialog-target {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 0 0 8px;
+}
+.dialog-target small {
+  color: var(--agd-color-text-secondary, #909399);
+}
+.referrers-box {
+  min-height: 48px;
+  padding: 8px 10px;
+  border: 1px solid var(--agd-color-border, #e4e7ed);
+  border-radius: 6px;
+  background: var(--agd-color-bg-hover, #f5f7fa);
+}
+.referrers-title {
+  font-size: 12px;
+  font-weight: 600;
+  margin-bottom: 6px;
+}
+.referrers-list {
+  margin: 0;
+  padding-left: 18px;
+  font-size: 12px;
+}
+.referrers-none {
+  font-size: 12px;
+  color: var(--agd-color-text-secondary, #909399);
 }
 /* ====== 左侧目录面板折叠态 ====== */
 .left-dock--collapsed {

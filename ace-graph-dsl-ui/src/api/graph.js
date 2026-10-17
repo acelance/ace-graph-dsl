@@ -86,6 +86,23 @@ export function createGraphApi(options = '/') {
       definition,
       inputs: inputs || {}
     }).then(r => r.data),
+    /** 子图引用预检（打开删除确认框时调用，不阻断） */
+    listSubgraphReferrers: (graphId) =>
+      http.get(`${p}/definitions/${graphId}/subgraph-referrers`).then(r => r.data),
+    /** 删除正式图进回收箱 */
+    recycleDefinition: (graphId, confirmGraphId) =>
+      http.post(`${p}/definitions/${graphId}/recycle`, { confirmGraphId }).then(r => r.data),
+    /** 回收箱列表 */
+    listRecycle: () => http.get(`${p}/definitions/recycle`).then(r => r.data),
+    /** 加载回收快照（预览） */
+    getRecycleSnapshot: (graphId, recycleVersion) =>
+      http.get(`${p}/definitions/recycle/${graphId}`, { params: { recycleVersion } }).then(r => r.data),
+    /** 从回收箱恢复 */
+    restoreRecycle: (graphId, recycleVersion) =>
+      http.post(`${p}/definitions/recycle/${graphId}/restore`, { recycleVersion }).then(r => r.data),
+    /** 彻底清除回收行 */
+    purgeRecycle: (graphId, body) =>
+      http.post(`${p}/definitions/recycle/${graphId}/purge`, body).then(r => r.data),
     getMenuPermissions: () => http.get(`${p}/permissions/menus`).then(r => r.data),
     /** SAA 高阶模块是否启用（宿主是否引入 ace-graph-dsl-saa-agent） */
     getSaaCapabilities: () => http.get(`${p}/capabilities/saa`).then(r => r.data),
@@ -224,6 +241,12 @@ export const publish = (...args) => defaultApi.publish(...args)
 export const rollback = (...args) => defaultApi.rollback(...args)
 export const getEnabled = (...args) => defaultApi.getEnabled(...args)
 export const dryRunGraph = (...args) => defaultApi.dryRunGraph(...args)
+export const listSubgraphReferrers = (...args) => defaultApi.listSubgraphReferrers(...args)
+export const recycleDefinition = (...args) => defaultApi.recycleDefinition(...args)
+export const listRecycle = (...args) => defaultApi.listRecycle(...args)
+export const getRecycleSnapshot = (...args) => defaultApi.getRecycleSnapshot(...args)
+export const restoreRecycle = (...args) => defaultApi.restoreRecycle(...args)
+export const purgeRecycle = (...args) => defaultApi.purgeRecycle(...args)
 export const getMenuPermissions = (...args) => defaultApi.getMenuPermissions(...args)
 export const getSaaCapabilities = (...args) => defaultApi.getSaaCapabilities(...args)
 export const getExecutionState = (...args) => defaultApi.getExecutionState(...args)
