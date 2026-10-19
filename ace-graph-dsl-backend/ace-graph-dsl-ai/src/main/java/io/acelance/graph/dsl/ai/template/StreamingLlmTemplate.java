@@ -865,13 +865,14 @@ public class StreamingLlmTemplate {
                                         List<String> skillLabels,
                                         LlmRequestContext ctx) {
         List<Message> messages = new ArrayList<>();
-        if (system != null && !system.isBlank()) {
-            messages.add(new SystemMessage(system));
-        }
-        if (forced != null) {
-            for (ForceSkillActivator.ActivatedSkill s : forced) {
-                messages.add(new SystemMessage(
-                        "[forceSkills activated] skill=" + s.code() + "\n\n" + s.body()));
+        // vLLM 只允许第 1 条是 system；节点提示词与强制技能必须合成一条，外部网关同样接受。
+        String systemText = composeSingleSystemText(system, forced);
+        if (systemText != null) {
+            messages.add(new SystemMessage(systemText));
+            int skillCount = forced == null ? 0 : forced.size();
+            if (skillCount > 0) {
+                log.info("节点 {} 已将提示词与 {} 个强制技能合并为 1 条 system, chars={}",
+                        ctx != null ? ctx.nodeId() : "?", skillCount, systemText.length());
             }
         }
         String userText = user == null || user.isBlank() ? " " : user;
@@ -908,6 +909,33 @@ public class StreamingLlmTemplate {
                     nodeId, userText.length());
         }
         return messages;
+    }
+
+    /**
+     * 把节点 system 与强制技能正文收成一条。空段跳过；多段之间用空行分隔。
+     * 全空时返回 null，调用方不插入 system。
+     */
+    static String composeSingleSystemText(String system, List<ForceSkillActivator.ActivatedSkill> forced) {
+        StringBuilder out = new StringBuilder();
+        if (system != null && !system.isBlank()) {
+            out.append(system.strip());
+        }
+        if (forced != null) {
+            for (ForceSkillActivator.ActivatedSkill skill : forced) {
+                if (skill == null) {
+                    continue;
+                }
+                String block = "[forceSkills activated] skill=" + skill.code() + "\n\n" + skill.body();
+                if (block.isBlank()) {
+                    continue;
+                }
+                if (!out.isEmpty()) {
+                    out.append("\n\n");
+                }
+                out.append(block.strip());
+            }
+        }
+        return out.isEmpty() ? null : out.toString();
     }
 
     /**
