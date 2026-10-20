@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.19] — 2026-10-20
+
+### Added
+
+- **图回收箱菜单权限**：`DefaultGraphMenuCatalog` 增加 `graph:delete` /
+  `graph:restore` / `graph:purge`，未接外部权限时经 `PermissiveGraphMenuAccessControl`
+  全量下发到 `/api/graph/permissions/menus` 的 `grantedKeys`，设计器可显示删除入口。
+
+## [1.1.18] — 2026-10-19
+
+### Fixed
+
+- **内部模型 system 消息顺序**：流式合并历史时保证 system 消息保持首位（见 agent-server
+  troubleshooting `2026-10-19-internal-model-system-message-must-be-first`）。
+
 ## [1.1.17] — 2026-10-15
 
 ### Fixed
