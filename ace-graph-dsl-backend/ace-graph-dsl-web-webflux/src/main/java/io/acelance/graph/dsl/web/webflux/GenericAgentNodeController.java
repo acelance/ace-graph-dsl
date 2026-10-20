@@ -1,0 +1,212 @@
+package io.acelance.graph.dsl.web.webflux;
+
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import io.acelance.graph.dsl.definition.GenericAgentDefinition;
+import io.acelance.graph.dsl.definition.GenericAgentSpec;
+import io.acelance.graph.dsl.definition.GraphDefinition;
+import io.acelance.graph.dsl.definition.RemovedAgentFields;
+import io.acelance.graph.dsl.llm.MemoryMode;
+import io.acelance.graph.dsl.persistence.GraphDefinitionRepository;
+import io.acelance.graph.dsl.service.GenericAgentNodeService;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.web.bind.annotation.DeleteMapping;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.RestController;
+
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.stream.Collectors;
+
+/**
+ * [ace-graph-dsl-web-webflux]产品 {@code GenericAgentNodeController}（与产品请求体契约对齐）。
+ */
+@RestController
+@RequestMapping("/api/graph/agents")
+public class GenericAgentNodeController {
+
+    private static final Logger log = LoggerFactory.getLogger(GenericAgentNodeController.class);
+
+    private final GenericAgentNodeService agentNodeService;
+    private final GraphDefinitionRepository graphDefRepository;
+    private final ObjectMapper objectMapper;
+
+    public GenericAgentNodeController(GenericAgentNodeService agentNodeService,
+                                           GraphDefinitionRepository graphDefRepository,
+                                           ObjectMapper objectMapper) {
+        this.agentNodeService = agentNodeService;
+        this.graphDefRepository = graphDefRepository;
+        this.objectMapper = objectMapper;
+        log.info("注册 [ace-graph-dsl-web-webflux]DesignerAgentController（WebFlux /api/graph/agents）");
+    }
+
+    @GetMapping("/definitions")
+    public List<GenericAgentDefinition> listDefinitions() {
+        return agentNodeService.listDefinitions().stream()
+                .map(GenericAgentDefinition::masked)
+                .toList();
+    }
+
+    @GetMapping("/definitions/{nodeId}")
+    public GenericAgentDefinition getDefinition(@PathVariable String nodeId) {
+        return agentNodeService.getDefinition(nodeId).masked();
+    }
+
+    @GetMapping("/references")
+    public List<String> listReferencingGraphs(@RequestParam("nodeId") String nodeId) {
+        return graphDefRepository.listAll().stream()
+                .filter(def -> def.nodes().stream().anyMatch(n -> nodeId.equals(n.nodeId())))
+                .map(GraphDefinition::graphId)
+                .collect(Collectors.toList());
+    }
+
+    @GetMapping("/orphans")
+    public List<GenericAgentDefinition> listOrphans() {
+        Set<String> referenced = graphDefRepository.listAll().stream()
+                .flatMap(def -> def.nodes().stream())
+                .map(n -> n.nodeId())
+                .collect(Collectors.toSet());
+        return agentNodeService.listDefinitions().stream()
+                .filter(def -> !referenced.contains(def.nodeId()))
+                .map(GenericAgentDefinition::masked)
+                .toList();
+    }
+
+    @PostMapping
+    public GenericAgentDefinition create(@RequestBody JsonNode body) {
+        rejectRemovedFields(body);
+        AgentNodeRequest req = objectMapper.convertValue(body, AgentNodeRequest.class);
+        return agentNodeService.create(req.toDefinition()).masked();
+    }
+
+    @PutMapping("/{nodeId}")
+    public GenericAgentDefinition update(@PathVariable String nodeId, @RequestBody JsonNode body) {
+        rejectRemovedFields(body);
+        AgentNodeRequest req = objectMapper.convertValue(body, AgentNodeRequest.class);
+        return agentNodeService.update(nodeId, req.toDefinition()).masked();
+    }
+
+    @DeleteMapping("/{nodeId}")
+    public void delete(@PathVariable String nodeId) {
+        agentNodeService.delete(nodeId);
+    }
+
+    @PostMapping("/validate")
+    public Map<String, Object> validate(@RequestBody JsonNode body) {
+        rejectRemovedFields(body);
+        AgentNodeRequest req = objectMapper.convertValue(body, AgentNodeRequest.class);
+        agentNodeService.validateSpec(req.toSpec());
+        return Map.of("ok", true);
+    }
+
+    @PostMapping("/test-run")
+    public Map<String, Object> testRunDraft(@RequestBody JsonNode body) {
+        rejectRemovedFields(body);
+        TestRunDraftRequest req = objectMapper.convertValue(body, TestRunDraftRequest.class);
+        Map<String, Object> output = agentNodeService.testRunDraft(
+                req.toSpec(), req.mockState() != null ? req.mockState() : Map.of());
+        return Map.of("output", output);
+    }
+
+    @PostMapping("/{nodeId}/test-run")
+    public Map<String, Object> testRun(@PathVariable String nodeId,
+                                       @RequestBody(required = false) TestRunRequest req) {
+        Map<String, Object> output = agentNodeService.testRun(
+                nodeId, req != null && req.mockState() != null ? req.mockState() : Map.of());
+        return Map.of("output", output);
+    }
+
+    @SuppressWarnings("unchecked")
+    private void rejectRemovedFields(JsonNode body) {
+        if (body == null || body.isNull()) {
+            return;
+        }
+        Map<String, Object> asMap = objectMapper.convertValue(body, Map.class);
+        RemovedAgentFields.assertAbsentInRequest(asMap);
+    }
+
+    public record AgentNodeRequest(
+            String nodeId,
+            String displayName,
+            String description,
+            String version,
+            GenericAgentSpec spec,
+            String modelBaseUrl,
+            String modelApiKey,
+            Boolean apiKeyMasked,
+            String modelId,
+            String prompt,
+            String inputKeys,
+            String outputKey,
+            String streamResponseKind,
+            List<String> permissionTags,
+            String operator,
+            String promptKey,
+            String skillKey,
+            String mcpKey,
+            List<String> tools,
+            String skill,
+            String mcp) {
+
+        public GenericAgentSpec toSpec() {
+            if (spec != null) {
+                return spec;
+            }
+            return new GenericAgentSpec(
+                    modelBaseUrl, modelApiKey, Boolean.TRUE.equals(apiKeyMasked), modelId,
+                    prompt, inputKeys, outputKey, streamResponseKind, null,
+                    true, List.of(), false, null, false, List.of(),
+                    false, List.of(), Map.of(), false, List.of(),
+                    MemoryMode.NONE, null, false,
+                    false, null, null);
+        }
+
+        public GenericAgentDefinition toDefinition() {
+            return new GenericAgentDefinition(
+                    nodeId, displayName, description, version, toSpec(),
+                    permissionTags != null ? Set.copyOf(permissionTags) : Set.of(),
+                    operator, null, null, true);
+        }
+    }
+
+    public record TestRunDraftRequest(
+            GenericAgentSpec spec,
+            String modelBaseUrl,
+            String modelApiKey,
+            Boolean apiKeyMasked,
+            String modelId,
+            String prompt,
+            String inputKeys,
+            String outputKey,
+            Map<String, Object> mockState,
+            String promptKey,
+            String skillKey,
+            String mcpKey,
+            List<String> tools,
+            String skill,
+            String mcp) {
+
+        public GenericAgentSpec toSpec() {
+            if (spec != null) {
+                return spec;
+            }
+            return new GenericAgentSpec(
+                    modelBaseUrl, modelApiKey, Boolean.TRUE.equals(apiKeyMasked), modelId,
+                    prompt, inputKeys, outputKey, null, null,
+                    true, List.of(), false, null, false, List.of(),
+                    false, List.of(), Map.of(), false, List.of(),
+                    MemoryMode.NONE, null, false,
+                    false, null, null);
+        }
+    }
+
+    public record TestRunRequest(Map<String, Object> mockState) {}
+}

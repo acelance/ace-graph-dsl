@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.20] — 2026-10-20
+
+### Added
+
+- **`ace-graph-dsl-web-webflux`**：WebFlux 宿主设计器 REST 模块。依赖已 exclusion
+  Servlet 的 `ace-graph-dsl-spring-boot-starter` + `spring-boot-starter-webflux`；
+  在 `ace.graph.dsl.web.enabled=true`（默认）且 `WebApplicationType=REACTIVE` 时注册
+  Controllers（definitions / recycle / catalog / permissions / nodes / agents /
+  capabilities / stream-response-kinds / node-biz-param / agent-resources）。
+  路径与业务原镜像一致；首期不接 `MenuPermissionGuard`。设计器 API 变更须同步改
+  Servlet（starter `web`）与本模块。
+
+### Changed
+
+- 宿主接入推荐以 `ace-graph-dsl-web-webflux` 为主依赖（传递 starter）；亦可显式保留
+  starter+exclusion。见 `docs/ACE-Graph-DSL-web-webflux轻量模块方案与开发计划.md`。
+
 ## [1.1.19] — 2026-10-20
 
 ### Added
