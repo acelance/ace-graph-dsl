@@ -32,6 +32,12 @@ public final class GraphMenuPermissions {
     public static final String GRAPH_PUBLISH = "graph:publish";
     /** 回滚 */
     public static final String GRAPH_ROLLBACK = "graph:rollback";
+    /** 删除正式图进回收箱；子图引用预检 */
+    public static final String GRAPH_DELETE = "graph:delete";
+    /** 从回收箱恢复 */
+    public static final String GRAPH_RESTORE = "graph:restore";
+    /** 彻底清除回收行 */
+    public static final String GRAPH_PURGE = "graph:purge";
 
     /** 查看脚本节点 */
     public static final String SCRIPT_NODE_VIEW = "script-node:view";

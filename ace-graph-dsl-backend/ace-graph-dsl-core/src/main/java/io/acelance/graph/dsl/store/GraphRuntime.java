@@ -76,6 +76,9 @@ public class GraphRuntime {
      *
      * <p>每次调用时，若超过缓存 TTL 且 DB 中 enabled 版本与缓存不一致，
      * 则自动重新编译并替换本地缓存。开发环境 TTL=0 表示每次检查。</p>
+     *
+     * <p>若启用行已不存在（例如图已进回收箱），卸掉本进程三份缓存后抛错，
+     * 避免继续返回删除前的 CompiledGraph。</p>
      */
     public CompiledGraph get(String graphId) {
         CompiledGraph g = enabledGraphs.get(graphId);
@@ -84,7 +87,15 @@ public class GraphRuntime {
         }
         if (isStale(graphId)) {
             try {
+                GraphDefinition latest = repository.getEnabled(graphId);
+                if (latest == null) {
+                    // 启用行已消失：卸掉本进程缓存（删除/恢复漏卸时的 TTL 兜底）
+                    evict(graphId);
+                    throw new IllegalStateException("Graph 未启用或不存在: " + graphId);
+                }
                 g = refresh(graphId);
+            } catch (IllegalStateException e) {
+                throw e;
             } catch (Exception e) {
                 log.warn("图版本刷新失败, 继续使用缓存版本, graphId={}", graphId, e);
             }
@@ -108,6 +119,18 @@ public class GraphRuntime {
         return compiled;
     }
 
+    /**
+     * 卸掉本进程中该图的运行时缓存（enabledGraphs / versionCache / lastCheckTimes）。
+     *
+     * <p>用于删除进回收箱、恢复为未发布等场景。不回写数据库。</p>
+     */
+    public void evict(String graphId) {
+        enabledGraphs.remove(graphId);
+        versionCache.remove(graphId);
+        lastCheckTimes.remove(graphId);
+        log.info("已卸载图运行时缓存, graphId={}", graphId);
+    }
+
     private boolean isStale(String graphId) {
         long now = System.currentTimeMillis();
         Long lastCheck = lastCheckTimes.get(graphId);
@@ -117,9 +140,15 @@ public class GraphRuntime {
         }
         lastCheckTimes.put(graphId, now);
         String cached = versionCache.get(graphId);
-        if (cached == null) return true;
+        if (cached == null) {
+            return true;
+        }
         GraphDefinition latest = repository.getEnabled(graphId);
-        return latest != null && !latest.version().equals(cached);
+        // 启用行消失也视为 stale，由 get() 负责 evict
+        if (latest == null) {
+            return true;
+        }
+        return !latest.version().equals(cached);
     }
 
     /**

@@ -20,7 +20,11 @@ const props = defineProps({
   apiBaseUrl: { type: String, default: '/' },
   title: { type: String, default: '' },
   locale: { type: String, default: 'zh-CN' },
-  readOnly: { type: Boolean, default: false }
+  readOnly: { type: Boolean, default: false },
+  /** 回收预览：不请求正式图，灌入 initialDefinition，底栏整组隐藏 */
+  recyclePreview: { type: Boolean, default: false },
+  /** 回收预览时灌入画布的快照定义 */
+  initialDefinition: { type: Object, default: null }
 })
 
 const emit = defineEmits(['saved', 'published'])
@@ -50,6 +54,23 @@ async function paintCanvas(def) {
 
 async function loadGraph() {
   editor.selectGraph(props.graphId)
+  // 回收预览：直接灌快照，不请求正式图最新版本
+  if (props.recyclePreview) {
+    const def = props.initialDefinition
+    if (!def) {
+      console.warn('[GraphDslDesigner] recyclePreview 缺少 initialDefinition, graphId=', props.graphId)
+      return
+    }
+    try {
+      editor.applyDefinition(def)
+      await paintCanvas(def)
+      canvasRef.value?.setSilentMode?.(true)
+    } catch (e) {
+      console.error('[GraphDslDesigner] recycle preview paint failed:', e)
+    }
+    return
+  }
+  canvasRef.value?.setSilentMode?.(false)
   let def
   try {
     def = await editor.loadLatest()
@@ -77,7 +98,7 @@ async function loadGraph() {
   editor.refreshEdgeParamValidation(nodeStore.nodes)
 }
 
-watch(() => props.graphId, loadGraph)
+watch(() => [props.graphId, props.recyclePreview, props.initialDefinition], loadGraph)
 
 onMounted(async () => {
   if (!perm.loaded) await perm.load()
@@ -235,7 +256,9 @@ defineExpose({ onNodeDrag, canvasRef, locateCanvasNode: onNodeLocate })
         floating-actions
         :title="title || graphId"
         :canvas-ref="canvasRef"
-        :read-only="readOnly"
+        :read-only="readOnly || recyclePreview"
+        :recycle-preview="recyclePreview"
+        :show-actions="!recyclePreview"
         @save="onSave"
         @validate="editor.validate()"
         @preview="editor.loadPlantUml()"
@@ -256,12 +279,14 @@ defineExpose({ onNodeDrag, canvasRef, locateCanvasNode: onNodeLocate })
         @createGroup="onCreateGroup"
         @toggleBoxSelect="onToggleBoxSelect"
       />
-      <NodeSearch :canvas-ref="canvasRef" />
-      <GroupPanel :canvas-ref="canvasRef" />
-      <EdgeParamValidationPanel />
-      <TopologyValidationPanel />
-      <DryRunDrawer v-model:visible="showDryRun" :graph-id="graphId" />
-      <ExecutionDrawer v-model:visible="showDebugExec" :graph-id="graphId" />
+      <template v-if="!recyclePreview">
+        <NodeSearch :canvas-ref="canvasRef" />
+        <GroupPanel :canvas-ref="canvasRef" />
+        <EdgeParamValidationPanel />
+        <TopologyValidationPanel />
+        <DryRunDrawer v-model:visible="showDryRun" :graph-id="graphId" />
+        <ExecutionDrawer v-model:visible="showDebugExec" :graph-id="graphId" />
+      </template>
       <input
         ref="importFileRef"
         type="file"

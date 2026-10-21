@@ -35,7 +35,9 @@ import {
 
 const props = defineProps({
   /** 嵌入左侧目录时使用紧凑布局 */
-  embedded: { type: Boolean, default: false }
+  embedded: { type: Boolean, default: false },
+  /** 只读（回收预览）：不可改属性 */
+  readOnly: { type: Boolean, default: false }
 })
 
 const editor = useGraphEditorStore()
@@ -634,7 +636,7 @@ function onStreamingChange(val) {
 </script>
 
 <template>
-  <div class="property-panel" :class="{ 'property-panel--embedded': embedded }">
+  <div class="property-panel" :class="{ 'property-panel--embedded': embedded, 'property-panel--readonly': readOnly }">
     <div v-if="!embedded" class="panel-header">{{ editor.selectedEdge ? t('edgeEditor.title') : t('propertyPanel.title') }}</div>
 
     <template v-if="editor.selectedEdge">
@@ -1379,6 +1381,17 @@ function onStreamingChange(val) {
 }
 .property-panel--embedded {
   padding: 8px 10px 10px;
+}
+.property-panel--readonly :deep(.el-input),
+.property-panel--readonly :deep(.el-textarea),
+.property-panel--readonly :deep(.el-select),
+.property-panel--readonly :deep(.el-radio-group),
+.property-panel--readonly :deep(.el-switch),
+.property-panel--readonly :deep(.el-checkbox),
+.property-panel--readonly :deep(.el-button),
+.property-panel--readonly :deep(.el-input-number) {
+  pointer-events: none;
+  opacity: 0.75;
 }
 .property-panel--embedded :deep(.el-form-item) {
   margin-bottom: 12px;
