@@ -4,6 +4,7 @@ import io.acelance.graph.dsl.agent.SecretResolver;
 import io.acelance.graph.dsl.agent.SubAgentResolver;
 import io.acelance.graph.dsl.agentscope.AgentScopeModelFactory;
 import io.acelance.graph.dsl.agentscope.AgentScopeSubAgentResolver;
+import io.acelance.graph.dsl.agentscope.AgentscopeBridgeArtifacts;
 import io.acelance.graph.dsl.agentscope.DefaultAgentScopeModelFactory;
 import io.acelance.graph.dsl.ai.model.ModelMountResolver;
 import io.acelance.graph.dsl.registry.GraphNodeRegistry;
@@ -15,7 +16,7 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean
 import org.springframework.context.annotation.Bean;
 
 /**
- * ace-graph-dsl-agentscope-agent 自动配置（M3 / Q4）。
+ * ace-graph-dsl-agentscope-agent 自动配置（路径 B：agentscope-core 2.x + 自研 ReAct BaseAgent 适配器）。
  *
  * <p>宿主显式依赖本模块后生效；未引入时 {@code impl=AGENTSCOPE} 由校验报「无匹配 Resolver」。</p>
  */
@@ -25,8 +26,8 @@ public class AceGraphDslAgentscopeAgentAutoConfiguration {
     private static final Logger log = LoggerFactory.getLogger(AceGraphDslAgentscopeAgentAutoConfiguration.class);
 
     public AceGraphDslAgentscopeAgentAutoConfiguration() {
-        log.info("启用 ace-graph-dsl-agentscope-agent 模块（AGENTSCOPE 子 Agent / bridge={}）",
-                DefaultAgentScopeModelFactory.BRIDGE_ARTIFACT);
+        log.info("启用 ace-graph-dsl-agentscope-agent 模块（路径 B / AGENTSCOPE 子 Agent / bridge={}）",
+                AgentscopeBridgeArtifacts.BRIDGE_ARTIFACT);
     }
 
     /**

@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **路径 B（AgentScope 2.x）**：`ace-graph-dsl-agentscope-agent` 旁路
+  `spring-ai-alibaba-starter-agentscope`，改为直接依赖
+  `io.agentscope:agentscope-core:2.0.4` + `agentscope-extensions-model-openai`；
+  自研 `AceAgentscopeReActBaseAgentAdapter` 包装 `ReActAgent`。
+  能力探测 `agentscopeBridge` =
+  `ace-graph-dsl-agentscope-agent@io.agentscope:agentscope-core:2.0.4`。
+  **破坏性**：宿主须去掉显式 `agentscope-core:1.0.9` 钉死并升框架版本。
+  MVP 缺口：MCP（G-MCP）、内层流式（G-STREAM-INNER）见方案 §10。
+
 ## [1.1.20] — 2026-10-20
 
 ### Added

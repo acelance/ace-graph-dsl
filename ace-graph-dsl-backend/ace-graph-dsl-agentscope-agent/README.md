@@ -1,47 +1,39 @@
 # ace-graph-dsl-agentscope-agent
 
-可选模块（**M3 / Q4**）：`impl=AGENTSCOPE` 子 Agent，优先官方
-`spring-ai-alibaba-starter-agentscope` 包装为 FlowAgent `subAgent`。
+可选模块：`impl=AGENTSCOPE` 子 Agent（**路径 B**）。
 
-## 能力
+## 定位
 
-| 组件 | 说明 |
-|------|------|
-| `AgentScopeSubAgentResolver` | `ref=agentscope:{id}` → `AgentScopeAgent` |
-| `DefaultAgentScopeModelFactory` | ACE Spec / modelConfigKey → AgentScope `OpenAIChatModel` |
-| `AceGraphDslAgentscopeAgentAutoConfiguration` | 注册 Resolver / ModelFactory |
+- **不**替代 ACE 图主编排；仅作为 SAA Flow（SEQUENTIAL 等）的子 Agent 执行引擎。
+- **旁路** `spring-ai-alibaba-starter-agentscope`（官方无适配 agentscope 2.x）。
+- 依赖 **`io.agentscope:agentscope-core:2.0.4`** + `agentscope-extensions-model-openai`。
+- 自研 `AceAgentscopeReActBaseAgentAdapter`（extends SAA `BaseAgent`）包装 `ReActAgent`。
 
-## 宿主依赖
+## 桥接标识
 
-```xml
-<!-- 高阶节点本体 -->
-<dependency>
-  <groupId>io.acelance</groupId>
-  <artifactId>ace-graph-dsl-saa-agent</artifactId>
-</dependency>
-<!-- AgentScope 子 Agent（本模块，不强制） -->
-<dependency>
-  <groupId>io.acelance</groupId>
-  <artifactId>ace-graph-dsl-agentscope-agent</artifactId>
-</dependency>
+探测字段 / 日志：
+
+```text
+ace-graph-dsl-agentscope-agent@io.agentscope:agentscope-core:2.0.4
 ```
 
-未引入本模块时：`impl=AGENTSCOPE` → 校验报「无匹配 SubAgentResolver」。
+## MVP 范围
 
-## 测试
+- 模型按 instruction 出文本 → 写 `outputKey`（对齐 M3 冒烟）。
+- 子记忆 `NONE`（Q5）；不写 remote。
+- 内层模型暂 `stream(false)`（缺口 **G-STREAM-INNER**，不得永久化）。
+- **不做**：MCP/工具挂载（**G-MCP**）、`agentscope-harness` / HarnessAgent。
 
-```bash
-mvn -pl ace-graph-dsl-agentscope-agent -am "-Dtest=AgentScopeSequentialFactoryIntegrationTest" "-Dsurefire.failIfNoSpecifiedTests=false" test
-```
+## 禁止依赖
 
-## 说明
+- `agentscope-spring-boot-starter`（Boot 4）
+- `agentscope-harness`（留给阶段 2+）
 
-- id 仍指向 ACE 注册 GenericAgent；**不**另建 AgentScope 资源目录
-- 子记忆强制 NONE（Q5）
-- starter **不**传递本模块
-- 设计附录：`docs/ACE-Graph-DSL-SAA高阶模式节点-开发设计与计划.md` **A.4**
-- 宿主清单：`lesso-ai-platform-agent-server/docs/ace-graph-agentscope-host.md`
+## 启用
 
-## 能力探测
+宿主显式引入本模块后，自动配置注册 `AgentScopeSubAgentResolver`；未引入时 `impl=AGENTSCOPE` 校验报无匹配 Resolver。
 
-引入本模块并启动后：`GET /api/graph/capabilities/saa` 应含 `agentscopeEnabled=true`。
+## 文档
+
+- [路径 B 开发方案](../../docs/ACE-Graph-DSL-AgentScope-路径B-开发方案.md)
+- [路径 B 开发计划](../../docs/ACE-Graph-DSL-AgentScope-路径B-开发计划.md)
