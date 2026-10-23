@@ -2,9 +2,9 @@
 
 | 项 | 内容 |
 |----|------|
-| 状态 | **框架实现中**（分支 `feature/as-b1-path-b-mvp`；M1-D0～D3 已绿） |
-| 日期 | 2026-10-21 |
-| 分支 | `feature/as-b1-path-b-mvp`（框架）；宿主可选 `feature/as-b1-path-b-mvp-host` |
+| 状态 | **MVP 已验收**（框架 `1.1.21` mesrelease；测试环境业务回归通过；待 PR 合入；缺口 G-MCP / G-STREAM-INNER） |
+| 日期 | 2026-10-21（进度更新 2026-10-23） |
+| 分支 | 框架 `feature/as-b1-path-b-mvp`；宿主 `feature-agentscope-B-MVP` |
 | 阶段 | 分阶段规划 **阶段 1** |
 | 主战场 | `ace-graph-dsl-agentscope-agent`（框架约 70%～85%） |
 | 关联 | [分阶段分支规划](./ACE-Graph-DSL-AgentScope-路径B与Harness分阶段分支规划.md)；[Harness 能力边界](./ACE-Graph-DSL-AgentScope-Harness能力边界-core与ReAct薄桥.md)；宿主 [integration-paths](../../lesso-ai-project/lesso-ai-platform-agent-server/docs/ace-graph-agentscope-integration-paths.md)；[开发计划](./ACE-Graph-DSL-AgentScope-路径B-开发计划.md) |
@@ -240,7 +240,7 @@ AgentScopeSubAgentResolver
 
 | ID | 缺口 | 说明 | 建议时机 | 状态 |
 |----|------|------|----------|------|
-| **G-MCP** | AGENTSCOPE 子 Agent 挂真实工具 / MCP | 与 GENERIC 工具会话对齐；本 MVP 仅模型写 `outputKey` | MVP 合入后下一迭代 | 待开 Issue |
+| **G-MCP** | AGENTSCOPE 子 Agent 挂真实工具 / MCP | 与 GENERIC 工具会话对齐；本 MVP 仅模型写 `outputKey` | MVP 合入后下一迭代 | **Skill 宿主冒烟已过**（`load_skill`+L2）；MCP 代码通、`time-mcp` 环境 404；待 `1.1.22` deploy/PR。[方案](./ACE-Graph-DSL-AgentScope-G-MCP-开发方案.md) / [计划](./ACE-Graph-DSL-AgentScope-G-MCP-开发计划.md) |
 | **G-STREAM-INNER** | 内层子 Agent 模型流式 → 接到图 SSE | 外层业务流已是硬指标；内层暂可非流，**禁止永久 `stream(false)`** | MVP 合入后优先补齐 | 待开 Issue |
 | **G-API-DOC** | 方案伪代码 vs 2.0.4 实物差异回填 | 已对照：`OpenAIChatModel`→`extensions.model.openai`；Builder **无** `memory()`；`call` 返回 `Mono`（Adapter `.block()`） | M1-D0/D1 | **已回填** |
 | **G-HARNESS** | `agentscope-harness` / HarnessAgent / Subagent / Plan | 属阶段 2+，非本 MVP | 见分阶段分支规划 H0～ | 未开始 |
@@ -256,3 +256,6 @@ AgentScopeSubAgentResolver
 | 2026-10-21 | 初稿：路径 B MVP 开发方案（对应分支 as-b1-path-b-mvp） |
 | 2026-10-22 | 拍板回填：#1～#8；增补 §0.1、§5.6、§5.7 |
 | 2026-10-22 | 精化 #2/#4/#6/#7/#8 措辞；新增 **§10 MVP 后跟进缺口表** |
+| 2026-10-23 | MVP 验收：`1.1.21` 私服 + 本地 AS SEQUENTIAL 冒烟 + 测试环境业务回归；状态更新 |
+| 2026-10-23 | §10 G-MCP：链独立[开发方案](./ACE-Graph-DSL-AgentScope-G-MCP-开发方案.md)/[计划](./ACE-Graph-DSL-AgentScope-G-MCP-开发计划.md) |
+| 2026-10-23 | §10 G-MCP：宿主 Skill 冒烟通过；MCP 环境阻挡记入方案 §6.1 |

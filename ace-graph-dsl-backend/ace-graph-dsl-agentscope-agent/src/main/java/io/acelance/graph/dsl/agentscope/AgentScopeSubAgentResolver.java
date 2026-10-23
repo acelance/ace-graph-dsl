@@ -10,7 +10,6 @@ import io.acelance.graph.dsl.definition.SaaSubAgentRefs;
 import io.acelance.graph.dsl.llm.MemoryMode;
 import io.acelance.graph.dsl.registry.GraphNodeRegistry;
 import io.acelance.graph.dsl.registry.RegisteredGraphNode;
-import io.agentscope.core.ReActAgent;
 import io.agentscope.core.model.Model;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -20,10 +19,10 @@ import java.util.Locale;
 import java.util.Objects;
 
 /**
- * 路径 B：{@code impl=AGENTSCOPE}，{@code ref=agentscope:{id}} → 自研 {@link AceAgentscopeReActBaseAgentAdapter}。
+ * 路径 B / G-MCP：{@code impl=AGENTSCOPE}，{@code ref=agentscope:{id}} → {@link AceAgentscopeReActBaseAgentAdapter}。
  *
- * <p>id 仍指向 ACE 注册 GenericAgent；执行引擎为 agentscope-core 2.x {@link ReActAgent}（非第二套资源目录）。
- * 子记忆强制 {@link MemoryMode#NONE}（Q5）；AS 2.0.4 Builder 无 {@code memory()}，不写 remote / 不配 LongTermMemory。</p>
+ * <p>id 仍指向 ACE 注册 GenericAgent；工具在执行期按 Spec SPI 装配（Skill/MCP/localTools）。
+ * 子记忆强制 {@link MemoryMode#NONE}（Q5）。</p>
  */
 public class AgentScopeSubAgentResolver implements SubAgentResolver {
 
@@ -31,10 +30,18 @@ public class AgentScopeSubAgentResolver implements SubAgentResolver {
 
     private final GraphNodeRegistry nodeRegistry;
     private final AgentScopeModelFactory modelFactory;
+    private final AgentScopeToolAssembly toolAssembly;
 
     public AgentScopeSubAgentResolver(GraphNodeRegistry nodeRegistry, AgentScopeModelFactory modelFactory) {
+        this(nodeRegistry, modelFactory, AgentScopeToolAssembly.noop());
+    }
+
+    public AgentScopeSubAgentResolver(GraphNodeRegistry nodeRegistry,
+                                      AgentScopeModelFactory modelFactory,
+                                      AgentScopeToolAssembly toolAssembly) {
         this.nodeRegistry = Objects.requireNonNull(nodeRegistry, "nodeRegistry");
         this.modelFactory = Objects.requireNonNull(modelFactory, "modelFactory");
+        this.toolAssembly = toolAssembly != null ? toolAssembly : AgentScopeToolAssembly.noop();
     }
 
     @Override
@@ -91,22 +98,17 @@ public class AgentScopeSubAgentResolver implements SubAgentResolver {
 
         Model model = modelFactory.create(request.graphId(), request.parentNodeId(), agentId, spec);
 
-        // 以 agentscope-core 2.0.4 实物 Builder 为准（无 memory()；短记忆由 AgentState 进程内管理）
-        ReActAgent reActAgent = ReActAgent.builder()
-                .name(name)
-                .description(description)
-                .sysPrompt(sysPrompt)
-                .model(model)
-                .build();
-
         AceAgentscopeReActBaseAgentAdapter executable = new AceAgentscopeReActBaseAgentAdapter(
-                name, description, outputKey, instruction, reActAgent,
-                request.graphId(), request.parentNodeId());
+                name, description, outputKey, instruction,
+                model, sysPrompt, spec, toolAssembly,
+                request.graphId(), request.parentNodeId(), agentId);
 
         log.info("解析 AGENTSCOPE 子 Agent 成功, bridge={}, graphId={}, parentNodeId={}, name={}, ref={}, "
-                        + "outputKey={}, memoryMode=NONE",
+                        + "outputKey={}, memoryMode=NONE, gMcp=true, skillKeys={}, mcpKeys={}",
                 AgentscopeBridgeArtifacts.BRIDGE_ARTIFACT,
-                request.graphId(), request.parentNodeId(), name, ref.ref(), outputKey);
+                request.graphId(), request.parentNodeId(), name, ref.ref(), outputKey,
+                spec.skillKeys() != null ? spec.skillKeys().size() : 0,
+                spec.mcpKeys() != null ? spec.mcpKeys().size() : 0);
         return new SubAgentBinding(name, SaaSubAgentRefs.IMPL_AGENTSCOPE.toUpperCase(Locale.ROOT),
                 ref.ref(), outputKey, executable);
     }

@@ -2,12 +2,12 @@
 
 | 项 | 内容 |
 |----|------|
-| 状态 | **框架实现中**（M1-D0～D3 已绿；宿主 M1-H 待跟） |
-| 日期 | 2026-10-21 |
-| 分支 | `feature/as-b1-path-b-mvp` |
+| 状态 | **MVP 已验收**（框架 `1.1.21` mesrelease；宿主测试环境业务回归通过；待 PR 合入主线） |
+| 日期 | 2026-10-21（进度更新 2026-10-23） |
+| 分支 | 框架 `feature/as-b1-path-b-mvp`；宿主 `feature-agentscope-B-MVP` |
 | 方案 | [ACE-Graph-DSL-AgentScope-路径B-开发方案.md](./ACE-Graph-DSL-AgentScope-路径B-开发方案.md) |
 | 阶段 | 分阶段规划 **阶段 1**；估时 **约 8～15 人日**（框架为主） |
-| 下一阶段 | 合入发版后 → `feature/as-h0-harness-entry`（**另 Issue**，本计划不包含） |
+| 下一阶段 | [G-MCP 方案/计划](./ACE-Graph-DSL-AgentScope-G-MCP-开发方案.md)（分支 `feature-as-b1-g-mcp`）；G-STREAM-INNER；Harness → `feature-as-h0-harness-entry` |
 
 ---
 
@@ -78,8 +78,8 @@ BRIDGE / agentscopeBridge 实际取值 =
 - [x] `AgentScopeSequentialFactoryIntegrationTest` 绿
 - [x] stub 模型写回 sql/score 对拍
 - [x] 回归：`ace-graph-dsl-saa-agent` 既有 GENERIC 子 Agent 测试（6 tests 绿）
-- [ ] **外层业务 SSE 抽测不回归**（拍板 #7；宿主联调时）
-- [ ] （可选）宿主本地拉 SNAPSHOT 跑 `capabilities/saa`
+- [x] **外层业务 SSE / 核对主路径不回归**（测试环境贴现核对通过，2026-10-23）
+- [x] 宿主本地 `capabilities/saa`：`agentscopeEnabled=true`，bridge 含 `2.0.4`
 
 **推荐命令（ace-graph-dsl 非 Lesso 私服场景按本机 JDK21 + Maven）：**
 
@@ -95,7 +95,7 @@ mvn -pl ace-graph-dsl-agentscope-agent -am "-Dtest=AgentScopeSequentialFactoryIn
 - [x] 更新 `ace-graph-dsl-agentscope-agent/README.md`（路径 B）
 - [x] 附录 A：兜底 → **是**；原因已写；**A.6** 新增
 - [x] FAQ §12 / Q4 增补路径 B 现行说明
-- [x] 根 `CHANGELOG.md` 条目（Unreleased）
+- [x] 根 `CHANGELOG.md` 条目（**1.1.21**）
 - [x] 链到分阶段规划 / Harness 边界（方案/计划已链）
 - [ ] PR 描述附 **方案 §10 缺口表**（G-MCP / G-STREAM-INNER）并开或挂起跟进 Issue
 
@@ -107,8 +107,8 @@ mvn -pl ace-graph-dsl-agentscope-agent -am "-Dtest=AgentScopeSequentialFactoryIn
 - [x] 更新 `ace-graph-agentscope-host.md`
 - [x] 框架 **`1.1.21`** deploy mesrelease（路径 B）；宿主依赖已改 `1.1.21`
 - [x] 本地冒烟：`agentscopeEnabled=true`、AGENTSCOPE SEQUENTIAL 写回、`agentscopeBridge` 含 `2.0.4`
-- [ ] 测试环境：宿主镜像跟 `1.1.21` 后复查 bridge / 无 `OpenAIChatModel` CNFE
-- [ ] 外层业务流式 + GENERIC 图抽测不回归
+- [x] 测试环境：宿主镜像跟 **`1.1.21`**；贴现核对主路径通过（业务回归，2026-10-23）
+- [x] 外层业务流式 + 核对主路径抽测不回归（同上）
 
 ---
 
@@ -141,13 +141,15 @@ mvn -pl ace-graph-dsl-agentscope-agent -am "-Dtest=AgentScopeSequentialFactoryIn
 
 ### 宿主 PR（若拆）
 
-- [ ] 依赖框架 **已发布或约定 SNAPSHOT**  
-- [ ] 无 1.0.9 钉死  
-- [ ] 冒烟清单打勾；外层 SSE 抽测通过  
+- [x] 依赖框架 **已发布**（`1.1.21` → mesrelease）  
+- [x] 无 1.0.9 钉死  
+- [x] 冒烟清单打勾；外层业务抽测通过（测试环境）  
+- [ ] 宿主 PR 合入主线（待开/合）  
 
 ### 合入后
 
-- [ ] 打框架版本 tag / 私服发布  
+- [x] 框架版本私服发布（`1.1.21`）  
+- [ ] 打框架版本 tag；PR 合入主线  
 - [ ] 关闭本 Issue；**开/挂起** G-MCP、G-STREAM-INNER 跟进 Issue  
 - [ ] 可选：下一阶段 Issue `as-h0-harness-entry`（非本计划强制）  
 
@@ -170,7 +172,7 @@ mvn -pl ace-graph-dsl-agentscope-agent -am "-Dtest=AgentScopeSequentialFactoryIn
 
 | 项 | 归属 | 备注 |
 |----|------|------|
-| 真实 MCP / 工具挂载（G-MCP） | MVP 后跟进 | 方案 §10 |
+| 真实 MCP / 工具挂载（G-MCP） | Skill 宿主冒烟已过；MCP 环境待换可用 server；`1.1.22` deploy 待续 | [G-MCP 方案](./ACE-Graph-DSL-AgentScope-G-MCP-开发方案.md) §6.1 / [计划](./ACE-Graph-DSL-AgentScope-G-MCP-开发计划.md) |
 | 内层子 Agent 流式（G-STREAM-INNER） | MVP 后优先 | 禁止永久 `stream(false)` |
 | HarnessAgent / Subagent / Plan（G-HARNESS） | 阶段 2+ | |
 | Memory 压缩进 ACE | 搁置 | |
@@ -185,3 +187,4 @@ mvn -pl ace-graph-dsl-agentscope-agent -am "-Dtest=AgentScopeSequentialFactoryIn
 |------|------|
 | 2026-10-21 | 初稿：路径 B MVP 开发计划（分支 as-b1-path-b-mvp） |
 | 2026-10-22 | 对齐拍板 #2/#4/#6/#7/#8；任务与验收挂钩方案 §10 缺口表 |
+| 2026-10-23 | **`1.1.21` deploy mesrelease**；本地 AGENTSCOPE SEQUENTIAL 冒烟；测试环境业务回归通过；状态 → MVP 已验收（待 PR 合入） |
