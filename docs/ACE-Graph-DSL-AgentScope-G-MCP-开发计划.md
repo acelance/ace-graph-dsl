@@ -2,7 +2,7 @@
 
 | 项 | 内容 |
 |----|------|
-| 状态 | **Skill 冒烟已过 / MCP 环境阻挡**（M0～M3 代码+宿主 Skill 通；`1.1.22` deploy 与 PR 待续） |
+| 状态 | **Skill 冒烟已过；`1.1.22` 已 deploy mesrelease**（MCP 环境 404；PR / 测环境跟版待续） |
 | 日期 | 2026-10-23 |
 | 分支 | 框架 `feature-as-b1-g-mcp`；宿主跟版 `feature-agentscope-b-g-mcp` |
 | 方案 | [ACE-Graph-DSL-AgentScope-G-MCP-开发方案.md](./ACE-Graph-DSL-AgentScope-G-MCP-开发方案.md)（§0 已拍板） |
@@ -25,7 +25,7 @@
 | **M1** | ToolAssembly + Bridge + Resolver 接入 | 2～4 | stub tool：SEQUENTIAL 集成测绿；另三 pattern 至少各 1 条 stub 测 |
 | **M2** | Skill 对齐（L1 + SkillTools） | 1～2 | ✅ 宿主 SEQUENTIAL + `paddleocr`：`load_skill` 桥接成功 |
 | **M3** | MCP 挂载 + runId 透传 | 1～2 | ✅ 代码路径通；`time-mcp` HTTP 404 跳过且不挡 Skill |
-| **M4** | 样例 / 文档 / 宿主回归 / 发版 | 1～2 | 文档已跟；testdata / deploy / PR 待续 |
+| **M4** | 样例 / 文档 / 宿主回归 / 发版 | 1～2 | 文档已跟；**`1.1.22` mesrelease ✅**；testdata / PR / 测环境跟版待续 |
 | **缓冲** | 冲突 / CR | 0.5～1 | PR 可合 |
 
 **合计**：约 **6～12 人日**。
@@ -75,8 +75,9 @@
 - [x] 更新 `ace-graph-dsl-agentscope-agent/README.md`
 - [x] 更新宿主 `ace-graph-agentscope-host.md` 冒烟项
 - [x] 路径 B 方案 §10 **G-MCP** 状态更新
-- [x] 根 `CHANGELOG.md`；版本 bump（`1.1.22`，本地 install）
-- [ ] `mvn deploy` mesrelease；宿主依赖跟版并**同迭代**部署测环境
+- [x] 根 `CHANGELOG.md`；版本 bump（`1.1.22`）
+- [x] `mvn deploy` mesrelease（2026-10-23，含 `ace-graph-dsl-agentscope-agent-1.1.22`）
+- [ ] 宿主测环境镜像跟 `1.1.22` 部署（pom 已写 1.1.22，需 CI 重打）
 - [x] 门禁：Skill 冒烟已过；GENERIC/无工具 AS / 业务核对仍以既有回归为准
 
 ### 3.5 明确不做（本计划）
@@ -147,3 +148,4 @@
 | 2026-10-23 | 初稿：G-MCP 开发计划 |
 | 2026-10-23 | 同步 §0 拍板：Skill+MCP 同迭代；四 pattern 补测；宿主同迭代；状态→可开工 |
 | 2026-10-23 | M2 Skill 宿主冒烟通过；M3 MCP 打开失败（time-mcp 404）且不挡 Skill；文档/§10/host/CHANGELOG 已同步 |
+| 2026-10-23 | **`1.1.22` deploy mesrelease SUCCESS**（全模块含 agentscope-agent） |

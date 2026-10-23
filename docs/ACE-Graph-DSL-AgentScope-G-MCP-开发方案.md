@@ -2,7 +2,7 @@
 
 | 项 | 内容 |
 |----|------|
-| 状态 | **Skill 宿主冒烟已过**（2026-10-23）；MCP 代码路径通、环境 404；待 `1.1.22` deploy / PR |
+| 状态 | **Skill 宿主冒烟已过；`1.1.22` 已 deploy mesrelease**（2026-10-23）；MCP 环境 404；待 PR / 测环境跟版 |
 | 日期 | 2026-10-23 |
 | 缺口 ID | **G-MCP**（路径 B 方案 §10） |
 | 分支 | 框架 `feature-as-b1-g-mcp`；宿主跟版 `feature-agentscope-b-g-mcp` |

@@ -2,7 +2,7 @@
 
 可选模块：`impl=AGENTSCOPE` 子 Agent（**路径 B**）。
 
-> 发版基线：**`1.1.21`**（路径 B MVP）；G-MCP 本地 **`1.1.22`**（install，待 deploy）。  
+> 发版基线：**`1.1.22`**（G-MCP，已 deploy mesrelease）；路径 B MVP 为 `1.1.21`。  
 > **G-MCP**（分支 `feature-as-b1-g-mcp`）：ACE SPI → AS Toolkit 已落地；**宿主 Skill 冒烟已过**（`load_skill`+L2）；MCP 代码通、环境可用后再验。  
 > 文档：[G-MCP 方案](../../docs/ACE-Graph-DSL-AgentScope-G-MCP-开发方案.md)（§6.1） / [计划](../../docs/ACE-Graph-DSL-AgentScope-G-MCP-开发计划.md)；**G-STREAM-INNER** 另开。
 

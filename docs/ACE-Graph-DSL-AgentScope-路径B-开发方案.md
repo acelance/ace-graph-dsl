@@ -240,7 +240,7 @@ AgentScopeSubAgentResolver
 
 | ID | 缺口 | 说明 | 建议时机 | 状态 |
 |----|------|------|----------|------|
-| **G-MCP** | AGENTSCOPE 子 Agent 挂真实工具 / MCP | 与 GENERIC 工具会话对齐；本 MVP 仅模型写 `outputKey` | MVP 合入后下一迭代 | **Skill 宿主冒烟已过**（`load_skill`+L2）；MCP 代码通、`time-mcp` 环境 404；待 `1.1.22` deploy/PR。[方案](./ACE-Graph-DSL-AgentScope-G-MCP-开发方案.md) / [计划](./ACE-Graph-DSL-AgentScope-G-MCP-开发计划.md) |
+| **G-MCP** | AGENTSCOPE 子 Agent 挂真实工具 / MCP | 与 GENERIC 工具会话对齐；本 MVP 仅模型写 `outputKey` | MVP 合入后下一迭代 | **`1.1.22` mesrelease + Skill 冒烟已过**；MCP 环境 404；待 PR / 测环境跟版。[方案](./ACE-Graph-DSL-AgentScope-G-MCP-开发方案.md) / [计划](./ACE-Graph-DSL-AgentScope-G-MCP-开发计划.md) |
 | **G-STREAM-INNER** | 内层子 Agent 模型流式 → 接到图 SSE | 外层业务流已是硬指标；内层暂可非流，**禁止永久 `stream(false)`** | MVP 合入后优先补齐 | 待开 Issue |
 | **G-API-DOC** | 方案伪代码 vs 2.0.4 实物差异回填 | 已对照：`OpenAIChatModel`→`extensions.model.openai`；Builder **无** `memory()`；`call` 返回 `Mono`（Adapter `.block()`） | M1-D0/D1 | **已回填** |
 | **G-HARNESS** | `agentscope-harness` / HarnessAgent / Subagent / Plan | 属阶段 2+，非本 MVP | 见分阶段分支规划 H0～ | 未开始 |
