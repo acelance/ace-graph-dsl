@@ -8,7 +8,7 @@ import io.acelance.graph.dsl.llm.LlmRequestContext;
 import io.acelance.graph.dsl.resource.ResourceBinding;
 import io.acelance.graph.dsl.resource.ResourceBindings;
 import io.agentscope.core.model.Model;
-import io.agentscope.core.model.OpenAIChatModel;
+import io.agentscope.extensions.model.openai.OpenAIChatModel;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.util.StringUtils;
@@ -17,14 +17,17 @@ import java.util.Objects;
 
 /**
  * 默认 {@link AgentScopeModelFactory}：enableModel+modelConfigKey 走 {@link ModelMountResolver}，
- * 否则用 Spec 内联 baseUrl/apiKey/modelId 构造 {@link OpenAIChatModel}。
+ * 否则用 Spec 内联 baseUrl/apiKey/modelId 构造 AS 2.x {@link OpenAIChatModel}。
+ *
+ * <p>MVP：{@code stream(false)}（缺口 G-STREAM-INNER，不得永久化）。</p>
  */
 public final class DefaultAgentScopeModelFactory implements AgentScopeModelFactory {
 
     private static final Logger log = LoggerFactory.getLogger(DefaultAgentScopeModelFactory.class);
 
-    /** 桥接坐标（附录 A / 排障） */
-    public static final String BRIDGE_ARTIFACT = "spring-ai-alibaba-starter-agentscope";
+    /** @deprecated 请用 {@link AgentscopeBridgeArtifacts#BRIDGE_ARTIFACT} */
+    @Deprecated
+    public static final String BRIDGE_ARTIFACT = AgentscopeBridgeArtifacts.BRIDGE_ARTIFACT;
 
     private final ModelMountResolver mountResolver;
     private final SecretResolver secretResolver;
@@ -49,8 +52,10 @@ public final class DefaultAgentScopeModelFactory implements AgentScopeModelFacto
                     + ", nodeId=" + nodeId + ", agentId=" + agentId
                     + ", modelId=" + endpoint.modelId() + ", baseUrl=" + endpoint.baseUrl());
         }
-        log.info("AGENTSCOPE 模型就绪, bridge={}, graphId={}, nodeId={}, agentId={}, modelId={}, baseUrl={}",
-                BRIDGE_ARTIFACT, graphId, nodeId, agentId, endpoint.modelId(), endpoint.baseUrl());
+        log.info("AGENTSCOPE 模型就绪, bridge={}, graphId={}, nodeId={}, agentId={}, modelId={}, baseUrl={}, stream=false(MVP)",
+                AgentscopeBridgeArtifacts.BRIDGE_ARTIFACT, graphId, nodeId, agentId,
+                endpoint.modelId(), endpoint.baseUrl());
+        // 以 agentscope-extensions-model-openai 2.0.4 实物为准；内层暂非流式（G-STREAM-INNER）
         return OpenAIChatModel.builder()
                 .apiKey(endpoint.apiKey())
                 .baseUrl(endpoint.baseUrl())

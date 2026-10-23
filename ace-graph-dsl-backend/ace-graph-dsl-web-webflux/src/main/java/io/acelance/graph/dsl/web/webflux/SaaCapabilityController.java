@@ -68,8 +68,9 @@ public class SaaCapabilityController {
                 ? List.of("SEQUENTIAL", "PARALLEL", "ROUTING", "LOOP")
                 : List.of());
         body.put("openImpls", openImpls);
+        // 路径 B：与 AgentscopeBridgeArtifacts.BRIDGE_ARTIFACT 保持一致（当前明确坐标）
         body.put("agentscopeBridge", agentscope
-                ? "spring-ai-alibaba-starter-agentscope"
+                ? "ace-graph-dsl-agentscope-agent@io.agentscope:agentscope-core:2.0.4"
                 : null);
         return body;
     }

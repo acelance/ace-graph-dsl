@@ -1,4 +1,4 @@
-﻿<?xml version="1.0" encoding="UTF-8"?>
+<?xml version="1.0" encoding="UTF-8"?>
 <project xmlns="http://maven.apache.org/POM/4.0.0"
          xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
          xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
@@ -13,7 +13,7 @@
 
     <groupId>io.acelance</groupId>
     <artifactId>ace-graph-dsl-backend</artifactId>
-    <version>1.1.20</version>
+    <version>1.1.21</version>
     <packaging>pom</packaging>
     <name>ace-graph-dsl-backend</name>
     <description>Ace Graph DSL - backend modules for dynamic graph configuration</description>
@@ -37,6 +37,8 @@
         <java.version>17</java.version>
         <spring-ai.version>1.1.2</spring-ai.version>
         <spring-ai-alibaba.version>1.1.2.2</spring-ai-alibaba.version>
+        <!-- 路径 B：旁路 starter-agentscope，直接钉 agentscope-core 2.x -->
+        <agentscope.version>2.0.4</agentscope.version>
         <aviator.version>5.4.3</aviator.version>
         <redisson.version>3.42.0</redisson.version>
         <qlexpress.version>3.3.4</qlexpress.version>
@@ -105,6 +107,16 @@
                 <version>${spring-ai-alibaba.version}</version>
                 <type>pom</type>
                 <scope>import</scope>
+            </dependency>
+            <dependency>
+                <groupId>io.agentscope</groupId>
+                <artifactId>agentscope-core</artifactId>
+                <version>${agentscope.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>io.agentscope</groupId>
+                <artifactId>agentscope-extensions-model-openai</artifactId>
+                <version>${agentscope.version}</version>
             </dependency>
             <dependency>
                 <groupId>com.googlecode.aviator</groupId>

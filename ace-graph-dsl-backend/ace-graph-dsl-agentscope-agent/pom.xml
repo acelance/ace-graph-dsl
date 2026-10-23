@@ -7,14 +7,14 @@
     <parent>
         <groupId>io.acelance</groupId>
         <artifactId>ace-graph-dsl-backend</artifactId>
-        <version>1.1.20</version>
+        <version>1.1.21</version>
     </parent>
 
     <artifactId>ace-graph-dsl-agentscope-agent</artifactId>
     <name>ace-graph-dsl-agentscope-agent</name>
     <description>
-        可选模块（M3 / Q4）：impl=AGENTSCOPE �?Agent，优�?spring-ai-alibaba-starter-agentscope
-        包装�?FlowAgent subAgent。不替代 ACE 图主编排；starter 不强制传递�?
+        可选模块（路径 B）：impl=AGENTSCOPE 子 Agent。旁路 spring-ai-alibaba-starter-agentscope，
+        自研 BaseAgent 适配器桥接 agentscope-core 2.x ReActAgent。不替代 ACE 图主编排。
     </description>
 
     <dependencies>
@@ -27,10 +27,19 @@
             <groupId>io.acelance</groupId>
             <artifactId>ace-graph-dsl-ai</artifactId>
         </dependency>
-        <!-- Q4：官�?AgentScope �?SAA 桥（�?BOM�?-->
+        <!-- SAA BaseAgent / FlowAgent 契约（与 GENERIC 适配器同族） -->
         <dependency>
             <groupId>com.alibaba.cloud.ai</groupId>
-            <artifactId>spring-ai-alibaba-starter-agentscope</artifactId>
+            <artifactId>spring-ai-alibaba-agent-framework</artifactId>
+        </dependency>
+        <!-- 路径 B：直接依赖 AS 2.x core + OpenAI 兼容模型扩展（禁止 starter / harness / Boot starter） -->
+        <dependency>
+            <groupId>io.agentscope</groupId>
+            <artifactId>agentscope-core</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>io.agentscope</groupId>
+            <artifactId>agentscope-extensions-model-openai</artifactId>
         </dependency>
         <dependency>
             <groupId>org.springframework.boot</groupId>
