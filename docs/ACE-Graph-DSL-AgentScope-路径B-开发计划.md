@@ -103,9 +103,11 @@ mvn -pl ace-graph-dsl-agentscope-agent -am "-Dtest=AgentScopeSequentialFactoryIn
 
 - [x] 分支 `feature-agentscope-B-MVP`（宿主仓）
 - [x] 删除 `agentscope-core:1.0.9` 显式钉死；`lesso-ai-bom.agentscope.version` → **2.0.4**
-- [x] 本地 install 路径 B 框架 `1.1.20`；host tree 已见 `agentscope-core:2.0.4`（无 1.0.9）
+- [x] 本地 install 路径 B 框架；host tree 已见 `agentscope-core:2.0.4`（无 1.0.9）
 - [x] 更新 `ace-graph-agentscope-host.md`
-- [ ] 冒烟：启动日志、`agentscopeEnabled=true`、AGENTSCOPE 样例写回、`agentscopeBridge` 为明确坐标
+- [x] 框架 **`1.1.21`** deploy mesrelease（路径 B）；宿主依赖已改 `1.1.21`
+- [x] 本地冒烟：`agentscopeEnabled=true`、AGENTSCOPE SEQUENTIAL 写回、`agentscopeBridge` 含 `2.0.4`
+- [ ] 测试环境：宿主镜像跟 `1.1.21` 后复查 bridge / 无 `OpenAIChatModel` CNFE
 - [ ] 外层业务流式 + GENERIC 图抽测不回归
 
 ---

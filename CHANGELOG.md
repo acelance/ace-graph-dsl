@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.21] — 2026-10-23
+
 ### Changed
 
 - **路径 B（AgentScope 2.x）**：`ace-graph-dsl-agentscope-agent` 旁路
