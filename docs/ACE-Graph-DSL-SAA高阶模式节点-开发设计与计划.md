@@ -843,9 +843,9 @@ M4 轨迹 / 示例图 / 培训文案 / 可运营
 | 非官方变通 | **禁止默认为主路径**；仅官方不可行时附录记录 + 评审 |
 | Routing 实现（Q3） | **Framework 自带路由类**；不造轮子；不拿图条件边冒充 |
 | Routing 类 FQCN（M2 填写） | `com.alibaba.cloud.ai.graph.agent.flow.agent.LlmRoutingAgent`（BOM 1.1.2.2） |
-| AgentScope 桥接（Q4） | **优先 `spring-ai-alibaba-starter-agentscope`**（同 BOM） |
-| AgentScope 实际坐标/版本（M3 填写） | `com.alibaba.cloud.ai:spring-ai-alibaba-starter-agentscope:1.1.2.2`（同 BOM）；包装类 `com.alibaba.cloud.ai.agent.agentscope.AgentScopeAgent` |
-| 是否改用 agentscope-core 兜底 | **☑ 否**（M3 主路径 starter；见 A.4） □ 是（原因须评审） |
+| AgentScope 桥接（Q4） | **历史优先 starter**；**路径 B 起改用 core 兜底**（见 A.6） |
+| AgentScope 实际坐标/版本（M3 填写） | ~~`starter-agentscope:1.1.2.2` + `AgentScopeAgent`~~ → **现见 A.6** |
+| 是否改用 agentscope-core 兜底 | □ 否　**☑ 是**（原因：官方没有 `spring-ai-alibaba-starter-agentscope` 适配 agentscope 2.x，只能自研适配；见 A.6） |
 | 子 Agent 记忆（Q5） | **中期不做 READ_WRITE**；默认 `NONE` |
 | SSE 子步骤（Q6） | **M1 不改协议，只日志**；是否扩展 **M4 再定** |
 | Q6 M4 结论（届时填） | **☑ 不扩展 SSE**（方案甲：试运行 / debug state 的 `ace.graph.dsl.saa.subSteps` + 日志；线上对话 UI 中期不强制实时子步骤） |
@@ -890,7 +890,22 @@ M4 轨迹 / 示例图 / 培训文案 / 可运营
 | 记忆（Q5） | 强制 NONE（`InMemoryMemory`）；READ_WRITE 校验/运行时报错 |
 | 样例 | `docs/testdata/saa-agentscope-sequential-sql` |
 | 测试 | `AgentScopeSequentialFactoryIntegrationTest` |
-| 是否改用 agentscope-core 兜底 | **否**（主路径为官方 starter） |
+| 是否改用 agentscope-core 兜底 | **否**（M3 当时主路径为官方 starter；**已被 A.6 路径 B 取代**） |
+
+### A.6 路径 B：agentscope-core 2.x 自研适配（2026-10-22）
+
+| 项 | 结论 |
+|----|------|
+| 是否改用 agentscope-core 兜底 | **是** |
+| 原因 | **官方没有 `spring-ai-alibaba-starter-agentscope` 适配 agentscope 2.x，只能自研适配** |
+| Maven 坐标 | `io.agentscope:agentscope-core:2.0.4` + `io.agentscope:agentscope-extensions-model-openai:2.0.4` |
+| 禁止 | `spring-ai-alibaba-starter-agentscope`、`agentscope-spring-boot-starter`、`agentscope-harness`（本阶段） |
+| 包装类 FQCN | `io.acelance.graph.dsl.agentscope.AceAgentscopeReActBaseAgentAdapter`（extends SAA `BaseAgent`） |
+| AS 执行体 | `io.agentscope.core.ReActAgent`（2.0.4 实物；Builder **无** `memory()`，短记忆靠 AgentState） |
+| 模型类 | `io.agentscope.extensions.model.openai.OpenAIChatModel`（已迁出 `core.model`） |
+| 桥探测 | `ace-graph-dsl-agentscope-agent@io.agentscope:agentscope-core:2.0.4` |
+| 测试 | `AgentScopeSequentialFactoryIntegrationTest` + `AceAgentscopeReActBaseAgentAdapterTest` 绿 |
+| 文档 | [路径 B 开发方案](./ACE-Graph-DSL-AgentScope-路径B-开发方案.md) / [开发计划](./ACE-Graph-DSL-AgentScope-路径B-开发计划.md) |
 
 ### A.5 M4 可运营 / Q6 结论（2026-09-28）
 
@@ -921,3 +936,4 @@ M4 轨迹 / 示例图 / 培训文案 / 可运营
 | 2026-09-28 | **M3 落地**：模块 `ace-graph-dsl-agentscope-agent`；Q4 starter-agentscope + `AgentScopeAgent`；附录 A.4；能力探测 `agentscopeEnabled` |
 | 2026-09-28 | **M4 落地**：**Q6=不扩展 SSE**；子步骤轨迹键 + DryRun 子步骤树；样例索引与一页培训文案；附录 A.5 |
 | 2026-10-07 | **文档卫生**：§12 验收清单与文首「已落地」对齐；A.1 agentscope-core 勾选否；宿主清单链到 agent-server `ace-graph-agentscope-host.md`；CHANGELOG 补记 M3 模块 |
+| 2026-10-22 | **路径 B**：附录 A.1 勾「改用 core 兜底=是」；新增 **A.6**（core 2.0.4 + 自研 Adapter）；分支 `feature/as-b1-path-b-mvp` |

@@ -433,25 +433,25 @@ Q2（里面）: FlowAgent.subAgents ──官方 Agent 壳──► 内委 Gener
 
 > 「AgentScope 桥接坐标」是什么？是不是要用 AgentScope 换掉 ACE 图？
 
-### 答（定案 2026-09-28）
+### 答（定案 2026-09-28；**路径 B 修订 2026-10-22**）
 
 **不是换主编排。** 「坐标」= Maven 依赖（`groupId:artifactId`）。  
-仅当子 Agent `impl=AGENTSCOPE` 时，**优先引官方 `spring-ai-alibaba-starter-agentscope`**（与 graph-core 同一 BOM），少自研 Msg 桥。
+仅当子 Agent `impl=AGENTSCOPE` 时接入 AgentScope 执行引擎，仍读 ACE 目录。
 
 | 路径 | 地位 |
 |------|------|
-| `spring-ai-alibaba-starter-agentscope` | **现行优先（M3 已落地，附录 A.4）** |
-| 直接 `agentscope-core` + 自写桥 | **仅兜底**（starter 不够用时附录+评审；M3 **未**采用） |
+| `spring-ai-alibaba-starter-agentscope` | **历史 M3**（钉 AS 1.0.9）；官方**无**适配 agentscope 2.x 的 starter |
+| 直接 `agentscope-core:2.0.4` + 自研 `AceAgentscopeReActBaseAgentAdapter` | **现行（路径 B / 附录 A.6）** |
 | AgentScope Pipeline 替换图边 | **禁止** |
 
 ```text
 subAgents
-  GENERIC_AGENT → 默认（M1）
-  AGENTSCOPE    → starter-agentscope 包装 → 仍读 ACE 目录 + 按 key 取资源
+  GENERIC_AGENT → 默认
+  AGENTSCOPE    → 自研 BaseAgent 适配器 → ReActAgent（core 2.0.4）→ 仍读 ACE 目录
 ```
 
-框架模块：`ace-graph-dsl-agentscope-agent`（starter 不传递）。宿主须显式引入；清单见 lesso agent-server `docs/ace-graph-agentscope-host.md`。  
-详解：[开发设计与计划 §5.4 / A.4](./ACE-Graph-DSL-SAA高阶模式节点-开发设计与计划.md)。
+框架模块：`ace-graph-dsl-agentscope-agent`（starter 不传递）。宿主须显式引入。  
+详解：[路径 B 开发方案](./ACE-Graph-DSL-AgentScope-路径B-开发方案.md)；附录 [A.6](./ACE-Graph-DSL-SAA高阶模式节点-开发设计与计划.md)。
 
 ---
 
