@@ -2,12 +2,17 @@
 
 可选模块：`impl=AGENTSCOPE` 子 Agent（**路径 B**）。
 
+> 发版基线：**`1.1.22`**（G-MCP，已 deploy mesrelease）；路径 B MVP 为 `1.1.21`。  
+> **G-MCP**（分支 `feature-as-b1-g-mcp`）：ACE SPI → AS Toolkit 已落地；**宿主 Skill 冒烟已过**（`load_skill`+L2）；MCP 代码通、环境可用后再验。  
+> 文档：[G-MCP 方案](../../docs/ACE-Graph-DSL-AgentScope-G-MCP-开发方案.md)（§6.1） / [计划](../../docs/ACE-Graph-DSL-AgentScope-G-MCP-开发计划.md)；**G-STREAM-INNER** 另开。
+
 ## 定位
 
 - **不**替代 ACE 图主编排；仅作为 SAA Flow（SEQUENTIAL 等）的子 Agent 执行引擎。
 - **旁路** `spring-ai-alibaba-starter-agentscope`（官方无适配 agentscope 2.x）。
 - 依赖 **`io.agentscope:agentscope-core:2.0.4`** + `agentscope-extensions-model-openai`。
 - 自研 `AceAgentscopeReActBaseAgentAdapter`（extends SAA `BaseAgent`）包装 `ReActAgent`。
+- **G-MCP**：`AgentScopeToolAssembly` 复用 `McpToolResolver` / `SkillTools` / `LocalToolResolver`；`AceToolCallbackAgentscopeBridge` → `Toolkit.registerAgentTool`。执行期按 `runId`/`agentCode` 装配；MCP 失败跳过不挡 Skill。
 
 ## 桥接标识
 
@@ -17,12 +22,12 @@
 ace-graph-dsl-agentscope-agent@io.agentscope:agentscope-core:2.0.4
 ```
 
-## MVP 范围
+## 范围
 
-- 模型按 instruction 出文本 → 写 `outputKey`（对齐 M3 冒烟）。
+- 模型按 instruction 出文本 → 写 `outputKey`；有工具时 ReAct 可调 ACE Skill/MCP。
 - 子记忆 `NONE`（Q5）；不写 remote。
-- 内层模型暂 `stream(false)`（缺口 **G-STREAM-INNER**，不得永久化）。
-- **不做**：MCP/工具挂载（**G-MCP**）、`agentscope-harness` / HarnessAgent。
+- 内层模型暂 `stream(false)`（缺口 **G-STREAM-INNER**）。
+- **不做**：`agentscope-harness` Skill / HarnessAgent（后期策略）。
 
 ## 禁止依赖
 

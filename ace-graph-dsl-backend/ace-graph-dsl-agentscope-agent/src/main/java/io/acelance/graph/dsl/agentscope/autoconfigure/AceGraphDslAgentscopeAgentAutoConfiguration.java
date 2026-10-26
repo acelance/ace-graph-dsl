@@ -4,10 +4,16 @@ import io.acelance.graph.dsl.agent.SecretResolver;
 import io.acelance.graph.dsl.agent.SubAgentResolver;
 import io.acelance.graph.dsl.agentscope.AgentScopeModelFactory;
 import io.acelance.graph.dsl.agentscope.AgentScopeSubAgentResolver;
+import io.acelance.graph.dsl.agentscope.AgentScopeToolAssembly;
 import io.acelance.graph.dsl.agentscope.AgentscopeBridgeArtifacts;
 import io.acelance.graph.dsl.agentscope.DefaultAgentScopeModelFactory;
 import io.acelance.graph.dsl.ai.model.ModelMountResolver;
+import io.acelance.graph.dsl.ai.tool.LocalToolResolver;
+import io.acelance.graph.dsl.ai.tool.McpToolResolver;
 import io.acelance.graph.dsl.registry.GraphNodeRegistry;
+import io.acelance.graph.dsl.skill.SkillCatalogResolver;
+import io.acelance.graph.dsl.skill.SkillContentLoader;
+import io.acelance.graph.dsl.skill.SkillResourceLoader;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.ObjectProvider;
@@ -16,7 +22,7 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean
 import org.springframework.context.annotation.Bean;
 
 /**
- * ace-graph-dsl-agentscope-agent 自动配置（路径 B：agentscope-core 2.x + 自研 ReAct BaseAgent 适配器）。
+ * ace-graph-dsl-agentscope-agent 自动配置（路径 B + G-MCP 工具桥）。
  *
  * <p>宿主显式依赖本模块后生效；未引入时 {@code impl=AGENTSCOPE} 由校验报「无匹配 Resolver」。</p>
  */
@@ -26,7 +32,7 @@ public class AceGraphDslAgentscopeAgentAutoConfiguration {
     private static final Logger log = LoggerFactory.getLogger(AceGraphDslAgentscopeAgentAutoConfiguration.class);
 
     public AceGraphDslAgentscopeAgentAutoConfiguration() {
-        log.info("启用 ace-graph-dsl-agentscope-agent 模块（路径 B / AGENTSCOPE 子 Agent / bridge={}）",
+        log.info("启用 ace-graph-dsl-agentscope-agent 模块（路径 B + G-MCP / AGENTSCOPE 子 Agent / bridge={}）",
                 AgentscopeBridgeArtifacts.BRIDGE_ARTIFACT);
     }
 
@@ -45,13 +51,38 @@ public class AceGraphDslAgentscopeAgentAutoConfiguration {
     }
 
     /**
+     * G-MCP：ACE SPI → Toolkit 装配器。
+     */
+    @Bean
+    @ConditionalOnMissingBean(AgentScopeToolAssembly.class)
+    public AgentScopeToolAssembly agentScopeToolAssembly(
+            ObjectProvider<McpToolResolver> mcpToolResolver,
+            ObjectProvider<LocalToolResolver> localToolResolver,
+            ObjectProvider<SkillCatalogResolver> skillCatalog,
+            ObjectProvider<SkillContentLoader> skillContent,
+            ObjectProvider<SkillResourceLoader> skillResources) {
+        log.info("注册 AgentScopeToolAssembly（mcp={}, local={}, skillCatalog={}, skillContent={}）",
+                mcpToolResolver.getIfAvailable() != null,
+                localToolResolver.getIfAvailable() != null,
+                skillCatalog.getIfAvailable() != null,
+                skillContent.getIfAvailable() != null);
+        return new AgentScopeToolAssembly(
+                mcpToolResolver.getIfAvailable(),
+                localToolResolver.getIfAvailable(),
+                skillCatalog.getIfAvailable(),
+                skillContent.getIfAvailable(),
+                skillResources.getIfAvailable());
+    }
+
+    /**
      * AGENTSCOPE 子 Agent 解析器。
      */
     @Bean
     @ConditionalOnMissingBean(AgentScopeSubAgentResolver.class)
     public SubAgentResolver agentScopeSubAgentResolver(GraphNodeRegistry nodeRegistry,
-                                                       AgentScopeModelFactory modelFactory) {
-        log.info("注册 AgentScopeSubAgentResolver");
-        return new AgentScopeSubAgentResolver(nodeRegistry, modelFactory);
+                                                       AgentScopeModelFactory modelFactory,
+                                                       AgentScopeToolAssembly toolAssembly) {
+        log.info("注册 AgentScopeSubAgentResolver（含 G-MCP ToolAssembly）");
+        return new AgentScopeSubAgentResolver(nodeRegistry, modelFactory, toolAssembly);
     }
 }

@@ -2,7 +2,8 @@
 
 | 项 | 内容 |
 |----|------|
-| 日期 | 2026-10-21 |
+| 日期 | 2026-10-21（进度更新 2026-10-23） |
+| 阶段 1 | **MVP 已验收**（框架 `1.1.21` mesrelease；测试环境业务回归通过；待 PR 合入主线） |
 | 目的 | 工作量大，**禁止单分支一把梭**；按可合并、可回滚、可验收切阶段建分支 |
 | 改造重心 | **框架** `ace-graph-dsl`（约 70%～85%）；宿主 `lesso-ai-platform-agent-server` 辅 |
 | 前置文档 | [Harness 能力边界](./ACE-Graph-DSL-AgentScope-Harness能力边界-core与ReAct薄桥.md)；[改动量评估](./ACE-Graph-DSL-AgentScope-动态规划与Harness子Agent改动量评估.md)；宿主 [integration-paths](../../lesso-ai-project/lesso-ai-platform-agent-server/docs/ace-graph-agentscope-integration-paths.md) |
@@ -75,10 +76,12 @@
 | **宿主** | pom 升/钉 AS 2.x；去掉 1.0.9 钉死；能力探测 `agentscopeEnabled`；冒烟图 |
 | **不做** | Harness、Subagent、Plan、设计器改字段 |
 | **验收** | ① 日志启用 agentscope 模块；② `impl=AGENTSCOPE` 试运行写回约定 outputKey；③ GENERIC_AGENT / 无 AGENTSCOPE 图回归通过 |
-| **发布** | 框架发小版本（如 `1.1.x+as2`）；宿主升该版本 |
+| **发布** | 框架 **`1.1.21`** → mesrelease（2026-10-23）；宿主升该版本 |
 | **回滚** | 宿主退回钉 1.0.9 + 旧框架；或 feature flag 关 AGENTSCOPE |
+| **进度** | 本地 AS SEQUENTIAL 冒烟 + 测试环境业务回归 ✅；PR 合入主线 ☐ |
 
-**Gate → 阶段 2**：阶段 1 已合主线且宿主冒烟绿。
+**Gate → 阶段 2**：阶段 1 **合入主线**后，且缺口 G-MCP / G-STREAM-INNER 按需另开；勿与 H0 同迭代强塞。  
+G-MCP 文档：[开发方案](./ACE-Graph-DSL-AgentScope-G-MCP-开发方案.md) / [开发计划](./ACE-Graph-DSL-AgentScope-G-MCP-开发计划.md)（分支 `feature-as-b1-g-mcp`）。
 
 ---
 
@@ -207,3 +210,4 @@ git checkout -b feature/as-b1-path-b-mvp
 | 日期 | 说明 |
 |------|------|
 | 2026-10-21 | 初稿：分阶段分支规划（B0～H4） |
+| 2026-10-23 | 阶段 1：`1.1.21` 私服 + 测试环境业务回归；Gate 仍要求 PR 合入主线后再开 H0 |

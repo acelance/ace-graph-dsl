@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.22] — 2026-10-23
+
+### Added
+
+- **G-MCP（框架）**：`impl=AGENTSCOPE` 子 Agent 执行期经 `AgentScopeToolAssembly`
+  复用 ACE `McpToolResolver` / `SkillTools` / `LocalToolResolver`，
+  `AceToolCallbackAgentscopeBridge` → AS 2.0.4 `Toolkit.registerAgentTool`。
+  无工具时行为与 1.1.21 一致。
+  **宿主 Skill 冒烟已过**（`load_skill` + L2）；MCP 打开失败时跳过且不挡 Skill。
+  已 **deploy mesrelease**（2026-10-23）。MCP 真服务冒烟 / 测环境跟版待跟。
+  缺口文档：`docs/ACE-Graph-DSL-AgentScope-G-MCP-开发方案.md`（§6.1 证据）。
+
 ## [1.1.21] — 2026-10-23
 
 ### Changed

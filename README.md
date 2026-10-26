@@ -21,6 +21,34 @@
 - **多持久化后端**：SQLite（默认）、Redis、JDBC、内存，可按环境自动选择
 - **权限与多租户**：节点可见性过滤、菜单权限 SPI，可对接宿主权限框架
 
+## 效果展示
+
+### 可视化设计器 · 业务图编排
+
+拖拽节点与条件边，草稿校验后一键发布；下图为利息核对类业务图（含 GENERIC_AGENT / 条件脚本边）。
+
+![Graph DSL 设计器：业务核对图](docs/images/img.png)
+
+### SAA 顺序流 · 试运行与执行轨迹
+
+设计器内试运行可展开 SAA 子步骤（如 SQL 生成 → 评分），并回看节点输出与耗时。
+
+![SAA Sequential 试运行](docs/images/add41dbf-425d-4f81-8c0e-7681d4fa0e14.png)
+
+子 Agent 配置（`outputKey` / instruction）与执行轨迹中的子步骤一一对应：
+
+![SAA 子步骤配置与轨迹对照](docs/images/5795c884-d173-4683-8aeb-d472085ced10.png)
+
+执行轨迹细节（节点 meta、`sql` / `score` 预览）：
+
+![试运行执行轨迹](docs/images/89fe42bd-8ec4-4e6c-b571-5fd043fc5f4c.png)
+
+### 宿主对话 · Agent 业务效果示例
+
+图编排落地到宿主对话后，可完成上传解析、汇总报表与下载等业务闭环（示意）：
+
+![对话侧考勤加班汇总](docs/images/6160f5e9-30d8-40a4-ae08-28f87ae49036.png)
+
 ## 仓库结构
 
 本仓库为 Monorepo，包含后端 Maven 多模块与前端 npm 组件库，可独立发版：
