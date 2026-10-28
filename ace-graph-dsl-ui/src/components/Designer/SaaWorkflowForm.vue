@@ -5,6 +5,7 @@
 import { computed, onMounted, ref, watch } from 'vue'
 import { useI18n } from '../../i18n'
 import { listAgentDefinitions } from '../../api/graph'
+import { loadBizParamInterpreterOptions } from '../../utils/bizParamInterpreters'
 import { defaultSubAgent, normalizeSaaSpec, SAA_PATTERNS } from '../../utils/saaWorkflow'
 
 const props = defineProps({
@@ -21,6 +22,8 @@ const emit = defineEmits(['update:modelValue'])
 const { t } = useI18n()
 const agentOptions = ref([])
 const agentLoading = ref(false)
+const bizParamInterpreterOptions = ref([])
+const bizParamInterpretersLoading = ref(false)
 
 const spec = computed(() => normalizeSaaSpec(props.modelValue) || normalizeSaaSpec({
   pattern: 'SEQUENTIAL',
@@ -38,6 +41,31 @@ function patch(partial) {
 
 function updateField(field, value) {
   patch({ [field]: value })
+}
+
+/** 启用业务附加参数时补默认解释器 id */
+function onEnableBizParamsToggle(on) {
+  const next = { enableBizParams: !!on }
+  if (on && !spec.value.bizParamInterpreterId) {
+    next.bizParamInterpreterId = 'string'
+  }
+  patch(next)
+  if (on) {
+    ensureBizParamInterpreters()
+  }
+}
+
+async function ensureBizParamInterpreters() {
+  if (bizParamInterpreterOptions.value.length) return
+  bizParamInterpretersLoading.value = true
+  try {
+    bizParamInterpreterOptions.value = await loadBizParamInterpreterOptions()
+  } catch (e) {
+    console.warn('[SaaWorkflowForm] loadBizParamInterpreterOptions failed', e)
+    bizParamInterpreterOptions.value = []
+  } finally {
+    bizParamInterpretersLoading.value = false
+  }
 }
 
 /** pattern 切换时按需补默认子 Agent 数量（PARALLEL/ROUTING 至少 2） */
@@ -115,7 +143,12 @@ async function loadAgents() {
   }
 }
 
-onMounted(loadAgents)
+onMounted(() => {
+  loadAgents()
+  if (spec.value.enableBizParams) {
+    ensureBizParamInterpreters()
+  }
+})
 
 watch(() => props.modelValue, (v) => {
   if (!v) {
@@ -180,7 +213,57 @@ watch(() => props.modelValue, (v) => {
         placeholder="BIZ"
         @update:model-value="updateField('streamResponseKind', $event)"
       />
+      <span class="hint" style="display:block; margin-top:4px;">{{ t('propertyPanel.saa.streamResponseKindHint') }}</span>
     </el-form-item>
+
+    <el-divider content-position="left">{{ t('propertyPanel.agentSpec.deepThinking') }}</el-divider>
+    <el-form-item :label="t('propertyPanel.agentSpec.applyDeepThinking')">
+      <el-switch
+        :model-value="!!spec.applyDeepThinking"
+        @update:model-value="updateField('applyDeepThinking', $event)"
+      />
+      <span class="hint" style="display:block; margin-top:4px;">{{ t('propertyPanel.saa.applyDeepThinkingHint') }}</span>
+    </el-form-item>
+
+    <el-divider content-position="left">{{ t('propertyPanel.agentSpec.bizParams') }}</el-divider>
+    <el-form-item :label="t('propertyPanel.agentSpec.enableBizParams')">
+      <el-switch
+        :model-value="!!spec.enableBizParams"
+        @update:model-value="onEnableBizParamsToggle"
+      />
+      <span class="hint" style="display:block; margin-top:4px;">{{ t('propertyPanel.saa.enableBizParamsHint') }}</span>
+    </el-form-item>
+    <template v-if="spec.enableBizParams">
+      <el-form-item :label="t('propertyPanel.agentSpec.bizParamInterpreterId')" required>
+        <el-select
+          :model-value="spec.bizParamInterpreterId || 'string'"
+          filterable
+          :loading="bizParamInterpretersLoading"
+          style="width: 100%;"
+          :placeholder="t('propertyPanel.agentSpec.bizParamInterpreterId')"
+          @update:model-value="updateField('bizParamInterpreterId', $event || 'string')"
+          @focus="ensureBizParamInterpreters"
+        >
+          <el-option
+            v-for="opt in bizParamInterpreterOptions"
+            :key="opt.id"
+            :label="`${opt.displayName} (${opt.id})`"
+            :value="opt.id"
+          />
+        </el-select>
+        <span class="hint" style="display:block; margin-top:4px;">{{ t('propertyPanel.agentSpec.bizParamInterpreterIdHint') }}</span>
+      </el-form-item>
+      <el-form-item :label="t('propertyPanel.agentSpec.bizParamRaw')">
+        <el-input
+          type="textarea"
+          :rows="4"
+          :model-value="spec.bizParamRaw || ''"
+          :placeholder="t('propertyPanel.agentSpec.bizParamRawPlaceholder')"
+          @update:model-value="updateField('bizParamRaw', $event || '')"
+        />
+        <span class="hint" style="display:block; margin-top:4px;">{{ t('propertyPanel.saa.bizParamRawHint') }}</span>
+      </el-form-item>
+    </template>
 
     <template v-if="isRouting">
       <el-divider content-position="left">{{ t('propertyPanel.saa.routingSection') }}</el-divider>
@@ -191,6 +274,34 @@ watch(() => props.modelValue, (v) => {
           @update:model-value="updateField('modelConfigKey', $event)"
         />
         <span class="hint" style="display:block; margin-top:4px;">{{ t('propertyPanel.saa.modelConfigKeyHint') }}</span>
+      </el-form-item>
+      <el-form-item :label="t('propertyPanel.saa.routerSystemPrompt')">
+        <el-input
+          type="textarea"
+          :rows="5"
+          :model-value="spec.routerSystemPrompt || ''"
+          :placeholder="t('propertyPanel.saa.routerSystemPromptPlaceholder')"
+          @update:model-value="updateField('routerSystemPrompt', $event || '')"
+        />
+        <span class="hint" style="display:block; margin-top:4px;">{{ t('propertyPanel.saa.routerSystemPromptHint') }}</span>
+      </el-form-item>
+      <el-form-item :label="t('propertyPanel.saa.routerInstruction')">
+        <el-input
+          type="textarea"
+          :rows="2"
+          :model-value="spec.routerInstruction || ''"
+          :placeholder="t('propertyPanel.saa.routerInstructionPlaceholder')"
+          @update:model-value="updateField('routerInstruction', $event || '')"
+        />
+        <span class="hint" style="display:block; margin-top:4px;">{{ t('propertyPanel.saa.routerInstructionHint') }}</span>
+      </el-form-item>
+      <el-form-item :label="t('propertyPanel.saa.routerFallbackAgent')">
+        <el-input
+          :model-value="spec.routerFallbackAgent || ''"
+          :placeholder="t('propertyPanel.saa.routerFallbackAgentPlaceholder')"
+          @update:model-value="updateField('routerFallbackAgent', $event || '')"
+        />
+        <span class="hint" style="display:block; margin-top:4px;">{{ t('propertyPanel.saa.routerFallbackAgentHint') }}</span>
       </el-form-item>
     </template>
 

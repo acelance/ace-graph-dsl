@@ -26,7 +26,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.Objects;
-import java.util.function.Function;
+import java.util.function.BiFunction;
 
 /**
  * SAA 高阶节点工厂（M2：SEQUENTIAL / PARALLEL / ROUTING / LOOP，方式 A）。
@@ -36,8 +36,11 @@ public class SaaWorkflowNodeFactoryImpl implements SaaWorkflowNodeFactory {
     private static final Logger log = LoggerFactory.getLogger(SaaWorkflowNodeFactoryImpl.class);
 
     private final List<SubAgentResolver> resolvers;
-    /** ROUTING 路由器模型解析：modelConfigKey → ChatModel；可空则用 fallback */
-    private final Function<String, ChatModel> routerModelResolver;
+    /**
+     * ROUTING 路由器模型解析：(modelConfigKey, agentCode) → ChatModel。
+     * 有 modelConfigKey 时编译期只包 {@link DeferredRouterChatModel}，运行时再挂载。
+     */
+    private final BiFunction<String, String, ChatModel> routerModelResolver;
     private final ChatModel routerModelFallback;
 
     public SaaWorkflowNodeFactoryImpl(List<SubAgentResolver> resolvers) {
@@ -46,11 +49,11 @@ public class SaaWorkflowNodeFactoryImpl implements SaaWorkflowNodeFactory {
 
     /**
      * @param resolvers           子 Agent 解析器
-     * @param routerModelResolver 按 modelConfigKey 解析路由器模型（可空）
-     * @param routerModelFallback 解析失败时的兜底 ChatModel（可空；ROUTING 时必有其一）
+     * @param routerModelResolver 按 (modelConfigKey, agentCode) 解析路由器模型（可空）
+     * @param routerModelFallback 无 modelConfigKey 时的兜底 ChatModel（可空；ROUTING 时必有其一）
      */
     public SaaWorkflowNodeFactoryImpl(List<SubAgentResolver> resolvers,
-                                      Function<String, ChatModel> routerModelResolver,
+                                      BiFunction<String, String, ChatModel> routerModelResolver,
                                       ChatModel routerModelFallback) {
         this.resolvers = resolvers != null ? List.copyOf(resolvers) : List.of();
         this.routerModelResolver = routerModelResolver;
@@ -119,12 +122,28 @@ public class SaaWorkflowNodeFactoryImpl implements SaaWorkflowNodeFactory {
 
     private LlmRoutingAgent buildRouting(String nodeId, String graphId, List<Agent> agents, SaaWorkflowSpec spec) {
         ChatModel model = resolveRouterModel(spec.modelConfigKey(), graphId, nodeId);
-        return LlmRoutingAgent.builder()
+        LlmRoutingAgent.LlmRoutingAgentBuilder builder = LlmRoutingAgent.builder()
                 .name(nodeId)
                 .description("SAA ROUTING graphId=" + graphId + ", nodeId=" + nodeId)
                 .model(model)
-                .subAgents(agents)
-                .build();
+                .subAgents(agents);
+        // 可配路由规则；空则 Framework 默认「分析 query + Available agents」
+        if (StringUtils.hasText(spec.routerSystemPrompt())) {
+            builder.systemPrompt(spec.routerSystemPrompt());
+            log.info("ROUTING 已挂 routerSystemPrompt, graphId={}, nodeId={}, promptLen={}",
+                    graphId, nodeId, spec.routerSystemPrompt().length());
+        }
+        if (StringUtils.hasText(spec.routerInstruction())) {
+            builder.instruction(spec.routerInstruction());
+            log.info("ROUTING 已挂 routerInstruction, graphId={}, nodeId={}, instructionLen={}",
+                    graphId, nodeId, spec.routerInstruction().length());
+        }
+        if (StringUtils.hasText(spec.routerFallbackAgent())) {
+            builder.fallbackAgent(spec.routerFallbackAgent());
+            log.info("ROUTING 已挂 routerFallbackAgent, graphId={}, nodeId={}, fallback={}",
+                    graphId, nodeId, spec.routerFallbackAgent());
+        }
+        return builder.build();
     }
 
     private LoopAgent buildLoop(String nodeId, String graphId, List<Agent> agents, SaaWorkflowSpec spec) {
@@ -162,26 +181,28 @@ public class SaaWorkflowNodeFactoryImpl implements SaaWorkflowNodeFactory {
         return new CountLoopStrategy(max);
     }
 
+    /**
+     * 有 modelConfigKey：编译期只挂延迟代理，禁止空 agentCode 挂载后回落错模型。
+     * 无 key：用 fallback（集成测桩模型）。
+     */
     private ChatModel resolveRouterModel(String modelConfigKey, String graphId, String nodeId) {
-        ChatModel model = null;
-        if (routerModelResolver != null && StringUtils.hasText(modelConfigKey)) {
-            try {
-                model = routerModelResolver.apply(modelConfigKey.trim());
-            } catch (Exception ex) {
-                log.warn("ROUTING 模型解析失败, graphId={}, nodeId={}, modelConfigKey={}, err={}",
-                        graphId, nodeId, modelConfigKey, ex.toString());
+        if (StringUtils.hasText(modelConfigKey)) {
+            if (routerModelResolver == null) {
+                throw new IllegalStateException("ROUTING 已配 modelConfigKey=" + modelConfigKey
+                        + " 但未注入 routerModelResolver, graphId=" + graphId + ", nodeId=" + nodeId);
             }
+            String key = modelConfigKey.trim();
+            log.info("ROUTING 路由器模型延迟挂载（编译期不解析）, graphId={}, nodeId={}, modelConfigKey={}",
+                    graphId, nodeId, key);
+            return new DeferredRouterChatModel(graphId, nodeId, key, routerModelResolver);
         }
-        if (model == null) {
-            model = routerModelFallback;
+        if (routerModelFallback != null) {
+            log.info("ROUTING 使用 fallback ChatModel（无 modelConfigKey）, graphId={}, nodeId={}, type={}",
+                    graphId, nodeId, routerModelFallback.getClass().getSimpleName());
+            return routerModelFallback;
         }
-        if (model == null) {
-            throw new IllegalStateException("ROUTING 需要路由器 ChatModel：请配置 modelConfigKey 与 ChatModelFactory，"
-                    + "或注入 fallback。graphId=" + graphId + ", nodeId=" + nodeId);
-        }
-        log.info("ROUTING 路由器模型就绪, graphId={}, nodeId={}, modelConfigKey={}",
-                graphId, nodeId, modelConfigKey);
-        return model;
+        throw new IllegalStateException("ROUTING 需要路由器 ChatModel：请配置 modelConfigKey 与 ChatModelFactory，"
+                + "或注入 fallback。graphId=" + graphId + ", nodeId=" + nodeId);
     }
 
     private List<Agent> toAgents(List<SubAgentBinding> bindings) {

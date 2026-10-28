@@ -4,6 +4,8 @@ import com.alibaba.cloud.ai.graph.OverAllState;
 import com.alibaba.cloud.ai.graph.action.NodeAction;
 import com.alibaba.cloud.ai.graph.agent.Agent;
 import io.acelance.graph.dsl.definition.SaaWorkflowKeys;
+import io.acelance.graph.dsl.llm.AceGraphAgentCodeHolder;
+import io.acelance.graph.dsl.llm.LlmRequestContext;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.util.StringUtils;
@@ -79,6 +81,9 @@ public final class FlowAgentNodeAction implements NodeAction {
         SaaSubStepCollector.begin();
         log.info("SAA 高阶节点开始执行, graphId={}, nodeId={}, pattern={}, inputKeys={}",
                 graphId, nodeId, pattern, inputKeys);
+        // ROUTING 延迟 ChatModel 跨 SAA 框架拿不到 OverAllState，用 Holder 透传入口 agentCode
+        String agentCode = readAgentCode(state);
+        AceGraphAgentCodeHolder.set(agentCode);
         try {
             Map<String, Object> seed = buildSeedInput(state);
             var resultOpt = flowAgent.invoke(seed);
@@ -122,8 +127,18 @@ public final class FlowAgentNodeAction implements NodeAction {
                     graphId, nodeId, pattern, costMs, ex.toString(), ex);
             throw ex;
         } finally {
+            AceGraphAgentCodeHolder.clear();
             SaaSubStepCollector.clear();
         }
+    }
+
+    /** 从父图 state 读取执行入口 agentCode。 */
+    private static String readAgentCode(OverAllState state) {
+        if (state == null) {
+            return null;
+        }
+        Object v = state.value(LlmRequestContext.ACE_AGENT_CODE_KEY).orElse(null);
+        return v != null && StringUtils.hasText(String.valueOf(v)) ? String.valueOf(v).trim() : null;
     }
 
     /**

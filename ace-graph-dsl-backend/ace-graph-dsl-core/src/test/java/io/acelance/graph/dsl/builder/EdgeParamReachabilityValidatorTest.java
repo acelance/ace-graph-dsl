@@ -112,7 +112,7 @@ class EdgeParamReachabilityValidatorTest {
 
     @Test
     void saaWorkflowOutputKeyReachesDownstream() {
-        SaaWorkflowSpec saa = new SaaWorkflowSpec(
+        SaaWorkflowSpec saa = SaaWorkflowSpec.of(
                 "SEQUENTIAL",
                 "user_query",
                 "workflow_result",

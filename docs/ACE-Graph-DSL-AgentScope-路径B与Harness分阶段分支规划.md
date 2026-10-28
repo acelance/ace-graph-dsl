@@ -81,7 +81,9 @@
 | **进度** | 本地 AS SEQUENTIAL 冒烟 + 测试环境业务回归 ✅；PR 合入主线 ☐ |
 
 **Gate → 阶段 2**：阶段 1 **合入主线**后，且缺口 G-MCP / G-STREAM-INNER 按需另开；勿与 H0 同迭代强塞。  
-G-MCP 文档：[开发方案](./ACE-Graph-DSL-AgentScope-G-MCP-开发方案.md) / [开发计划](./ACE-Graph-DSL-AgentScope-G-MCP-开发计划.md)（分支 `feature-as-b1-g-mcp`）。
+G-MCP 文档：[开发方案](./ACE-Graph-DSL-AgentScope-G-MCP-开发方案.md) / [开发计划](./ACE-Graph-DSL-AgentScope-G-MCP-开发计划.md)（分支 `feature-as-b1-g-mcp`）。  
+**进度（2026-10-26）**：G-MCP **能力已验收**（Skill + `translation` MCP 真实调用，`1.1.22`）；待 PR 合入。  
+G-STREAM-INNER 文档初稿：[方案](./ACE-Graph-DSL-AgentScope-G-STREAM-INNER-开发方案.md) / [计划](./ACE-Graph-DSL-AgentScope-G-STREAM-INNER-开发计划.md)（§0 待拍板；分支 `feature-as-b1-g-stream-inner`）；**勿与 H0 同迭代**。
 
 ---
 

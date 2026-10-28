@@ -31,6 +31,13 @@ export function defaultSaaSpec() {
     exitConditionKey: '',
     exitConditionOp: '',
     exitConditionValue: '',
+    applyDeepThinking: false,
+    enableBizParams: false,
+    bizParamInterpreterId: '',
+    bizParamRaw: '',
+    routerSystemPrompt: '',
+    routerInstruction: '',
+    routerFallbackAgent: '',
     subAgents: [defaultSubAgent(1)]
   }
 }
@@ -74,6 +81,13 @@ export function normalizeSaaSpec(spec) {
     exitConditionKey: spec.exitConditionKey || '',
     exitConditionOp: spec.exitConditionOp || '',
     exitConditionValue: spec.exitConditionValue || '',
+    applyDeepThinking: !!spec.applyDeepThinking,
+    enableBizParams: !!spec.enableBizParams,
+    bizParamInterpreterId: spec.bizParamInterpreterId || '',
+    bizParamRaw: spec.bizParamRaw || '',
+    routerSystemPrompt: spec.routerSystemPrompt || '',
+    routerInstruction: spec.routerInstruction || '',
+    routerFallbackAgent: spec.routerFallbackAgent || '',
     subAgents
   }
 }

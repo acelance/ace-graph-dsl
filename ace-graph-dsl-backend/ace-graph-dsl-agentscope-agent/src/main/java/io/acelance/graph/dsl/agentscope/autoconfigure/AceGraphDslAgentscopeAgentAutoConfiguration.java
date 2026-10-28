@@ -2,11 +2,13 @@ package io.acelance.graph.dsl.agentscope.autoconfigure;
 
 import io.acelance.graph.dsl.agent.SecretResolver;
 import io.acelance.graph.dsl.agent.SubAgentResolver;
+import io.acelance.graph.dsl.agentscope.AgentScopeGenerateOptionsCustomizer;
 import io.acelance.graph.dsl.agentscope.AgentScopeModelFactory;
 import io.acelance.graph.dsl.agentscope.AgentScopeSubAgentResolver;
 import io.acelance.graph.dsl.agentscope.AgentScopeToolAssembly;
 import io.acelance.graph.dsl.agentscope.AgentscopeBridgeArtifacts;
 import io.acelance.graph.dsl.agentscope.DefaultAgentScopeModelFactory;
+import io.acelance.graph.dsl.ai.media.MediaRefResolver;
 import io.acelance.graph.dsl.ai.model.ModelMountResolver;
 import io.acelance.graph.dsl.ai.tool.LocalToolResolver;
 import io.acelance.graph.dsl.ai.tool.McpToolResolver;
@@ -14,6 +16,7 @@ import io.acelance.graph.dsl.registry.GraphNodeRegistry;
 import io.acelance.graph.dsl.skill.SkillCatalogResolver;
 import io.acelance.graph.dsl.skill.SkillContentLoader;
 import io.acelance.graph.dsl.skill.SkillResourceLoader;
+import io.acelance.graph.dsl.streaming.GraphStreamBridge;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.ObjectProvider;
@@ -75,14 +78,25 @@ public class AceGraphDslAgentscopeAgentAutoConfiguration {
     }
 
     /**
-     * AGENTSCOPE 子 Agent 解析器。
+     * AGENTSCOPE 子 Agent 解析器（G-MCP + G-STREAM-INNER bridge + 模型 GenerateOptions + 多模态 SPI）。
      */
     @Bean
     @ConditionalOnMissingBean(AgentScopeSubAgentResolver.class)
-    public SubAgentResolver agentScopeSubAgentResolver(GraphNodeRegistry nodeRegistry,
-                                                       AgentScopeModelFactory modelFactory,
-                                                       AgentScopeToolAssembly toolAssembly) {
-        log.info("注册 AgentScopeSubAgentResolver（含 G-MCP ToolAssembly）");
-        return new AgentScopeSubAgentResolver(nodeRegistry, modelFactory, toolAssembly);
+    public SubAgentResolver agentScopeSubAgentResolver(
+            GraphNodeRegistry nodeRegistry,
+            AgentScopeModelFactory modelFactory,
+            AgentScopeToolAssembly toolAssembly,
+            ObjectProvider<GraphStreamBridge> streamBridge,
+            ObjectProvider<AgentScopeGenerateOptionsCustomizer> generateOptionsCustomizer,
+            ObjectProvider<MediaRefResolver> mediaRefResolver) {
+        GraphStreamBridge bridge = streamBridge.getIfAvailable();
+        AgentScopeGenerateOptionsCustomizer options = generateOptionsCustomizer.getIfAvailable();
+        MediaRefResolver media = mediaRefResolver.getIfAvailable();
+        log.info("注册 AgentScopeSubAgentResolver（G-MCP ToolAssembly, streamBridge={}, "
+                        + "generateOptionsCustomizer={}, mediaResolver={}）",
+                bridge != null && bridge != GraphStreamBridge.NOOP,
+                options != null,
+                media != null);
+        return new AgentScopeSubAgentResolver(nodeRegistry, modelFactory, toolAssembly, bridge, options, media);
     }
 }

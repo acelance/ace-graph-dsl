@@ -32,7 +32,7 @@ class SaaWorkflowValidatorTest {
         SaaWorkflowValidator validator = new SaaWorkflowValidator(
                 registry, List.of(new AcceptGenericResolver()), true);
 
-        NodeRef ref = saaNode(new SaaWorkflowSpec(
+        NodeRef ref = saaNode(SaaWorkflowSpec.of(
                 "SEQUENTIAL", "user_query", "sql_score", "BIZ",
                 null, null, null, null, null,
                 List.of(
@@ -51,7 +51,7 @@ class SaaWorkflowValidatorTest {
     void moduleDisabledFails() {
         SaaWorkflowValidator validator = new SaaWorkflowValidator(
                 new GraphNodeRegistry(List.of()), List.of(), false);
-        NodeRef ref = saaNode(new SaaWorkflowSpec(
+        NodeRef ref = saaNode(SaaWorkflowSpec.of(
                 "SEQUENTIAL", "user_query", "out", null,
                 null, null, null, null, null,
                 List.of(new SaaSubAgentRef("a", null, "generic:sql-gen", null, "x"))));
@@ -66,7 +66,7 @@ class SaaWorkflowValidatorTest {
         GraphNodeRegistry registry = registryWith("sql-gen");
         SaaWorkflowValidator validator = new SaaWorkflowValidator(
                 registry, List.of(new AcceptGenericResolver()), true);
-        NodeRef ref = saaNode(new SaaWorkflowSpec(
+        NodeRef ref = saaNode(SaaWorkflowSpec.of(
                 "ROUTING", "user_query", "out", null,
                 "nacos_agent_node", null, null, null, null,
                 List.of(new SaaSubAgentRef("a", null, "generic:sql-gen", null, "x"))));
@@ -80,7 +80,7 @@ class SaaWorkflowValidatorTest {
         GraphNodeRegistry registry = registryWith("sql-gen");
         SaaWorkflowValidator validator = new SaaWorkflowValidator(
                 registry, List.of(new AcceptGenericResolver()), true);
-        NodeRef ref = saaNode(new SaaWorkflowSpec(
+        NodeRef ref = saaNode(SaaWorkflowSpec.of(
                 "PARALLEL", "user_query", "out", null,
                 null, null, null, null, null,
                 List.of(new SaaSubAgentRef("a", null, "generic:sql-gen", null, "x"))));
@@ -94,7 +94,7 @@ class SaaWorkflowValidatorTest {
         GraphNodeRegistry registry = registryWith("sql-gen");
         SaaWorkflowValidator validator = new SaaWorkflowValidator(
                 registry, List.of(new AcceptGenericResolver()), true);
-        NodeRef ref = saaNode(new SaaWorkflowSpec(
+        NodeRef ref = saaNode(SaaWorkflowSpec.of(
                 "LOOP", "user_query", "out", null,
                 null, 3, "score", "GT", "0.8",
                 List.of(new SaaSubAgentRef("a", null, "generic:sql-gen", null, "score"))));
@@ -108,7 +108,7 @@ class SaaWorkflowValidatorTest {
         GraphNodeRegistry registry = registryWith("sql-gen");
         SaaWorkflowValidator validator = new SaaWorkflowValidator(
                 registry, List.of(new AcceptGenericResolver()), true);
-        NodeRef ref = saaNode(new SaaWorkflowSpec(
+        NodeRef ref = saaNode(SaaWorkflowSpec.of(
                 "LOOP", "user_query", "out", null,
                 null, 2, null, null, null,
                 List.of(new SaaSubAgentRef("a", null, "generic:sql-gen", null, "score"))));

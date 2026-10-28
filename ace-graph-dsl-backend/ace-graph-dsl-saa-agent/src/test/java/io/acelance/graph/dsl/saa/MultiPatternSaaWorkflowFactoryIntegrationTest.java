@@ -12,6 +12,7 @@ import io.acelance.graph.dsl.definition.GenericAgentSpec;
 import io.acelance.graph.dsl.definition.SaaSubAgentRef;
 import io.acelance.graph.dsl.definition.SaaSubAgentRefs;
 import io.acelance.graph.dsl.definition.SaaWorkflowSpec;
+import io.acelance.graph.dsl.llm.LlmRequestContext;
 import io.acelance.graph.dsl.llm.MemoryMode;
 import io.acelance.graph.dsl.registry.GraphNodeDescriptor;
 import io.acelance.graph.dsl.registry.GraphNodeRegistry;
@@ -55,7 +56,7 @@ class MultiPatternSaaWorkflowFactoryIntegrationTest {
         SaaWorkflowNodeFactoryImpl factory = new SaaWorkflowNodeFactoryImpl(
                 List.of(new GenericAgentSubAgentResolver(registry)));
 
-        SaaWorkflowSpec spec = new SaaWorkflowSpec(
+        SaaWorkflowSpec spec = SaaWorkflowSpec.of(
                 "PARALLEL", "user_query", "merged", "BIZ",
                 null, null, null, null, null,
                 List.of(
@@ -91,10 +92,10 @@ class MultiPatternSaaWorkflowFactoryIntegrationTest {
         ChatModel router = new StubRoutingChatModel("sql_generator");
         SaaWorkflowNodeFactoryImpl factory = new SaaWorkflowNodeFactoryImpl(
                 List.of(new GenericAgentSubAgentResolver(registry)),
-                key -> router,
+                (key, agentCode) -> router,
                 router);
 
-        SaaWorkflowSpec spec = new SaaWorkflowSpec(
+        SaaWorkflowSpec spec = SaaWorkflowSpec.of(
                 "ROUTING", "user_query", "route_out", "BIZ",
                 "models:router", null, null, null, null,
                 List.of(
@@ -104,9 +105,12 @@ class MultiPatternSaaWorkflowFactoryIntegrationTest {
                                 "generic:chat-helper", "{user_query}", "chat_out")
                 ));
 
+        // 延迟 ROUTING 模型需执行入口 agentCode（Holder）；桩 resolver 忽略 code
         OverAllState result = invoke("m2-routing", "route_node", factory, spec,
-                Map.of("user_query", "生成一条 SQL"),
-                "user_query", "sql_out", "chat_out", "route_out");
+                Map.of("user_query", "生成一条 SQL",
+                        LlmRequestContext.ACE_AGENT_CODE_KEY, "test-routing-agent"),
+                "user_query", LlmRequestContext.ACE_AGENT_CODE_KEY,
+                "sql_out", "chat_out", "route_out");
 
         Object sqlOut = result.data().get("sql_out");
         Object parent = result.data().get("route_out");
@@ -129,7 +133,7 @@ class MultiPatternSaaWorkflowFactoryIntegrationTest {
         SaaWorkflowNodeFactoryImpl factory = new SaaWorkflowNodeFactoryImpl(
                 List.of(new GenericAgentSubAgentResolver(registry)));
 
-        SaaWorkflowSpec spec = new SaaWorkflowSpec(
+        SaaWorkflowSpec spec = SaaWorkflowSpec.of(
                 "LOOP", "user_query", "final_score", "BIZ",
                 null, 5, "score", "GT", "0.8",
                 List.of(

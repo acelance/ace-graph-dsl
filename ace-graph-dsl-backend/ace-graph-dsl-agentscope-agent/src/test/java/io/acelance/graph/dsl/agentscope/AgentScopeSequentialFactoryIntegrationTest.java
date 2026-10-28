@@ -67,7 +67,7 @@ class AgentScopeSequentialFactoryIntegrationTest {
                 new AgentScopeSubAgentResolver(registry, modelFactory)
         ));
 
-        SaaWorkflowSpec spec = new SaaWorkflowSpec(
+        SaaWorkflowSpec spec = SaaWorkflowSpec.of(
                 "SEQUENTIAL",
                 "user_query",
                 "sql_score",

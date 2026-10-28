@@ -64,7 +64,7 @@ class SequentialSaaWorkflowFactoryIntegrationTest {
         SubAgentResolver resolver = new GenericAgentSubAgentResolver(registry);
         SaaWorkflowNodeFactoryImpl factory = new SaaWorkflowNodeFactoryImpl(List.of(resolver));
 
-        SaaWorkflowSpec spec = new SaaWorkflowSpec(
+        SaaWorkflowSpec spec = SaaWorkflowSpec.of(
                 "SEQUENTIAL",
                 "user_query",
                 "sql_score",

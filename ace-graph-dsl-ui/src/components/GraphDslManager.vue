@@ -1,5 +1,5 @@
 <script setup>
-import { ref, onMounted, watch, computed, provide } from 'vue'
+import { ref, onMounted, onBeforeUnmount, watch, computed, provide } from 'vue'
 import { ElMessage } from 'element-plus'
 import {
   listSummaries,
@@ -103,6 +103,93 @@ const CATALOG_COLLAPSED_KEY = 'agd.catalog.collapsed'
 const catalogCollapsed = ref(localStorage.getItem(CATALOG_COLLAPSED_KEY) === '1')
 watch(catalogCollapsed, (v) => {
   try { localStorage.setItem(CATALOG_COLLAPSED_KEY, v ? '1' : '0') } catch (e) { /* ignore */ }
+})
+
+/** 面板宽度：可拖动手柄左右拉伸，并持久化 */
+const NODE_PANEL_WIDTH_KEY = 'agd.nodePanel.width'
+const CATALOG_WIDTH_KEY = 'agd.catalog.width'
+const NODE_PANEL_WIDTH_DEFAULT = 240
+const CATALOG_WIDTH_DEFAULT = 360
+const NODE_PANEL_WIDTH_MIN = 180
+const NODE_PANEL_WIDTH_MAX = 520
+const CATALOG_WIDTH_MIN = 240
+const CATALOG_WIDTH_MAX = 560
+
+function readPersistedWidth(key, fallback, min, max) {
+  try {
+    const raw = Number(localStorage.getItem(key))
+    if (Number.isFinite(raw) && raw >= min && raw <= max) return raw
+  } catch (e) { /* ignore */ }
+  return fallback
+}
+
+const nodePanelWidth = ref(readPersistedWidth(
+  NODE_PANEL_WIDTH_KEY, NODE_PANEL_WIDTH_DEFAULT, NODE_PANEL_WIDTH_MIN, NODE_PANEL_WIDTH_MAX
+))
+const catalogWidth = ref(readPersistedWidth(
+  CATALOG_WIDTH_KEY, CATALOG_WIDTH_DEFAULT, CATALOG_WIDTH_MIN, CATALOG_WIDTH_MAX
+))
+
+watch(nodePanelWidth, (v) => {
+  try { localStorage.setItem(NODE_PANEL_WIDTH_KEY, String(v)) } catch (e) { /* ignore */ }
+})
+watch(catalogWidth, (v) => {
+  try { localStorage.setItem(CATALOG_WIDTH_KEY, String(v)) } catch (e) { /* ignore */ }
+})
+
+const catalogPanelStyle = computed(() => (
+  catalogCollapsed.value ? undefined : { width: `${catalogWidth.value}px` }
+))
+const nodePanelStyle = computed(() => (
+  nodePanelCollapsed.value ? undefined : { width: `${nodePanelWidth.value}px` }
+))
+
+/** 当前拖拽会话：null | { kind, startX, startWidth } */
+const resizeSession = ref(null)
+
+function clamp(n, min, max) {
+  return Math.min(max, Math.max(min, n))
+}
+
+function onResizeMove(evt) {
+  const s = resizeSession.value
+  if (!s) return
+  const dx = evt.clientX - s.startX
+  if (s.kind === 'catalog') {
+    // 左侧目录：向右拖加宽
+    catalogWidth.value = clamp(s.startWidth + dx, CATALOG_WIDTH_MIN, CATALOG_WIDTH_MAX)
+  } else if (s.kind === 'nodePanel') {
+    // 右侧节点面板：向左拖加宽（把手在面板左缘）
+    nodePanelWidth.value = clamp(s.startWidth - dx, NODE_PANEL_WIDTH_MIN, NODE_PANEL_WIDTH_MAX)
+  }
+}
+
+function endResize() {
+  if (!resizeSession.value) return
+  resizeSession.value = null
+  document.body.classList.remove('agd-resizing-panel')
+  window.removeEventListener('mousemove', onResizeMove)
+  window.removeEventListener('mouseup', endResize)
+  console.info('[GraphDslManager] 面板宽度已调整', {
+    catalog: catalogWidth.value,
+    nodePanel: nodePanelWidth.value
+  })
+}
+
+function startResize(kind, evt) {
+  if (evt.button !== 0) return
+  evt.preventDefault()
+  evt.stopPropagation()
+  const startWidth = kind === 'catalog' ? catalogWidth.value : nodePanelWidth.value
+  resizeSession.value = { kind, startX: evt.clientX, startWidth }
+  document.body.classList.add('agd-resizing-panel')
+  window.addEventListener('mousemove', onResizeMove)
+  window.addEventListener('mouseup', endResize)
+  console.info('[GraphDslManager] 开始拖拽调整面板宽度', kind, startWidth)
+}
+
+onBeforeUnmount(() => {
+  endResize()
 })
 
 const displayTitle = () => props.title || t('manager.title')
@@ -417,7 +504,10 @@ onMounted(async () => {
 
 <template>
   <div class="ace-graph-dsl-manager">
-    <aside :class="['left-dock', { 'left-dock--collapsed': catalogCollapsed }]">
+    <aside
+      :class="['left-dock', { 'left-dock--collapsed': catalogCollapsed }]"
+      :style="catalogPanelStyle"
+    >
       <!-- 展开态：完整目录内容 -->
       <template v-if="!catalogCollapsed">
         <div class="catalog-header">
@@ -556,6 +646,13 @@ onMounted(async () => {
         <el-icon class="handle-icon"><ArrowRight /></el-icon>
         <span class="handle-text">{{ t('nodePanel.title') }}</span>
       </div>
+      <!-- 右缘拉伸把手：展开时可左右拖宽 -->
+      <div
+        v-if="!catalogCollapsed"
+        class="panel-resize-handle panel-resize-handle--catalog"
+        :title="t('manager.catalogResize')"
+        @mousedown="startResize('catalog', $event)"
+      />
     </aside>
 
     <main class="designer-panel">
@@ -586,13 +683,26 @@ onMounted(async () => {
       <div v-else class="empty-center">
         <el-empty :description="t('manager.selectOrCreate')" />
       </div>
-      <NodePanel
+      <div
         v-if="!isRecyclePreview"
-        v-model:collapsed="nodePanelCollapsed"
-        :class="['node-panel-right', { 'node-panel-right--collapsed': nodePanelCollapsed }]"
-        @node-drag="onNodeDrag"
-        @node-locate="onNodeLocate"
-      />
+        class="node-panel-wrap"
+        :class="{ 'node-panel-wrap--collapsed': nodePanelCollapsed }"
+        :style="nodePanelStyle"
+      >
+        <!-- 左缘拉伸把手：向左拖加宽节点面板 -->
+        <div
+          v-if="!nodePanelCollapsed"
+          class="panel-resize-handle panel-resize-handle--node"
+          :title="t('nodePanel.resize')"
+          @mousedown="startResize('nodePanel', $event)"
+        />
+        <NodePanel
+          v-model:collapsed="nodePanelCollapsed"
+          :class="['node-panel-right', { 'node-panel-right--collapsed': nodePanelCollapsed }]"
+          @node-drag="onNodeDrag"
+          @node-locate="onNodeLocate"
+        />
+      </div>
     </main>
 
     <el-dialog v-model="showCreate" :title="t('manager.createDialogTitle')" width="420px">
@@ -696,6 +806,7 @@ onMounted(async () => {
   flex-direction: column;
   overflow: hidden;
   background: var(--agd-color-bg, #fff);
+  position: relative;
 }
 .catalog-header {
   display: flex;
@@ -838,18 +949,73 @@ onMounted(async () => {
   display: flex;
   flex-direction: row;
 }
-.node-panel-right {
+.node-panel-wrap {
+  position: relative;
   width: var(--agd-panel-width-left, 240px);
   flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
   border-left: 1px solid var(--agd-color-border, #e4e7ed);
-  overflow-y: auto;
   background: var(--agd-color-bg, #fff);
+}
+.node-panel-wrap--collapsed {
+  width: 38px !important;
+  min-width: 38px;
+  border-left: none;
+  background: linear-gradient(to right, rgba(64,158,255,0.03), transparent);
+}
+.node-panel-right {
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+  overflow-y: auto;
+  background: transparent;
+  border-left: none;
 }
 .node-panel-right--collapsed {
   width: 38px;
   min-width: 38px;
   border-left: none;
-  background: linear-gradient(to right, rgba(64,158,255,0.03), transparent);
+  background: transparent;
+}
+/* 面板左右拉伸把手 */
+.panel-resize-handle {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 6px;
+  z-index: 5;
+  cursor: col-resize;
+  touch-action: none;
+  background: transparent;
+  transition: background 0.15s;
+}
+.panel-resize-handle::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 2px;
+  height: 28px;
+  margin: -14px 0 0 -1px;
+  border-radius: 1px;
+  background: transparent;
+  transition: background 0.15s;
+}
+.panel-resize-handle:hover,
+.panel-resize-handle:active {
+  background: rgba(64, 158, 255, 0.12);
+}
+.panel-resize-handle:hover::after,
+.panel-resize-handle:active::after {
+  background: var(--agd-color-primary, #409eff);
+}
+.panel-resize-handle--catalog {
+  right: -3px;
+}
+.panel-resize-handle--node {
+  left: -3px;
 }
 .designer-panel > :first-child:not(.el-empty) {
   flex: 1;
@@ -935,5 +1101,17 @@ onMounted(async () => {
   background: rgba(64, 158, 255, 0.06);
   border-color: rgba(64, 158, 255, 0.2);
   transform: translateX(2px);
+}
+</style>
+
+<!-- 拖宽时禁止选中文字、统一光标（非 scoped，作用在 body） -->
+<style>
+body.agd-resizing-panel {
+  cursor: col-resize !important;
+  user-select: none !important;
+}
+body.agd-resizing-panel * {
+  cursor: col-resize !important;
+  user-select: none !important;
 }
 </style>
