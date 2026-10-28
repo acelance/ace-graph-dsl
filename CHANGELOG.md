@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.24] — 2026-10-28
+
+### Fixed
+
+- **WebFlux dry-run**：`GraphDefinitionController` 试运行改为
+  `Mono.fromCallable(...).subscribeOn(boundedElastic())`，避免在
+  `reactor-http-nio-*` 上 `blockLast()` 触发
+  `block()/blockFirst()/blockLast() are blocking...`。
+  Servlet 模块路径不变。
+
 ## [1.1.23] — 2026-10-28
 
 ### Added
