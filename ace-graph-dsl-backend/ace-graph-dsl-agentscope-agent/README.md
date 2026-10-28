@@ -2,7 +2,7 @@
 
 可选模块：`impl=AGENTSCOPE` 子 Agent（**路径 B**）。
 
-> 发版基线：**`1.1.22`**（G-MCP，已 deploy mesrelease）；路径 B MVP 为 `1.1.21`。  
+> 发版基线：**`1.1.23`**（G-STREAM-INNER，内层流式）；G-MCP 为 `1.1.22`；路径 B MVP 为 `1.1.21`。  
 > **G-MCP**（分支 `feature-as-b1-g-mcp`）：ACE SPI → AS Toolkit 已落地；**Skill + MCP 真实调用均已验收**（2026-10-26）。  
 > **G-STREAM-INNER**（分支 `feature-as-b1-g-stream-inner`）：框架侧主路径已落地（`stream(true)` + `ReActAgent.streamEvents` → `GraphStreamBridge`；父 SAA attrs；`applyDeepThinking`→GenerateOptions SPI）；宿主冒烟 / 发版见计划 M4。  
 > 文档：[G-STREAM-INNER 方案](../../docs/ACE-Graph-DSL-AgentScope-G-STREAM-INNER-开发方案.md) / [计划](../../docs/ACE-Graph-DSL-AgentScope-G-STREAM-INNER-开发计划.md)；[G-MCP 方案](../../docs/ACE-Graph-DSL-AgentScope-G-MCP-开发方案.md)。

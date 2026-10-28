@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.23] — 2026-10-28
+
+### Added
+
+- **G-STREAM-INNER（框架）**：`impl=AGENTSCOPE` 经 `ReActAgent.streamEvents` 推
+  `GraphStreamBridge` TokenChunk（挂父 SAA `nodeId` / `streamResponseKind` / attrs）；
+  无 bridge 或流失败时降级 `call` 写 `outputKey`。含媒体入参、
+  `AgentScopeGenerateOptionsCustomizer`、可见流会话与单测。
+- **SAA 父规格**：`applyDeepThinking` / bizParam 与 GENERIC 同级；ROUTING 可配
+  `routerSystemPrompt` / `routerInstruction` / `routerFallbackAgent`，
+  以及 `DeferredRouterChatModel` 延迟挂载。
+- **设计器**：SAA 表单同步上述字段；节点面板默认「当前图」，目录/节点面板可拖宽。
+
 ## [1.1.22] — 2026-10-23
 
 ### Added

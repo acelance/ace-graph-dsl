@@ -2,7 +2,7 @@
 
 | 项 | 内容 |
 |----|------|
-| 状态 | **§0 已拍板；M0～M3 框架侧已落地（含 §0.5，2026-10-26）；下一站 M4 宿主/发版** |
+| 状态 | **§0 已拍板；M0～M3 框架侧已落地；`1.1.23` 已 deploy mesrelease（2026-10-28）；下一站 M4 宿主冒烟/测环境跟版** |
 | 日期 | 2026-10-26 |
 | 分支 | 框架 `feature-as-b1-g-stream-inner`；宿主跟版 `feature-agentscope-b-g-stream-inner` |
 | 方案 | [ACE-Graph-DSL-AgentScope-G-STREAM-INNER-开发方案.md](./ACE-Graph-DSL-AgentScope-G-STREAM-INNER-开发方案.md)（§0 已拍板） |
@@ -73,7 +73,7 @@
 - [ ] GENERIC / 业务 / **存量 SAA 图**抽测不回归
 - [x] 方案/计划文档对齐当前实现与 §0.5 口径（2026-10-26）
 - [ ] agentscope README / host.md / 路径 B §10 / CHANGELOG 发版勾选（跟版时再勾）
-- [ ] CHANGELOG；版本 bump + `deploy` mesrelease（建议）
+- [x] CHANGELOG；版本 bump + `deploy` mesrelease（`1.1.23`，2026-10-28）
 - [ ] PR：标题含 `as-b1-g-stream-inner` / G-STREAM-INNER
 
 ### 3.5 明确不做（本计划）
