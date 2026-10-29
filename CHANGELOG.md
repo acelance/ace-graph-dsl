@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.25] — 2026-10-29
+
+### Fixed
+
+- **SAA ROUTING 盲选**：`FlowAgentNodeAction` seed 在仅有 `input`/`user_query`、缺少
+  `messages` 时，补一条 `UserMessage`（`SaaFlowSeedSupport.ensureMessagesFromInput`）。
+  对齐官方 `RoutingNode` 只读 `state.messages` 的契约，避免路由器看不到用户话。
+
 ## [1.1.24] — 2026-10-28
 
 ### Fixed

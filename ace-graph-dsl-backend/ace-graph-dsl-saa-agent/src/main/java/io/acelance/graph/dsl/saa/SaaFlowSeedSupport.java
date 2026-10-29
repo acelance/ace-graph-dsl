@@ -4,6 +4,8 @@ import com.alibaba.cloud.ai.graph.OverAllState;
 import io.acelance.graph.dsl.runtime.ModelOverrideSpec;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.ai.chat.messages.UserMessage;
+import org.springframework.util.StringUtils;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -80,5 +82,35 @@ final class SaaFlowSeedSupport {
                     data.keySet());
         }
         return copied;
+    }
+
+    /**
+     * 保证 seed 含 {@code messages}，供 SAA {@code LlmRoutingAgent}/{@code RoutingNode} 消费。
+     *
+     * <p>官方 {@code RoutingNode} 只读 {@code state.messages}，再追加固定选路 instruction；
+     * 仅有 {@code input}/{@code user_query} 时路由器看不到用户话。对齐
+     * {@code Agent#buildMessageInput}：缺 messages 时用 {@code input} 生成一条 {@link UserMessage}。</p>
+     *
+     * @return true 表示本次新写入了 messages
+     */
+    static boolean ensureMessagesFromInput(Map<String, Object> seed) {
+        if (seed == null) {
+            return false;
+        }
+        Object existing = seed.get("messages");
+        if (existing instanceof List<?> list && !list.isEmpty()) {
+            log.info("SAA seed 已有 messages，跳过补齐: size={}", list.size());
+            return false;
+        }
+        Object input = seed.get("input");
+        if (input == null || !StringUtils.hasText(String.valueOf(input))) {
+            log.warn("SAA seed 无法补齐 messages：input 为空, keys={}", seed.keySet());
+            return false;
+        }
+        String text = String.valueOf(input).trim();
+        seed.put("messages", List.of(new UserMessage(text)));
+        log.info("SAA seed 已从 input 补齐 messages(UserMessage): chars={}, keys={}",
+                text.length(), seed.keySet());
+        return true;
     }
 }

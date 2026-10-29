@@ -191,6 +191,8 @@ public final class FlowAgentNodeAction implements NodeAction {
         }
         // 透传 agentCode / runId / conversationId / forceSkills / modelOverrides / media_refs …
         SaaFlowSeedSupport.copyParentContext(state, seed);
+        // ROUTING：RoutingNode 只读 messages；缺则用 input 补 UserMessage（否则路由器盲选）
+        SaaFlowSeedSupport.ensureMessagesFromInput(seed);
         return seed;
     }
 
