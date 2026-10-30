@@ -1,6 +1,6 @@
 {
   "name": "@acelance/graph-dsl-ui",
-  "version": "1.0.3",
+  "version": "1.0.4",
   "description": "Ace Graph DSL visual designer components for spring-ai-alibaba-graph",
   "license": "Apache-2.0",
   "homepage": "https://github.com/acelance/ace-graph-dsl",

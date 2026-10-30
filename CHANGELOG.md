@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.26] — 2026-10-30
+
+### Added
+
+- **SAA 父节点 memoryWrites**：`SaaWorkflowSpec` 对齐 Generic；`GraphNodeMemoryPersister` SPI；
+  `FlowAgentNodeAction` 按写意图即时落盘（不经 ChatClient Advisor）。
+- **校验 warnings**：`ValidationResult.warnings`；SAA→直接后继出口双 MAIN 仅 WARN。
+- **设计器**：`SaaWorkflowForm` 记忆区块 + 双 MAIN / 出口勿 WRITE_USER 提示。
+
 ## [1.1.25] — 2026-10-29
 
 ### Fixed
