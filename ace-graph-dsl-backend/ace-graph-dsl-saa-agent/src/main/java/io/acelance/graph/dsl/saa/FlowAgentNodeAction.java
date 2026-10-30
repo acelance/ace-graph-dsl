@@ -1,6 +1,7 @@
 package io.acelance.graph.dsl.saa;
 
 import com.alibaba.cloud.ai.graph.OverAllState;
+import com.alibaba.cloud.ai.graph.RunnableConfig;
 import com.alibaba.cloud.ai.graph.action.NodeAction;
 import com.alibaba.cloud.ai.graph.agent.Agent;
 import io.acelance.graph.dsl.ai.memory.GraphNodeMemoryPersister;
@@ -113,8 +114,11 @@ public final class FlowAgentNodeAction implements NodeAction {
     public Map<String, Object> apply(OverAllState state) throws Exception {
         long start = System.nanoTime();
         SaaSubStepCollector.begin();
-        log.info("SAA 高阶节点开始执行, graphId={}, nodeId={}, pattern={}, inputKeys={}, memoryWrites={}",
-                graphId, nodeId, pattern, inputKeys, memoryWrites);
+        String conversationId = readConversationId(state);
+        String runId = readStateString(state, ModelOverrideSpec.ACE_RUN_ID_KEY);
+        log.info("SAA 高阶节点开始执行, graphId={}, nodeId={}, pattern={}, inputKeys={}, memoryWrites={}, "
+                        + "runId={}, conversationId={}",
+                graphId, nodeId, pattern, inputKeys, memoryWrites, runId, conversationId);
         // ROUTING 延迟 ChatModel 跨 SAA 框架拿不到 OverAllState，用 Holder 透传入口 agentCode
         String agentCode = readAgentCode(state);
         AceGraphAgentCodeHolder.set(agentCode);
@@ -123,10 +127,13 @@ public final class FlowAgentNodeAction implements NodeAction {
             maybePersistUser(state);
 
             Map<String, Object> seed = buildSeedInput(state);
-            var resultOpt = flowAgent.invoke(seed);
+            // 与父图 Generic 对齐：threadId ≡ runId，隔离 SAA 内层 CompiledGraph 状态
+            RunnableConfig invokeConfig = SaaFlowInvokeSupport.buildInvokeConfig(state, graphId, nodeId);
+            var resultOpt = flowAgent.invoke(seed, invokeConfig);
             if (resultOpt.isEmpty()) {
                 throw new IllegalStateException("SAA Agent.invoke 返回空, graphId=" + graphId
-                        + ", nodeId=" + nodeId + ", pattern=" + pattern);
+                        + ", nodeId=" + nodeId + ", pattern=" + pattern
+                        + ", threadId=" + invokeConfig.threadId().orElse("?"));
             }
             OverAllState flowState = resultOpt.get();
 
@@ -158,8 +165,10 @@ public final class FlowAgentNodeAction implements NodeAction {
                         "costMs", costMs,
                         "subStepCount", steps.size()));
             }
-            log.info("SAA 高阶节点执行成功, graphId={}, nodeId={}, pattern={}, costMs={}, keys={}, subSteps={}",
-                    graphId, nodeId, pattern, costMs, out.keySet(), steps.size());
+            log.info("SAA 高阶节点执行成功, graphId={}, nodeId={}, pattern={}, costMs={}, threadId={}, "
+                            + "conversationId={}, keys={}, keyChars={}, subSteps={}",
+                    graphId, nodeId, pattern, costMs, invokeConfig.threadId().orElse("?"),
+                    conversationId, out.keySet(), summarizeKeyChars(out), steps.size());
             return out;
         } catch (Exception ex) {
             long costMs = (System.nanoTime() - start) / 1_000_000L;
@@ -398,19 +407,60 @@ public final class FlowAgentNodeAction implements NodeAction {
             for (int i = resultKeysToCopy.length - 1; i >= 0; i--) {
                 String key = resultKeysToCopy[i];
                 if (out.containsKey(key)) {
-                    return out.get(key);
+                    Object chosen = out.get(key);
+                    log.info("SAA 父 outputKey 取值自子键: graphId={}, nodeId={}, parentOutputKey={}, "
+                                    + "fromKey={}, chars={}, presentKeys={}",
+                            graphId, nodeId, parentOutputKey, key, textChars(chosen), out.keySet());
+                    return chosen;
                 }
             }
         }
         Object merged = flowState.value(parentOutputKey).map(FlowAgentNodeAction::unwrapMessageText)
                 .orElse(null);
         if (merged != null && merged != out) {
+            log.info("SAA 父 outputKey 取值自 flowState 同名键: graphId={}, nodeId={}, parentOutputKey={}, chars={}",
+                    graphId, nodeId, parentOutputKey, textChars(merged));
             return merged;
         }
         if (!out.isEmpty()) {
-            return out.values().iterator().next();
+            Map.Entry<String, Object> first = out.entrySet().iterator().next();
+            log.warn("SAA 父 outputKey 兜底取首个 out 值: graphId={}, nodeId={}, parentOutputKey={}, "
+                            + "fromKey={}, chars={}",
+                    graphId, nodeId, parentOutputKey, first.getKey(), textChars(first.getValue()));
+            return first.getValue();
         }
         return null;
+    }
+
+    /** 业务子键字符数摘要，便于发现串会话（如误带上旧 step2 且 chars 异常大）。 */
+    private static String summarizeKeyChars(Map<String, Object> out) {
+        if (out == null || out.isEmpty()) {
+            return "{}";
+        }
+        StringBuilder sb = new StringBuilder("{");
+        boolean first = true;
+        for (Map.Entry<String, Object> e : out.entrySet()) {
+            String k = e.getKey();
+            if (k == null || k.startsWith(SaaWorkflowKeys.SUB_STEPS_KEY)
+                    || k.startsWith("ace.graph.dsl.saa.")) {
+                continue;
+            }
+            if (!first) {
+                sb.append(", ");
+            }
+            first = false;
+            sb.append(k).append('=').append(textChars(e.getValue()));
+        }
+        sb.append('}');
+        return sb.toString();
+    }
+
+    private static int textChars(Object value) {
+        if (value == null) {
+            return 0;
+        }
+        String text = String.valueOf(value);
+        return text.isBlank() ? 0 : text.length();
     }
 
     private static Object unwrapMessageText(Object value) {

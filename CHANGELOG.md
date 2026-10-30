@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.27] — 2026-10-30
+
+### Fixed
+
+- **SAA 内层会话隔离**：`FlowAgent`/`SequentialAgent` invoke 显式传入
+  `RunnableConfig.threadId`（优先 `ace.graph.dsl.runId`，与父图 Generic 对齐），
+  避免跨会话串子键（如旧 `step2`）污染出口。
+
 ## [1.1.26] — 2026-10-30
 
 ### Added

@@ -1,12 +1,14 @@
 package io.acelance.graph.dsl.saa;
 
 import com.alibaba.cloud.ai.graph.OverAllState;
+import com.alibaba.cloud.ai.graph.RunnableConfig;
 import com.alibaba.cloud.ai.graph.StateGraph;
 import com.alibaba.cloud.ai.graph.agent.Agent;
 import com.alibaba.cloud.ai.graph.exception.GraphStateException;
 import io.acelance.graph.dsl.ai.memory.GraphNodeMemoryPersister;
 import io.acelance.graph.dsl.llm.LlmRequestContext;
 import io.acelance.graph.dsl.llm.MemoryWriteFlag;
+import io.acelance.graph.dsl.runtime.ModelOverrideSpec;
 import org.junit.jupiter.api.Test;
 
 import java.util.ArrayList;
@@ -17,6 +19,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -132,9 +135,30 @@ class FlowAgentNodeActionMemoryPersistTest {
         assertTrue(persister.assistantTexts.isEmpty());
     }
 
+    @Test
+    void invokePassesRunnableConfigThreadIdFromRunId() throws Exception {
+        StubFlowAgent stub = new StubFlowAgent(Map.of("child_out", "答"));
+        FlowAgentNodeAction action = new FlowAgentNodeAction(
+                "g1", "saa_node", "SEQUENTIAL", stub,
+                List.of("user_query"), "agent_result",
+                new String[]{"child_out"}, null,
+                Set.of(),
+                null);
+
+        Map<String, Object> data = new HashMap<>();
+        data.put("user_query", "问");
+        data.put(ModelOverrideSpec.ACE_RUN_ID_KEY, "run-tid-1");
+        data.put(LlmRequestContext.ACE_CONVERSATION_ID_KEY, "session-tid-1");
+        action.apply(new OverAllState(data));
+
+        assertTrue(stub.lastConfig.get() != null);
+        assertEquals("run-tid-1", stub.lastConfig.get().threadId().orElse(null));
+    }
+
     /** 不走真实图编译，只返回固定 OverAllState。 */
     private static final class StubFlowAgent extends Agent {
         private final Map<String, Object> resultData;
+        final AtomicReference<RunnableConfig> lastConfig = new AtomicReference<>();
 
         StubFlowAgent(Map<String, Object> resultData) {
             super("stub", "memory-persist-ut");
@@ -143,6 +167,12 @@ class FlowAgentNodeActionMemoryPersistTest {
 
         @Override
         public Optional<OverAllState> invoke(Map<String, Object> input) {
+            return invoke(input, null);
+        }
+
+        @Override
+        public Optional<OverAllState> invoke(Map<String, Object> input, RunnableConfig config) {
+            lastConfig.set(config);
             return Optional.of(new OverAllState(resultData));
         }
 
