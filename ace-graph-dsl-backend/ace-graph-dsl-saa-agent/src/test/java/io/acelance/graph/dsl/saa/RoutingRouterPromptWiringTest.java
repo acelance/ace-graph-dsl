@@ -55,7 +55,8 @@ class RoutingRouterPromptWiringTest {
                 false, false, null, null,
                 "路由规则：SQL 类问题选 sql_generator",
                 "只输出 agent 名",
-                "sql_generator");
+                "sql_generator",
+                null, null);
 
         NodeAction action = factory.create("g-route", "route_node", spec, NodeRuntimeContext.empty(null));
         LlmRoutingAgent agent = extractFlowAgent(action);

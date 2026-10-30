@@ -1,6 +1,8 @@
 /**
- * SAA_WORKFLOW 节点默认规格与工具（M2：四 pattern）。
+ * SAA_WORKFLOW 节点默认规格与工具（M2：四 pattern + 记忆写意图）。
  */
+
+import { normalizeMemoryWrites } from './memoryWrites'
 
 /** 已开放的 pattern 列表（与后端 OPEN_PATTERNS 对齐） */
 export const SAA_PATTERNS = ['SEQUENTIAL', 'PARALLEL', 'ROUTING', 'LOOP']
@@ -38,6 +40,9 @@ export function defaultSaaSpec() {
     routerSystemPrompt: '',
     routerInstruction: '',
     routerFallbackAgent: '',
+    /** null=回退 memoryMode；与 Generic 对齐 */
+    memoryMode: 'NONE',
+    memoryWrites: null,
     subAgents: [defaultSubAgent(1)]
   }
 }
@@ -71,6 +76,10 @@ export function normalizeSaaSpec(spec) {
         outputKey: s?.outputKey || `step${i + 1}`
       }))
     : []
+  // memoryWrites：数组（含空）= 显式配置；否则 null 回退 memoryMode（勿丢字段）
+  const memoryWrites = Array.isArray(spec.memoryWrites)
+    ? normalizeMemoryWrites(spec.memoryWrites)
+    : null
   return {
     pattern: spec.pattern || 'SEQUENTIAL',
     inputKeys: spec.inputKeys || '',
@@ -88,6 +97,8 @@ export function normalizeSaaSpec(spec) {
     routerSystemPrompt: spec.routerSystemPrompt || '',
     routerInstruction: spec.routerInstruction || '',
     routerFallbackAgent: spec.routerFallbackAgent || '',
+    memoryMode: spec.memoryMode || 'NONE',
+    memoryWrites,
     subAgents
   }
 }

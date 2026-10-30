@@ -3,6 +3,8 @@ package io.acelance.graph.dsl.validation;
 import io.acelance.graph.dsl.agent.GraphBoundAgentNode;
 import io.acelance.graph.dsl.agent.SubAgentResolver;
 import io.acelance.graph.dsl.definition.GenericAgentSpec;
+import io.acelance.graph.dsl.definition.GraphDefinition;
+import io.acelance.graph.dsl.definition.GraphEdge;
 import io.acelance.graph.dsl.definition.NodeRef;
 import io.acelance.graph.dsl.definition.SaaSubAgentRef;
 import io.acelance.graph.dsl.definition.SaaSubAgentRefs;
@@ -10,6 +12,7 @@ import io.acelance.graph.dsl.definition.SaaWorkflowPattern;
 import io.acelance.graph.dsl.definition.SaaWorkflowSpec;
 import io.acelance.graph.dsl.definition.SaaWorkflowKeys;
 import io.acelance.graph.dsl.llm.MemoryMode;
+import io.acelance.graph.dsl.llm.MemoryWriteFlag;
 import io.acelance.graph.dsl.registry.GraphNodeDescriptor;
 import io.acelance.graph.dsl.registry.GraphNodeRegistry;
 import io.acelance.graph.dsl.registry.RegisteredGraphNode;
@@ -17,9 +20,11 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Set;
 
 /**
@@ -248,5 +253,118 @@ public final class SaaWorkflowValidator {
     public static boolean isSaaWorkflowNode(NodeRef ref) {
         return ref != null && (ref.hasSaaSpec()
                 || GraphNodeDescriptor.CATEGORY_SAA_WORKFLOW.equals(ref.category()));
+    }
+
+    /**
+     * 双 MAIN 警告：SAA 父配了 {@code WRITE_ASSISTANT_MAIN_TEXT}，且直接后继为出口类节点
+     * 且该出口也含 MAIN → 追加 warning（不挡发布）。
+     *
+     * @param def      图定义
+     * @param warnings 警告收集列表
+     */
+    public static void collectDualMainWarnings(GraphDefinition def, List<String> warnings) {
+        if (def == null || def.nodes() == null || warnings == null) {
+            return;
+        }
+        Map<String, NodeRef> byId = new HashMap<>();
+        for (NodeRef ref : def.nodes()) {
+            if (ref != null && ref.nodeId() != null) {
+                byId.put(ref.nodeId(), ref);
+            }
+        }
+        List<GraphEdge> edges = def.edges() != null ? def.edges() : List.of();
+        for (NodeRef saa : def.nodes()) {
+            if (!isSaaWorkflowNode(saa) || !hasAssistantMain(saa)) {
+                continue;
+            }
+            String saaId = saa.nodeId();
+            for (String succId : directSuccessors(edges, saaId)) {
+                NodeRef succ = byId.get(succId);
+                if (succ == null) {
+                    continue;
+                }
+                if (!isOutputLikeNode(succId) && !isOutputLikeNode(succ)) {
+                    continue;
+                }
+                if (!hasAssistantMain(succ)) {
+                    continue;
+                }
+                String msg = "双 MAIN 警告: SAA 节点 '" + saaId + "' 与直接后继出口 '" + succId
+                        + "' 均配置 WRITE_ASSISTANT_MAIN_TEXT，可能导致重复 ASSISTANT / thinking 被提前 drain";
+                warnings.add(msg);
+                log.warn("图校验双 MAIN, graphId={}, saaNode={}, successor={}",
+                        def.graphId(), saaId, succId);
+            }
+        }
+    }
+
+    /** 节点是否有效含 WRITE_ASSISTANT_MAIN_TEXT（SAA / Generic）。 */
+    public static boolean hasAssistantMain(NodeRef ref) {
+        if (ref == null) {
+            return false;
+        }
+        if (ref.saaSpec() != null) {
+            return ref.saaSpec().effectiveMemoryWrites()
+                    .contains(MemoryWriteFlag.WRITE_ASSISTANT_MAIN_TEXT);
+        }
+        if (ref.agentSpec() != null) {
+            return ref.agentSpec().effectiveMemoryWrites()
+                    .contains(MemoryWriteFlag.WRITE_ASSISTANT_MAIN_TEXT);
+        }
+        return false;
+    }
+
+    /**
+     * 出口类节点名启发式（与 Lesso Provider {@code isOutputLikeNode} 对齐）。
+     */
+    public static boolean isOutputLikeNode(String nodeId) {
+        if (nodeId == null || nodeId.isBlank()) {
+            return false;
+        }
+        String n = nodeId.trim().toLowerCase(Locale.ROOT);
+        return n.contains("out_put") || n.contains("output") || n.endsWith(":out") || n.equals("out");
+    }
+
+    private static boolean isOutputLikeNode(NodeRef ref) {
+        if (ref == null) {
+            return false;
+        }
+        if (isOutputLikeNode(ref.nodeId())) {
+            return true;
+        }
+        // streamResponseKind=OUTPUT 也视为出口形态
+        if (ref.agentSpec() != null) {
+            String kind = ref.agentSpec().streamResponseKind();
+            return kind != null && "OUTPUT".equalsIgnoreCase(kind.trim());
+        }
+        if (ref.saaSpec() != null) {
+            String kind = ref.saaSpec().streamResponseKind();
+            return kind != null && "OUTPUT".equalsIgnoreCase(kind.trim());
+        }
+        return false;
+    }
+
+    private static List<String> directSuccessors(List<GraphEdge> edges, String fromId) {
+        if (edges == null || fromId == null) {
+            return List.of();
+        }
+        List<String> out = new ArrayList<>();
+        for (GraphEdge edge : edges) {
+            if (edge == null || edge.from() == null || !fromId.equals(edge.from())) {
+                continue;
+            }
+            if (edge.isConditional()) {
+                if (edge.mapping() != null) {
+                    for (String to : edge.mapping().values()) {
+                        if (to != null && !to.isBlank()) {
+                            out.add(to.trim());
+                        }
+                    }
+                }
+            } else if (edge.to() != null && !edge.to().isBlank()) {
+                out.add(edge.to().trim());
+            }
+        }
+        return out;
     }
 }

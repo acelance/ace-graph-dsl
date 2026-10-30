@@ -165,6 +165,10 @@ public class GraphRuntime {
         if (!validation.ok()) {
             return failPublish(graphId, version, operator, "校验失败: " + String.join("; ", validation.errors()));
         }
+        if (validation.hasWarnings()) {
+            log.warn("发布前校验有 warnings（不挡发布）, graphId={}, version={}, warnings={}",
+                    graphId, version, validation.warnings());
+        }
         try {
             CompiledGraph compiled = builder.build(def);
             repository.disableCurrentEnabled(graphId);

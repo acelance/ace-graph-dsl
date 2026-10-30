@@ -2,6 +2,7 @@ package io.acelance.graph.dsl.saa.autoconfigure;
 
 import io.acelance.graph.dsl.agent.SaaWorkflowNodeFactory;
 import io.acelance.graph.dsl.agent.SubAgentResolver;
+import io.acelance.graph.dsl.ai.memory.GraphNodeMemoryPersister;
 import io.acelance.graph.dsl.ai.model.ChatModelFactory;
 import io.acelance.graph.dsl.ai.model.ModelEndpoint;
 import io.acelance.graph.dsl.ai.model.ModelMountResolver;
@@ -63,14 +64,20 @@ public class AceGraphDslSaaAgentAutoConfiguration {
             List<SubAgentResolver> resolvers,
             ObjectProvider<ChatModelFactory> chatModelFactoryProvider,
             ObjectProvider<ModelMountResolver> mountResolverProvider,
-            ObjectProvider<ChatModel> chatModelProvider) {
+            ObjectProvider<ChatModel> chatModelProvider,
+            ObjectProvider<GraphNodeMemoryPersister> memoryPersisterProvider) {
         BiFunction<String, String, ChatModel> routerResolver = (key, agentCode) ->
                 resolveRouterByKey(key, agentCode, chatModelFactoryProvider, mountResolverProvider);
         ChatModel fallback = resolveRouterFallback(chatModelFactoryProvider, chatModelProvider);
-        log.info("注册 SaaWorkflowNodeFactoryImpl（ROUTING 延迟挂载）, resolverCount={}, routerFallback={}",
+        GraphNodeMemoryPersister persister = memoryPersisterProvider == null
+                ? null
+                : memoryPersisterProvider.getIfAvailable();
+        log.info("注册 SaaWorkflowNodeFactoryImpl（ROUTING 延迟挂载）, resolverCount={}, routerFallback={}, "
+                        + "memoryPersister={}",
                 resolvers == null ? 0 : resolvers.size(),
-                fallback == null ? "null" : fallback.getClass().getSimpleName());
-        return new SaaWorkflowNodeFactoryImpl(resolvers, routerResolver, fallback);
+                fallback == null ? "null" : fallback.getClass().getSimpleName(),
+                persister == null ? "null" : persister.getClass().getSimpleName());
+        return new SaaWorkflowNodeFactoryImpl(resolvers, routerResolver, fallback, persister);
     }
 
     /**

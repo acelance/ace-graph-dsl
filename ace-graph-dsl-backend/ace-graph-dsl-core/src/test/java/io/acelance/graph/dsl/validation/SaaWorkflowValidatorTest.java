@@ -5,6 +5,8 @@ import io.acelance.graph.dsl.agent.SubAgentBinding;
 import io.acelance.graph.dsl.agent.SubAgentResolveRequest;
 import io.acelance.graph.dsl.agent.SubAgentResolver;
 import io.acelance.graph.dsl.definition.GenericAgentSpec;
+import io.acelance.graph.dsl.definition.GraphDefinition;
+import io.acelance.graph.dsl.definition.GraphEdge;
 import io.acelance.graph.dsl.definition.NodeRef;
 import io.acelance.graph.dsl.definition.SaaSubAgentRef;
 import io.acelance.graph.dsl.definition.SaaSubAgentRefs;
@@ -115,6 +117,44 @@ class SaaWorkflowValidatorTest {
         List<String> errors = new ArrayList<>();
         validator.validateNode("g1", ref, errors);
         assertTrue(errors.isEmpty(), () -> String.join("; ", errors));
+    }
+
+    @Test
+    void dualMainSaaThenOutputLike_emitsWarning() {
+        SaaWorkflowSpec saaSpec = new SaaWorkflowSpec(
+                "SEQUENTIAL", "user_query", "agent_result", "BIZ",
+                null, null, null, null, null,
+                List.of(new SaaSubAgentRef("a", SaaSubAgentRefs.IMPL_GENERIC_AGENT,
+                        "generic:sql-gen", "{user_query}", "a")),
+                false, false, null, null, null, null, null,
+                null, List.of("WRITE_ASSISTANT_MAIN_TEXT"));
+        NodeRef saa = new NodeRef("saa_parent", "SAA_WORKFLOW", Map.of(), null, null,
+                null, null, null, null, saaSpec);
+
+        GenericAgentSpec outSpec = new GenericAgentSpec(
+                null, null, false, "m", null,
+                "agent_result", "final_out", "OUTPUT", null,
+                false, List.of(), false, null,
+                false, List.of(), false, List.of(), Map.of(),
+                false, List.of(), MemoryMode.NONE,
+                List.of("WRITE_ASSISTANT_MAIN_TEXT"), false,
+                false, null, null);
+        NodeRef out = new NodeRef("agent_ls_out_put_node", "GENERIC_AGENT", Map.of(), null, null,
+                null, null, null, outSpec, null);
+
+        GraphDefinition def = new GraphDefinition(
+                "dual-main-g", "dual", "1", "",
+                Map.of("agent_result", "replace", "a", "replace", "final_out", "replace"),
+                List.of(saa, out),
+                List.of(new GraphEdge("saa_parent", "agent_ls_out_put_node",
+                        GraphEdge.TYPE_NORMAL, null, null, null, null)),
+                null, null);
+
+        List<String> warnings = new ArrayList<>();
+        SaaWorkflowValidator.collectDualMainWarnings(def, warnings);
+        assertFalse(warnings.isEmpty(), "应有双 MAIN warning");
+        assertTrue(warnings.stream().anyMatch(w -> w.contains("双 MAIN")),
+                () -> String.join("; ", warnings));
     }
 
     private static NodeRef saaNode(SaaWorkflowSpec spec) {

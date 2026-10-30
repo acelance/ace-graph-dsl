@@ -49,7 +49,7 @@ class AceAgentscopeStreamBridgeTest {
                 null, null, null, null, null, List.of(),
                 true, true, "lesso.sse-frame",
                 "{\"thinking\":true,\"nodeDisplay\":\"父思考\"}",
-                null, null, null);
+                null, null, null, null, null);
         AgentScopeParentStreamContext parentStream = AgentScopeParentStreamContext.fromParent(parent);
 
         AceAgentscopeReActBaseAgentAdapter adapter = new AceAgentscopeReActBaseAgentAdapter(

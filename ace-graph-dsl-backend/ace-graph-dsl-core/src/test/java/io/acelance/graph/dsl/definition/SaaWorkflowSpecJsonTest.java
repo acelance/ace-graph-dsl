@@ -13,7 +13,7 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * SaaWorkflowSpec / NodeRef.saaSpec JSON ??????????
+ * SaaWorkflowSpec / NodeRef.saaSpec JSON 往返与旧字段兼容。
  */
 class SaaWorkflowSpecJsonTest {
 
@@ -90,5 +90,32 @@ class SaaWorkflowSpecJsonTest {
         SaaWorkflowSpec again = mapper.readValue(back, SaaWorkflowSpec.class);
         assertEquals(spec.routerSystemPrompt(), again.routerSystemPrompt());
         assertEquals(spec.routerFallbackAgent(), again.routerFallbackAgent());
+    }
+
+    @Test
+    void memoryWritesRoundTripAndEffectiveFlags() throws Exception {
+        String json = """
+                {"pattern":"SEQUENTIAL","inputKeys":"user_query","outputKey":"agent_result",
+                "streamResponseKind":"BIZ",
+                "memoryWrites":["WRITE_USER","WRITE_ASSISTANT_MAIN_TEXT"],
+                "subAgents":[{"name":"a","impl":"GENERIC_AGENT","ref":"generic:a","instruction":"{user_query}","outputKey":"a"}]}
+                """;
+        SaaWorkflowSpec spec = mapper.readValue(json, SaaWorkflowSpec.class);
+        assertNotNull(spec.memoryWrites());
+        assertEquals(2, spec.memoryWrites().size());
+        assertTrue(spec.effectiveMemoryWrites().contains(
+                io.acelance.graph.dsl.llm.MemoryWriteFlag.WRITE_USER));
+        assertTrue(spec.effectiveMemoryWrites().contains(
+                io.acelance.graph.dsl.llm.MemoryWriteFlag.WRITE_ASSISTANT_MAIN_TEXT));
+        assertEquals(io.acelance.graph.dsl.llm.MemoryMode.READ_WRITE, spec.effectiveMemoryMode());
+
+        String legacy = """
+                {"pattern":"SEQUENTIAL","inputKeys":"user_query","outputKey":"agent_result",
+                "subAgents":[]}
+                """;
+        SaaWorkflowSpec old = mapper.readValue(legacy, SaaWorkflowSpec.class);
+        assertEquals(null, old.memoryWrites());
+        assertEquals(io.acelance.graph.dsl.llm.MemoryMode.NONE, old.effectiveMemoryMode());
+        assertTrue(old.effectiveMemoryWrites().isEmpty());
     }
 }

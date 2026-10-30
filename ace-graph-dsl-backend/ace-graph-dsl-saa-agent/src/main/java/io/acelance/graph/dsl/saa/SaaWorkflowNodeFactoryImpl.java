@@ -12,9 +12,11 @@ import io.acelance.graph.dsl.agent.SaaWorkflowNodeFactory;
 import io.acelance.graph.dsl.agent.SubAgentBinding;
 import io.acelance.graph.dsl.agent.SubAgentResolveRequest;
 import io.acelance.graph.dsl.agent.SubAgentResolver;
+import io.acelance.graph.dsl.ai.memory.GraphNodeMemoryPersister;
 import io.acelance.graph.dsl.definition.SaaSubAgentRef;
 import io.acelance.graph.dsl.definition.SaaWorkflowPattern;
 import io.acelance.graph.dsl.definition.SaaWorkflowSpec;
+import io.acelance.graph.dsl.llm.MemoryWriteFlag;
 import io.acelance.graph.dsl.registry.NodeRuntimeContext;
 import io.acelance.graph.dsl.saa.loop.StateKeyExitLoopStrategy;
 import org.slf4j.Logger;
@@ -26,6 +28,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.Objects;
+import java.util.Set;
 import java.util.function.BiFunction;
 
 /**
@@ -42,9 +45,11 @@ public class SaaWorkflowNodeFactoryImpl implements SaaWorkflowNodeFactory {
      */
     private final BiFunction<String, String, ChatModel> routerModelResolver;
     private final ChatModel routerModelFallback;
+    /** 节点级记忆落盘 SPI（可空；降级跳过写路径） */
+    private final GraphNodeMemoryPersister memoryPersister;
 
     public SaaWorkflowNodeFactoryImpl(List<SubAgentResolver> resolvers) {
-        this(resolvers, null, null);
+        this(resolvers, null, null, null);
     }
 
     /**
@@ -55,9 +60,20 @@ public class SaaWorkflowNodeFactoryImpl implements SaaWorkflowNodeFactory {
     public SaaWorkflowNodeFactoryImpl(List<SubAgentResolver> resolvers,
                                       BiFunction<String, String, ChatModel> routerModelResolver,
                                       ChatModel routerModelFallback) {
+        this(resolvers, routerModelResolver, routerModelFallback, null);
+    }
+
+    /**
+     * @param memoryPersister 记忆落盘 SPI（可空）
+     */
+    public SaaWorkflowNodeFactoryImpl(List<SubAgentResolver> resolvers,
+                                      BiFunction<String, String, ChatModel> routerModelResolver,
+                                      ChatModel routerModelFallback,
+                                      GraphNodeMemoryPersister memoryPersister) {
         this.resolvers = resolvers != null ? List.copyOf(resolvers) : List.of();
         this.routerModelResolver = routerModelResolver;
         this.routerModelFallback = routerModelFallback;
+        this.memoryPersister = memoryPersister;
     }
 
     @Override
@@ -86,9 +102,17 @@ public class SaaWorkflowNodeFactoryImpl implements SaaWorkflowNodeFactory {
             case LOOP -> buildLoop(nodeId, graphId, agents, spec);
         };
 
-        log.info("组装 SAA FlowAgent 完成, graphId={}, nodeId={}, pattern={}, subAgents={}, outputKey={}",
+        Set<MemoryWriteFlag> writes = spec.effectiveMemoryWrites();
+        log.info("组装 SAA FlowAgent 完成, graphId={}, nodeId={}, pattern={}, subAgents={}, outputKey={}, "
+                        + "memoryWrites={}, persister={}",
                 graphId, nodeId, pattern, bindings.stream().map(SubAgentBinding::name).toList(),
-                spec.outputKey());
+                spec.outputKey(), writes,
+                memoryPersister == null ? "null" : memoryPersister.getClass().getSimpleName());
+        if (!writes.isEmpty() && memoryPersister == null) {
+            log.warn("SAA 节点配置了 memoryWrites 但未注册 GraphNodeMemoryPersister，运行期将跳过落盘, "
+                            + "graphId={}, nodeId={}, writes={}",
+                    graphId, nodeId, writes);
+        }
 
         return new FlowAgentNodeAction(
                 graphId,
@@ -98,7 +122,9 @@ public class SaaWorkflowNodeFactoryImpl implements SaaWorkflowNodeFactory {
                 spec.inputKeyList(),
                 spec.outputKey(),
                 resultKeys.toArray(String[]::new),
-                subNames);
+                subNames,
+                writes,
+                memoryPersister);
     }
 
     private SequentialAgent buildSequential(String nodeId, String graphId, List<Agent> agents) {

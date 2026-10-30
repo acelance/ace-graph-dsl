@@ -38,7 +38,7 @@ class SaaStreamAttrsTest {
                 true,
                 "lesso.sse-frame",
                 "{\"thinking\":true,\"nodeDisplay\":\"SAA父\"}",
-                null, null, null);
+                null, null, null, null, null);
         Map<String, Object> attrs = SaaStreamAttrs.fromSpec(spec);
         assertEquals(Boolean.TRUE, attrs.get(TokenChunk.ATTR_ENABLE_BIZ_PARAMS));
         assertEquals("lesso.sse-frame", attrs.get(TokenChunk.ATTR_BIZ_PARAM_INTERPRETER_ID));
@@ -51,7 +51,7 @@ class SaaStreamAttrsTest {
         SaaWorkflowSpec spec = new SaaWorkflowSpec(
                 "SEQUENTIAL", "q", "out", null,
                 null, null, null, null, null, List.of(),
-                false, true, null, "x", null, null, null);
+                false, true, null, "x", null, null, null, null, null);
         assertEquals(DefaultStringBizParamInterpreter.ID, spec.bizParamInterpreterId());
     }
 }

@@ -3,10 +3,13 @@ package io.acelance.graph.dsl.definition;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import io.acelance.graph.dsl.bizparam.DefaultStringBizParamInterpreter;
 import io.acelance.graph.dsl.llm.LlmRequestContext;
+import io.acelance.graph.dsl.llm.MemoryMode;
+import io.acelance.graph.dsl.llm.MemoryWriteFlag;
 
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Set;
 
 /**
  * SAA 高阶工作流节点规格（挂在 {@link NodeRef#saaSpec()}）。
@@ -15,6 +18,8 @@ import java.util.List;
  * <p>G-STREAM-INNER：{@code applyDeepThinking} / bizParam 与 {@link GenericAgentSpec} 同级语义；
  * ROUTING 另可配 {@code routerSystemPrompt} / {@code routerInstruction} / {@code routerFallbackAgent}
  * （接到 {@code LlmRoutingAgent}；缺省走 Framework 默认路由提示）。</p>
+ * <p>记忆：{@code memoryWrites}/{@code memoryMode} 与 {@link GenericAgentSpec} 同规则；
+ * 父节点完成时由 {@code GraphNodeMemoryPersister} 落盘（不走 ChatClient Advisor）。</p>
  *
  * @param pattern                模式
  * @param inputKeys              父节点从 OverAllState 读取的键（逗号/空白分隔）
@@ -33,6 +38,8 @@ import java.util.List;
  * @param routerSystemPrompt     ROUTING 路由器系统提示（路由规则）；空=Framework 默认
  * @param routerInstruction      ROUTING 路由器 instruction（可选）
  * @param routerFallbackAgent    ROUTING 选路失败时回落的子 Agent {@code name}
+ * @param memoryMode             旧三态；仅当 {@code memoryWrites == null} 时生效
+ * @param memoryWrites           可组合写意图；非 null（含空列表）时以本列表为准
  */
 @JsonIgnoreProperties(ignoreUnknown = true)
 public record SaaWorkflowSpec(
@@ -52,7 +59,9 @@ public record SaaWorkflowSpec(
         String bizParamRaw,
         String routerSystemPrompt,
         String routerInstruction,
-        String routerFallbackAgent
+        String routerFallbackAgent,
+        MemoryMode memoryMode,
+        List<String> memoryWrites
 ) {
 
     /** LOOP 默认迭代次数 */
@@ -65,6 +74,7 @@ public record SaaWorkflowSpec(
 
     public SaaWorkflowSpec {
         subAgents = subAgents == null ? List.of() : List.copyOf(subAgents);
+        memoryWrites = memoryWrites == null ? null : List.copyOf(memoryWrites);
         if (enableBizParams) {
             if (bizParamInterpreterId == null || bizParamInterpreterId.isBlank()) {
                 bizParamInterpreterId = DefaultStringBizParamInterpreter.ID;
@@ -78,7 +88,7 @@ public record SaaWorkflowSpec(
     }
 
     /**
-     * 兼容旧构造（无通道 / 无路由器提示词字段）。
+     * 兼容旧构造（无通道 / 无路由器提示词 / 无记忆字段）。
      */
     public static SaaWorkflowSpec of(
             String pattern,
@@ -94,12 +104,29 @@ public record SaaWorkflowSpec(
         return new SaaWorkflowSpec(
                 pattern, inputKeys, outputKey, streamResponseKind, modelConfigKey,
                 maxIterations, exitConditionKey, exitConditionOp, exitConditionValue, subAgents,
-                false, false, null, null, null, null, null);
+                false, false, null, null, null, null, null, null, null);
     }
 
     /** 解析后的 pattern；无法识别时 null */
     public SaaWorkflowPattern resolvedPattern() {
         return SaaWorkflowPattern.fromString(pattern);
+    }
+
+    /**
+     * 与 {@link GenericAgentSpec#effectiveMemoryMode()} 同规则。
+     */
+    public MemoryMode effectiveMemoryMode() {
+        if (memoryWrites != null) {
+            return effectiveMemoryWrites().isEmpty() ? MemoryMode.NONE : MemoryMode.READ_WRITE;
+        }
+        return memoryMode == null ? MemoryMode.NONE : memoryMode;
+    }
+
+    /**
+     * 与 {@link GenericAgentSpec#effectiveMemoryWrites()} 同规则。
+     */
+    public Set<MemoryWriteFlag> effectiveMemoryWrites() {
+        return MemoryWriteFlag.resolveFlexible(memoryWrites, memoryMode);
     }
 
     /**
