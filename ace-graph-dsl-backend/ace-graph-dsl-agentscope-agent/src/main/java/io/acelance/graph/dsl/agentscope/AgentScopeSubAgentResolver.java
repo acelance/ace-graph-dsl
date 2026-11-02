@@ -41,15 +41,17 @@ public class AgentScopeSubAgentResolver implements SubAgentResolver {
     private final AgentScopeGenerateOptionsCustomizer generateOptionsCustomizer;
     /** 可空；空则 Adapter 内 DefaultMediaRefResolver */
     private final MediaRefResolver mediaResolver;
+    /** 可空；P0 跨会话历史多轮 Msg */
+    private final AgentScopeHistoryMsgAssembler historyMsgAssembler;
 
     public AgentScopeSubAgentResolver(GraphNodeRegistry nodeRegistry, AgentScopeModelFactory modelFactory) {
-        this(nodeRegistry, modelFactory, AgentScopeToolAssembly.noop(), GraphStreamBridge.NOOP, null, null);
+        this(nodeRegistry, modelFactory, AgentScopeToolAssembly.noop(), GraphStreamBridge.NOOP, null, null, null);
     }
 
     public AgentScopeSubAgentResolver(GraphNodeRegistry nodeRegistry,
                                       AgentScopeModelFactory modelFactory,
                                       AgentScopeToolAssembly toolAssembly) {
-        this(nodeRegistry, modelFactory, toolAssembly, GraphStreamBridge.NOOP, null, null);
+        this(nodeRegistry, modelFactory, toolAssembly, GraphStreamBridge.NOOP, null, null, null);
     }
 
     /**
@@ -59,7 +61,7 @@ public class AgentScopeSubAgentResolver implements SubAgentResolver {
                                       AgentScopeModelFactory modelFactory,
                                       AgentScopeToolAssembly toolAssembly,
                                       GraphStreamBridge streamBridge) {
-        this(nodeRegistry, modelFactory, toolAssembly, streamBridge, null, null);
+        this(nodeRegistry, modelFactory, toolAssembly, streamBridge, null, null, null);
     }
 
     /**
@@ -71,7 +73,7 @@ public class AgentScopeSubAgentResolver implements SubAgentResolver {
                                       AgentScopeToolAssembly toolAssembly,
                                       GraphStreamBridge streamBridge,
                                       AgentScopeGenerateOptionsCustomizer generateOptionsCustomizer) {
-        this(nodeRegistry, modelFactory, toolAssembly, streamBridge, generateOptionsCustomizer, null);
+        this(nodeRegistry, modelFactory, toolAssembly, streamBridge, generateOptionsCustomizer, null, null);
     }
 
     /**
@@ -85,12 +87,26 @@ public class AgentScopeSubAgentResolver implements SubAgentResolver {
                                       GraphStreamBridge streamBridge,
                                       AgentScopeGenerateOptionsCustomizer generateOptionsCustomizer,
                                       MediaRefResolver mediaResolver) {
+        this(nodeRegistry, modelFactory, toolAssembly, streamBridge, generateOptionsCustomizer, mediaResolver, null);
+    }
+
+    /**
+     * @param historyMsgAssembler 可空；P0 只读 ChatMemory→多轮 Msg
+     */
+    public AgentScopeSubAgentResolver(GraphNodeRegistry nodeRegistry,
+                                      AgentScopeModelFactory modelFactory,
+                                      AgentScopeToolAssembly toolAssembly,
+                                      GraphStreamBridge streamBridge,
+                                      AgentScopeGenerateOptionsCustomizer generateOptionsCustomizer,
+                                      MediaRefResolver mediaResolver,
+                                      AgentScopeHistoryMsgAssembler historyMsgAssembler) {
         this.nodeRegistry = Objects.requireNonNull(nodeRegistry, "nodeRegistry");
         this.modelFactory = Objects.requireNonNull(modelFactory, "modelFactory");
         this.toolAssembly = toolAssembly != null ? toolAssembly : AgentScopeToolAssembly.noop();
         this.streamBridge = streamBridge != null ? streamBridge : GraphStreamBridge.NOOP;
         this.generateOptionsCustomizer = generateOptionsCustomizer;
         this.mediaResolver = mediaResolver;
+        this.historyMsgAssembler = historyMsgAssembler;
     }
 
     @Override
@@ -161,11 +177,13 @@ public class AgentScopeSubAgentResolver implements SubAgentResolver {
                 request.graphId(), request.parentNodeId(), agentId,
                 streamBridge, parentStream, generateOptionsCustomizer,
                 deferModel ? modelFactory : null,
-                mediaResolver);
+                mediaResolver,
+                historyMsgAssembler);
 
         log.info("解析 AGENTSCOPE 子 Agent 成功, bridge={}, graphId={}, parentNodeId={}, name={}, ref={}, "
                         + "outputKey={}, memoryMode=NONE, gMcp=true, deferModelMount={}, streamBridgeNoop={}, "
-                        + "generateOptionsCustomizer={}, mediaResolver={}, parentKind={}, parentAttrsKeys={}, "
+                        + "generateOptionsCustomizer={}, mediaResolver={}, historyMsgAssembler={}, "
+                        + "parentKind={}, parentAttrsKeys={}, "
                         + "parentApplyDeepThinking={}, skillKeys={}, mcpKeys={}, mediaInputKey={}",
                 AgentscopeBridgeArtifacts.BRIDGE_ARTIFACT,
                 request.graphId(), request.parentNodeId(), name, ref.ref(), outputKey,
@@ -173,6 +191,7 @@ public class AgentScopeSubAgentResolver implements SubAgentResolver {
                 streamBridge == GraphStreamBridge.NOOP,
                 generateOptionsCustomizer != null,
                 mediaResolver != null,
+                historyMsgAssembler != null,
                 parentStream.streamResponseKind(), parentStream.streamAttrs().keySet(),
                 parentStream.applyDeepThinking(),
                 spec.skillKeys() != null ? spec.skillKeys().size() : 0,

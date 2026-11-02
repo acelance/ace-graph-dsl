@@ -3,6 +3,7 @@ package io.acelance.graph.dsl.agentscope.autoconfigure;
 import io.acelance.graph.dsl.agent.SecretResolver;
 import io.acelance.graph.dsl.agent.SubAgentResolver;
 import io.acelance.graph.dsl.agentscope.AgentScopeGenerateOptionsCustomizer;
+import io.acelance.graph.dsl.agentscope.AgentScopeHistoryMsgAssembler;
 import io.acelance.graph.dsl.agentscope.AgentScopeModelFactory;
 import io.acelance.graph.dsl.agentscope.AgentScopeSubAgentResolver;
 import io.acelance.graph.dsl.agentscope.AgentScopeToolAssembly;
@@ -88,15 +89,19 @@ public class AceGraphDslAgentscopeAgentAutoConfiguration {
             AgentScopeToolAssembly toolAssembly,
             ObjectProvider<GraphStreamBridge> streamBridge,
             ObjectProvider<AgentScopeGenerateOptionsCustomizer> generateOptionsCustomizer,
-            ObjectProvider<MediaRefResolver> mediaRefResolver) {
+            ObjectProvider<MediaRefResolver> mediaRefResolver,
+            ObjectProvider<AgentScopeHistoryMsgAssembler> historyMsgAssembler) {
         GraphStreamBridge bridge = streamBridge.getIfAvailable();
         AgentScopeGenerateOptionsCustomizer options = generateOptionsCustomizer.getIfAvailable();
         MediaRefResolver media = mediaRefResolver.getIfAvailable();
+        AgentScopeHistoryMsgAssembler history = historyMsgAssembler.getIfAvailable();
         log.info("注册 AgentScopeSubAgentResolver（G-MCP ToolAssembly, streamBridge={}, "
-                        + "generateOptionsCustomizer={}, mediaResolver={}）",
+                        + "generateOptionsCustomizer={}, mediaResolver={}, historyMsgAssembler={}）",
                 bridge != null && bridge != GraphStreamBridge.NOOP,
                 options != null,
-                media != null);
-        return new AgentScopeSubAgentResolver(nodeRegistry, modelFactory, toolAssembly, bridge, options, media);
+                media != null,
+                history != null);
+        return new AgentScopeSubAgentResolver(
+                nodeRegistry, modelFactory, toolAssembly, bridge, options, media, history);
     }
 }

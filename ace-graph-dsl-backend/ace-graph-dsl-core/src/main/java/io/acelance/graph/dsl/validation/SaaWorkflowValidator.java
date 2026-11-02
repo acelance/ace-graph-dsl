@@ -315,6 +315,61 @@ public final class SaaWorkflowValidator {
     }
 
     /**
+     * P0：含 AGENTSCOPE 子 Agent 的图，发布前须全图至少一处 {@code WRITE_ASSISTANT_MAIN_TEXT}。
+     *
+     * <p><b>仅应在 publish 路径调用</b>；保存草稿不要调用本方法。</p>
+     *
+     * @param def    图定义
+     * @param errors 错误收集列表
+     */
+    public static void collectAgentscopeRequireMainErrors(GraphDefinition def, List<String> errors) {
+        if (def == null || def.nodes() == null || errors == null) {
+            return;
+        }
+        if (!graphHasAgentscopeSubAgent(def)) {
+            return;
+        }
+        boolean anyMain = false;
+        for (NodeRef ref : def.nodes()) {
+            if (hasAssistantMain(ref)) {
+                anyMain = true;
+                break;
+            }
+        }
+        if (anyMain) {
+            log.info("发布 MAIN 校验通过: graphId={} 含 AGENTSCOPE 子 Agent 且已配置 WRITE_ASSISTANT_MAIN_TEXT",
+                    def.graphId());
+            return;
+        }
+        String msg = "发布失败: 图含 AGENTSCOPE 子 Agent，须至少一处配置 WRITE_ASSISTANT_MAIN_TEXT"
+                + "（可在 SAA 父或 ls_out_put 等出口；草稿保存不校验） graphId=" + def.graphId();
+        errors.add(msg);
+        log.warn("发布 MAIN 校验失败: graphId={}", def.graphId());
+    }
+
+    /** 图中是否存在 impl=AGENTSCOPE 的 SAA 子 Agent。 */
+    public static boolean graphHasAgentscopeSubAgent(GraphDefinition def) {
+        if (def == null || def.nodes() == null) {
+            return false;
+        }
+        for (NodeRef ref : def.nodes()) {
+            if (!isSaaWorkflowNode(ref) || ref.saaSpec() == null) {
+                continue;
+            }
+            List<SaaSubAgentRef> subs = ref.saaSpec().subAgents();
+            if (subs == null) {
+                continue;
+            }
+            for (SaaSubAgentRef sub : subs) {
+                if (sub != null && SaaSubAgentRefs.IMPL_AGENTSCOPE.equalsIgnoreCase(sub.effectiveImpl())) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    /**
      * 出口类节点名启发式（与 Lesso Provider {@code isOutputLikeNode} 对齐）。
      */
     public static boolean isOutputLikeNode(String nodeId) {

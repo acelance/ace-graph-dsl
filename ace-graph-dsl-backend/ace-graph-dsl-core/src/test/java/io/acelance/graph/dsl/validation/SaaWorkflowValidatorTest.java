@@ -120,6 +120,57 @@ class SaaWorkflowValidatorTest {
     }
 
     @Test
+    void agentscopeWithoutMain_publishCheckFails() {
+        SaaWorkflowSpec saaSpec = new SaaWorkflowSpec(
+                "ROUTING", "user_query", "agent_result", "BIZ",
+                null, null, null, null, null,
+                List.of(new SaaSubAgentRef("a", SaaSubAgentRefs.IMPL_AGENTSCOPE,
+                        "agentscope:agent:check", "{user_query}", "step1")),
+                false, false, null, null, null, null, null,
+                null, List.of("WRITE_USER"));
+        NodeRef saa = saaNode(saaSpec);
+        GraphDefinition def = new GraphDefinition(
+                "as-no-main", "as", "1", "",
+                Map.of("agent_result", "replace", "step1", "replace"),
+                List.of(saa), List.of(), null, null);
+
+        List<String> errors = new ArrayList<>();
+        SaaWorkflowValidator.collectAgentscopeRequireMainErrors(def, errors);
+        assertFalse(errors.isEmpty());
+        assertTrue(errors.stream().anyMatch(e -> e.contains("WRITE_ASSISTANT_MAIN_TEXT")));
+    }
+
+    @Test
+    void agentscopeWithMainOnOutput_publishCheckPasses() {
+        SaaWorkflowSpec saaSpec = new SaaWorkflowSpec(
+                "ROUTING", "user_query", "agent_result", "BIZ",
+                null, null, null, null, null,
+                List.of(new SaaSubAgentRef("a", SaaSubAgentRefs.IMPL_AGENTSCOPE,
+                        "agentscope:agent:check", "{user_query}", "step1")),
+                false, false, null, null, null, null, null,
+                null, List.of("WRITE_USER"));
+        NodeRef saa = saaNode(saaSpec);
+        GenericAgentSpec outSpec = new GenericAgentSpec(
+                null, null, false, "m", null,
+                "agent_result", "final_out", "OUTPUT", null,
+                false, List.of(), false, null,
+                false, List.of(), false, List.of(), Map.of(),
+                false, List.of(), MemoryMode.NONE,
+                List.of("WRITE_ASSISTANT_MAIN_TEXT"), false,
+                false, null, null);
+        NodeRef out = new NodeRef("agent_ls_out_put_node", "GENERIC_AGENT", Map.of(), null, null,
+                null, null, null, outSpec, null);
+        GraphDefinition def = new GraphDefinition(
+                "as-with-main", "as", "1", "",
+                Map.of("agent_result", "replace", "step1", "replace", "final_out", "replace"),
+                List.of(saa, out), List.of(), null, null);
+
+        List<String> errors = new ArrayList<>();
+        SaaWorkflowValidator.collectAgentscopeRequireMainErrors(def, errors);
+        assertTrue(errors.isEmpty(), () -> String.join("; ", errors));
+    }
+
+    @Test
     void dualMainSaaThenOutputLike_emitsWarning() {
         SaaWorkflowSpec saaSpec = new SaaWorkflowSpec(
                 "SEQUENTIAL", "user_query", "agent_result", "BIZ",

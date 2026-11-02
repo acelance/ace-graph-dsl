@@ -200,13 +200,24 @@ final class AgentScopeMediaMsgSupport {
                                           String runId,
                                           OverAllState state,
                                           ResourceBinding binding) {
+        return mediaContext(agentCode, graphId, nodeId, runId, state, binding, null);
+    }
+
+    /** 带 conversationId，供记忆相关路径透传。 */
+    static LlmRequestContext mediaContext(String agentCode,
+                                          String graphId,
+                                          String nodeId,
+                                          String runId,
+                                          OverAllState state,
+                                          ResourceBinding binding,
+                                          String conversationId) {
         ResourceBinding b = binding != null ? binding : ResourceBinding.disabledAll();
         return new LlmRequestContext(
                 agentCode != null ? agentCode : "",
                 graphId != null ? graphId : "",
                 nodeId != null ? nodeId : "",
                 runId != null ? runId : "",
-                null,
+                conversationId,
                 state,
                 b);
     }

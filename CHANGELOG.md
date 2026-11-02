@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.28] — 2026-11-02
+
+### Added
+
+- **AGENTSCOPE 多轮历史 SPI**：`AgentScopeHistoryMsgAssembler`；Adapter
+  `buildInvokeMsgs` 组装真多轮 `List<Msg>`（无 Bean 仅本轮 + WARN）。
+- **`MediaRefsHydrator` SPI**（`ace-graph-dsl-ai`）：执行入口可回灌历史附件 URL。
+- **发布前 MAIN 校验**：含 AGENTSCOPE 的图在 `GraphRuntime.publish` 须有一处
+  `WRITE_ASSISTANT_MAIN_TEXT`；草稿校验不挡。
+
+### Fixed
+
+- **`MediaRefs.normalize(null)`**：空值返回空列表，避免 NPE。
+
 ## [1.1.27] — 2026-10-30
 
 ### Fixed

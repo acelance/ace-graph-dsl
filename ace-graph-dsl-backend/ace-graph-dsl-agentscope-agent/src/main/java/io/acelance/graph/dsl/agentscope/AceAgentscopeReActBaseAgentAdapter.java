@@ -25,6 +25,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.util.StringUtils;
 
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -67,15 +68,18 @@ public final class AceAgentscopeReActBaseAgentAdapter extends BaseAgent {
     private final AgentScopeGenerateOptionsCustomizer generateOptionsCustomizer;
     /** 多模态解析；可空则用 DefaultMediaRefResolver */
     private final MediaRefResolver mediaResolver;
+    /** P0：跨会话历史多轮 Msg；可空则仅本轮 + WARN */
+    private final AgentScopeHistoryMsgAssembler historyMsgAssembler;
     private volatile Model cachedRuntimeModel;
     private volatile String cachedRuntimeAgentCode;
 
     /**
-     * 生产路径（G-MCP + G-STREAM-INNER）。
+     * 生产路径（G-MCP + G-STREAM-INNER + P0 历史多轮）。
      *
      * @param model        可空：内联模型在发布期传入；modelConfigKey 路径传 null，由 {@code modelFactory} 运行时解析
      * @param modelFactory {@code model == null} 时必填
      * @param mediaResolver 可空；宿主应注入 LessoMediaRefResolver（内网 base64）
+     * @param historyMsgAssembler 可空；宿主注入只读 ChatMemory→Msg 组装
      */
     public AceAgentscopeReActBaseAgentAdapter(String name,
                                               String description,
@@ -92,7 +96,8 @@ public final class AceAgentscopeReActBaseAgentAdapter extends BaseAgent {
                                               AgentScopeParentStreamContext parentStream,
                                               AgentScopeGenerateOptionsCustomizer generateOptionsCustomizer,
                                               AgentScopeModelFactory modelFactory,
-                                              MediaRefResolver mediaResolver) {
+                                              MediaRefResolver mediaResolver,
+                                              AgentScopeHistoryMsgAssembler historyMsgAssembler) {
         super(name, description, true, false, bindingOutputKey, new ReplaceStrategy());
         if (model == null && modelFactory == null) {
             throw new IllegalArgumentException("AGENTSCOPE model 与 modelFactory 不能同时为空");
@@ -112,6 +117,29 @@ public final class AceAgentscopeReActBaseAgentAdapter extends BaseAgent {
         this.parentStream = parentStream != null ? parentStream : AgentScopeParentStreamContext.EMPTY;
         this.generateOptionsCustomizer = generateOptionsCustomizer;
         this.mediaResolver = mediaResolver != null ? mediaResolver : new DefaultMediaRefResolver();
+        this.historyMsgAssembler = historyMsgAssembler;
+    }
+
+    /** 兼容：无历史 Assembler。 */
+    public AceAgentscopeReActBaseAgentAdapter(String name,
+                                              String description,
+                                              String bindingOutputKey,
+                                              String instructionTemplate,
+                                              Model model,
+                                              String baseSysPrompt,
+                                              GenericAgentSpec agentSpec,
+                                              AgentScopeToolAssembly toolAssembly,
+                                              String parentGraphId,
+                                              String parentNodeId,
+                                              String agentId,
+                                              GraphStreamBridge streamBridge,
+                                              AgentScopeParentStreamContext parentStream,
+                                              AgentScopeGenerateOptionsCustomizer generateOptionsCustomizer,
+                                              AgentScopeModelFactory modelFactory,
+                                              MediaRefResolver mediaResolver) {
+        this(name, description, bindingOutputKey, instructionTemplate, model, baseSysPrompt, agentSpec,
+                toolAssembly, parentGraphId, parentNodeId, agentId, streamBridge, parentStream,
+                generateOptionsCustomizer, modelFactory, mediaResolver, null);
     }
 
     /**
@@ -233,6 +261,7 @@ public final class AceAgentscopeReActBaseAgentAdapter extends BaseAgent {
         this.parentStream = parentStream != null ? parentStream : AgentScopeParentStreamContext.EMPTY;
         this.generateOptionsCustomizer = null;
         this.mediaResolver = null;
+        this.historyMsgAssembler = null;
     }
 
     @Override
@@ -268,22 +297,23 @@ public final class AceAgentscopeReActBaseAgentAdapter extends BaseAgent {
             boolean deepThinking = resolveDeepThinking(state);
             ResolvedReAct resolved = resolveReActAgent(state, deepThinking);
             String runId = readRunId(state);
-            Msg userMsg = buildUserMsgWithMedia(state, rendered, runId);
+            List<Msg> msgs = buildInvokeMsgs(state, rendered, runId);
             boolean wantStream = AgentScopeStreamSupport.canStream(streamBridge, runId);
             String text;
             if (wantStream) {
                 log.info("AGENTSCOPE 开启内层流式(streamEvents), bridge={}, graphId={}, parentNodeId={}, subName={}, "
-                                + "runId={}, responseKind={}, attrsKeys={}, hasTools={}, deepThinking={}",
+                                + "runId={}, responseKind={}, attrsKeys={}, hasTools={}, deepThinking={}, totalMsgs={}",
                         AgentscopeBridgeArtifacts.BRIDGE_ARTIFACT, parentGraphId, parentNodeId, name(), runId,
                         parentStream.streamResponseKind(), parentStream.streamAttrs().keySet(),
-                        resolved.hasTools(), deepThinking);
-                text = invokeStreaming(resolved.agent(), userMsg, runId, resolved.hasTools());
+                        resolved.hasTools(), deepThinking, msgs.size());
+                text = invokeStreaming(resolved.agent(), msgs, runId, resolved.hasTools());
             } else {
                 log.warn("AGENTSCOPE 内层流式降级为整段写回, bridge={}, graphId={}, parentNodeId={}, subName={}, "
-                                + "runIdBlank={}, bridgeNoop={}, deepThinking={}",
+                                + "runIdBlank={}, bridgeNoop={}, deepThinking={}, totalMsgs={}",
                         AgentscopeBridgeArtifacts.BRIDGE_ARTIFACT, parentGraphId, parentNodeId, name(),
-                        !StringUtils.hasText(runId), streamBridge == GraphStreamBridge.NOOP, deepThinking);
-                text = invokeBlocking(resolved.agent(), userMsg);
+                        !StringUtils.hasText(runId), streamBridge == GraphStreamBridge.NOOP, deepThinking,
+                        msgs.size());
+                text = invokeBlocking(resolved.agent(), msgs);
             }
 
             Map<String, Object> out = new LinkedHashMap<>();
@@ -308,7 +338,7 @@ public final class AceAgentscopeReActBaseAgentAdapter extends BaseAgent {
     /**
      * {@code ReActAgent.streamEvents} → bridge emit（AS 2.0.4 非弃用 API）。
      */
-    private String invokeStreaming(ReActAgent agent, Msg userMsg, String runId, boolean hasTools) {
+    private String invokeStreaming(ReActAgent agent, List<Msg> msgs, String runId, boolean hasTools) {
         String kind = parentStream.streamResponseKind();
         Map<String, Object> attrs = parentStream.streamAttrs();
         AgentScopeVisibleStreamSession session = new AgentScopeVisibleStreamSession(
@@ -317,7 +347,7 @@ public final class AceAgentscopeReActBaseAgentAdapter extends BaseAgent {
                 streamBridge, runId, parentNodeId, kind, attrs, delta);
 
         try {
-            agent.streamEvents(List.of(userMsg))
+            agent.streamEvents(msgs)
                     .doOnNext(event -> session.accept(event, emit))
                     .blockLast();
 
@@ -325,16 +355,16 @@ public final class AceAgentscopeReActBaseAgentAdapter extends BaseAgent {
             AgentScopeStreamSupport.emitFinished(streamBridge, runId, parentNodeId, kind, attrs);
             String text = session.aggregatedText();
             log.info("AGENTSCOPE 流式完成, graphId={}, parentNodeId={}, subName={}, emitCount={}, replyLen={}, "
-                            + "hasTools={}, flushedLen={}",
+                            + "hasTools={}, flushedLen={}, totalMsgs={}",
                     parentGraphId, parentNodeId, name(), session.emitCount(), text.length(),
-                    hasTools, flushed);
+                    hasTools, flushed, msgs != null ? msgs.size() : 0);
             return text;
         } catch (Exception streamEx) {
             log.warn("AGENTSCOPE 内层 streamEvents 失败，降级 call 写 outputKey, bridge={}, graphId={}, "
                             + "parentNodeId={}, subName={}, runId={}, priorEmitCount={}, err={}",
                     AgentscopeBridgeArtifacts.BRIDGE_ARTIFACT, parentGraphId, parentNodeId, name(), runId,
                     session.emitCount(), streamEx.toString(), streamEx);
-            String text = invokeBlocking(agent, userMsg);
+            String text = invokeBlocking(agent, msgs);
             if (session.emitCount() > 0) {
                 AgentScopeStreamSupport.emitFinished(streamBridge, runId, parentNodeId, kind, attrs);
             }
@@ -344,8 +374,8 @@ public final class AceAgentscopeReActBaseAgentAdapter extends BaseAgent {
         }
     }
 
-    private String invokeBlocking(ReActAgent agent, Msg userMsg) {
-        Msg reply = agent.call(List.of(userMsg)).block();
+    private String invokeBlocking(ReActAgent agent, List<Msg> msgs) {
+        Msg reply = agent.call(msgs).block();
         String text = reply != null ? reply.getTextContent() : null;
         return text != null ? text : "";
     }
@@ -465,6 +495,50 @@ public final class AceAgentscopeReActBaseAgentAdapter extends BaseAgent {
     }
 
     /**
+     * P0 方案①：历史多轮 Msg + 本轮 USER（材料 enrich 后文本再组多模态）。
+     */
+    private List<Msg> buildInvokeMsgs(OverAllState state, String rendered, String runId) {
+        String conversationId = readConversationId(state);
+        String agentCode = readAgentCode(state);
+        String enriched = rendered != null ? rendered : "";
+        List<Msg> historyMsgs = List.of();
+        int historyCount = 0;
+        int materialNotes = 0;
+        if (historyMsgAssembler == null) {
+            log.warn("AGENTSCOPE 未注册 HistoryMsgAssembler，仅本轮 USER（续轮可能缺历史）, "
+                            + "graphId={}, parentNodeId={}, subName={}, conversationId={}",
+                    parentGraphId, parentNodeId, name(), conversationId);
+        } else {
+            try {
+                AgentScopeHistoryMsgAssembler.Result assembled = historyMsgAssembler.assemble(
+                        new AgentScopeHistoryMsgAssembler.Request(
+                                conversationId, parentGraphId, parentNodeId, agentId, agentCode,
+                                state, enriched));
+                if (assembled != null) {
+                    historyMsgs = assembled.historyMsgs();
+                    enriched = assembled.enrichedCurrentUserText();
+                    historyCount = assembled.historyCount();
+                    materialNotes = assembled.materialNotes();
+                }
+            } catch (RuntimeException ex) {
+                log.warn("AGENTSCOPE HistoryMsgAssembler 失败，回退仅本轮: graphId={}, subName={}, err={}",
+                        parentGraphId, name(), ex.toString());
+                historyMsgs = List.of();
+                enriched = rendered != null ? rendered : "";
+            }
+        }
+        Msg userMsg = buildUserMsgWithMedia(state, enriched, runId);
+        List<Msg> msgs = new ArrayList<>(historyMsgs.size() + 1);
+        msgs.addAll(historyMsgs);
+        msgs.add(userMsg);
+        log.info("AGENTSCOPE history msgs: conversationId={}, historyCount={}, historyMsgs={}, "
+                        + "totalMsgs={}, materialNotes={}, assembler={}",
+                conversationId, historyCount, historyMsgs.size(), msgs.size(), materialNotes,
+                historyMsgAssembler != null);
+        return List.copyOf(msgs);
+    }
+
+    /**
      * 文本 + media_refs → AS USER Msg（图 ImageBlock，xlsx/pdf 材料注记）。
      * Spec 缺 mediaInputKey 时仍读平台默认 {@code media_refs}。
      */
@@ -474,9 +548,17 @@ public final class AceAgentscopeReActBaseAgentAdapter extends BaseAgent {
         var ctx = AgentScopeMediaMsgSupport.mediaContext(
                 readAgentCode(state), parentGraphId,
                 parentNodeId != null ? parentNodeId : name(),
-                runId, state, binding);
+                runId, state, binding, readConversationId(state));
         return AgentScopeMediaMsgSupport.buildUserMsg(
                 rendered, state, mediaKey, mediaResolver, ctx);
+    }
+
+    private static String readConversationId(OverAllState state) {
+        if (state == null) {
+            return null;
+        }
+        Object v = state.value(LlmRequestContext.ACE_CONVERSATION_ID_KEY).orElse(null);
+        return v != null && StringUtils.hasText(String.valueOf(v)) ? String.valueOf(v).trim() : null;
     }
 
     private static String readAgentCode(OverAllState state) {

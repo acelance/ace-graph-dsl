@@ -44,9 +44,12 @@ public final class MediaRefs {
         return normalize(raw, mediaInputKey);
     }
 
-    /** 容错：List&lt;Map&gt; / List&lt;MediaRef&gt; / 单 Map / 单 MediaRef / 单 url 字符串 */
+    /** 容错：null / List&lt;Map&gt; / List&lt;MediaRef&gt; / 单 Map / 单 MediaRef / 单 url 字符串 */
     @SuppressWarnings("unchecked")
     public static List<MediaRef> normalize(Object raw, String mediaInputKey) {
+        if (raw == null) {
+            return List.of();
+        }
         List<MediaRef> out = new ArrayList<>();
         if (raw instanceof List<?> list) {
             if (list.isEmpty()) {
