@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.29] — 2026-11-03
+
+### Fixed
+
+- **USER 落盘媒体与运行时 media_refs 分离**：新增保留键
+  `ace.graph.dsl.requestMediaRefs`（仅本轮请求附件）。
+  `StreamingLlmTemplate` 写记忆 extras 只读该键，**禁止**回退运行时
+  `media_refs`（可含 Hydrator 历史），避免续轮纯文本把历史附件再次写入 extras。
+
 ## [1.1.28] — 2026-11-02
 
 ### Added

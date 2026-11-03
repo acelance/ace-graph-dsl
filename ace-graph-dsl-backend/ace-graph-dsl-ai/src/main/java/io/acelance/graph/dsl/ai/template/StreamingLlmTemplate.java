@@ -284,8 +284,8 @@ public class StreamingLlmTemplate {
         }
 
         MediaRefResolver.ResolveResult mediaResult = resolveMedia(ctx, req.mediaInputKey());
-        List<MediaRef> mediaRefs = MediaRefs.readFrom(ctx.state(), req.mediaInputKey());
-        MemoryUserPersistMeta.SplitUrls persistUrls = MemoryUserPersistMeta.splitUrls(mediaRefs);
+        // 入模/材料注记仍读运行时 mediaInputKey（可含 Hydrator 历史）；落盘 extras 只用本轮快照键
+        MemoryUserPersistMeta.SplitUrls persistUrls = resolvePersistUrls(ctx, req.mediaInputKey());
         List<String> skillLabels = ForceSkills.readLabels(ctx.state(), ctx.nodeId());
         if (!mediaResult.materialNotes().isEmpty() || !mediaResult.skippedNotes().isEmpty()) {
             StringBuilder footnote = new StringBuilder(user);
@@ -382,6 +382,24 @@ public class StreamingLlmTemplate {
             return MediaRefResolver.ResolveResult.empty();
         }
         return mediaResolver.resolve(ctx, refs);
+    }
+
+    /**
+     * USER extras 落盘附件：只读本轮快照键，禁止回退运行时 {@code media_refs}（可含 Hydrator 历史）。
+     */
+    private MemoryUserPersistMeta.SplitUrls resolvePersistUrls(LlmRequestContext ctx, String runtimeMediaKey) {
+        List<MediaRef> turnRefs = MediaRefs.readFrom(ctx.state(), LlmRequestContext.ACE_REQUEST_MEDIA_REFS_KEY);
+        MemoryUserPersistMeta.SplitUrls urls = MemoryUserPersistMeta.splitUrls(turnRefs);
+        List<MediaRef> runtimeRefs = MediaRefs.readFrom(ctx.state(), runtimeMediaKey);
+        if (urls.images().isEmpty() && urls.files().isEmpty() && !runtimeRefs.isEmpty()) {
+            log.info("节点 {} 落盘 extras 媒体为空（仅本轮键），运行时 mediaKey={} 仍有 {} 条（多为历史回灌，不写入 extras）",
+                    ctx.nodeId(), runtimeMediaKey, runtimeRefs.size());
+        } else if (!urls.images().isEmpty() || !urls.files().isEmpty()) {
+            log.info("节点 {} 落盘 extras 媒体: images={}, files={}（来源={}）",
+                    ctx.nodeId(), urls.images().size(), urls.files().size(),
+                    LlmRequestContext.ACE_REQUEST_MEDIA_REFS_KEY);
+        }
+        return urls;
     }
 
     private static List<ToolCallback> resolveModelTools(List<NamedToolCallback> named, String nodeId,
