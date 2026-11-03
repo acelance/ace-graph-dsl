@@ -5,6 +5,8 @@ import io.acelance.graph.dsl.agent.SubAgentBinding;
 import io.acelance.graph.dsl.agent.SubAgentResolveRequest;
 import io.acelance.graph.dsl.agent.SubAgentResolver;
 import io.acelance.graph.dsl.definition.GenericAgentSpec;
+import io.acelance.graph.dsl.definition.GraphDefinition;
+import io.acelance.graph.dsl.definition.GraphEdge;
 import io.acelance.graph.dsl.definition.NodeRef;
 import io.acelance.graph.dsl.definition.SaaSubAgentRef;
 import io.acelance.graph.dsl.definition.SaaSubAgentRefs;
@@ -32,7 +34,7 @@ class SaaWorkflowValidatorTest {
         SaaWorkflowValidator validator = new SaaWorkflowValidator(
                 registry, List.of(new AcceptGenericResolver()), true);
 
-        NodeRef ref = saaNode(new SaaWorkflowSpec(
+        NodeRef ref = saaNode(SaaWorkflowSpec.of(
                 "SEQUENTIAL", "user_query", "sql_score", "BIZ",
                 null, null, null, null, null,
                 List.of(
@@ -51,7 +53,7 @@ class SaaWorkflowValidatorTest {
     void moduleDisabledFails() {
         SaaWorkflowValidator validator = new SaaWorkflowValidator(
                 new GraphNodeRegistry(List.of()), List.of(), false);
-        NodeRef ref = saaNode(new SaaWorkflowSpec(
+        NodeRef ref = saaNode(SaaWorkflowSpec.of(
                 "SEQUENTIAL", "user_query", "out", null,
                 null, null, null, null, null,
                 List.of(new SaaSubAgentRef("a", null, "generic:sql-gen", null, "x"))));
@@ -66,7 +68,7 @@ class SaaWorkflowValidatorTest {
         GraphNodeRegistry registry = registryWith("sql-gen");
         SaaWorkflowValidator validator = new SaaWorkflowValidator(
                 registry, List.of(new AcceptGenericResolver()), true);
-        NodeRef ref = saaNode(new SaaWorkflowSpec(
+        NodeRef ref = saaNode(SaaWorkflowSpec.of(
                 "ROUTING", "user_query", "out", null,
                 "nacos_agent_node", null, null, null, null,
                 List.of(new SaaSubAgentRef("a", null, "generic:sql-gen", null, "x"))));
@@ -80,7 +82,7 @@ class SaaWorkflowValidatorTest {
         GraphNodeRegistry registry = registryWith("sql-gen");
         SaaWorkflowValidator validator = new SaaWorkflowValidator(
                 registry, List.of(new AcceptGenericResolver()), true);
-        NodeRef ref = saaNode(new SaaWorkflowSpec(
+        NodeRef ref = saaNode(SaaWorkflowSpec.of(
                 "PARALLEL", "user_query", "out", null,
                 null, null, null, null, null,
                 List.of(new SaaSubAgentRef("a", null, "generic:sql-gen", null, "x"))));
@@ -94,7 +96,7 @@ class SaaWorkflowValidatorTest {
         GraphNodeRegistry registry = registryWith("sql-gen");
         SaaWorkflowValidator validator = new SaaWorkflowValidator(
                 registry, List.of(new AcceptGenericResolver()), true);
-        NodeRef ref = saaNode(new SaaWorkflowSpec(
+        NodeRef ref = saaNode(SaaWorkflowSpec.of(
                 "LOOP", "user_query", "out", null,
                 null, 3, "score", "GT", "0.8",
                 List.of(new SaaSubAgentRef("a", null, "generic:sql-gen", null, "score"))));
@@ -108,13 +110,102 @@ class SaaWorkflowValidatorTest {
         GraphNodeRegistry registry = registryWith("sql-gen");
         SaaWorkflowValidator validator = new SaaWorkflowValidator(
                 registry, List.of(new AcceptGenericResolver()), true);
-        NodeRef ref = saaNode(new SaaWorkflowSpec(
+        NodeRef ref = saaNode(SaaWorkflowSpec.of(
                 "LOOP", "user_query", "out", null,
                 null, 2, null, null, null,
                 List.of(new SaaSubAgentRef("a", null, "generic:sql-gen", null, "score"))));
         List<String> errors = new ArrayList<>();
         validator.validateNode("g1", ref, errors);
         assertTrue(errors.isEmpty(), () -> String.join("; ", errors));
+    }
+
+    @Test
+    void agentscopeWithoutMain_publishCheckFails() {
+        SaaWorkflowSpec saaSpec = new SaaWorkflowSpec(
+                "ROUTING", "user_query", "agent_result", "BIZ",
+                null, null, null, null, null,
+                List.of(new SaaSubAgentRef("a", SaaSubAgentRefs.IMPL_AGENTSCOPE,
+                        "agentscope:agent:check", "{user_query}", "step1")),
+                false, false, null, null, null, null, null,
+                null, List.of("WRITE_USER"));
+        NodeRef saa = saaNode(saaSpec);
+        GraphDefinition def = new GraphDefinition(
+                "as-no-main", "as", "1", "",
+                Map.of("agent_result", "replace", "step1", "replace"),
+                List.of(saa), List.of(), null, null);
+
+        List<String> errors = new ArrayList<>();
+        SaaWorkflowValidator.collectAgentscopeRequireMainErrors(def, errors);
+        assertFalse(errors.isEmpty());
+        assertTrue(errors.stream().anyMatch(e -> e.contains("WRITE_ASSISTANT_MAIN_TEXT")));
+    }
+
+    @Test
+    void agentscopeWithMainOnOutput_publishCheckPasses() {
+        SaaWorkflowSpec saaSpec = new SaaWorkflowSpec(
+                "ROUTING", "user_query", "agent_result", "BIZ",
+                null, null, null, null, null,
+                List.of(new SaaSubAgentRef("a", SaaSubAgentRefs.IMPL_AGENTSCOPE,
+                        "agentscope:agent:check", "{user_query}", "step1")),
+                false, false, null, null, null, null, null,
+                null, List.of("WRITE_USER"));
+        NodeRef saa = saaNode(saaSpec);
+        GenericAgentSpec outSpec = new GenericAgentSpec(
+                null, null, false, "m", null,
+                "agent_result", "final_out", "OUTPUT", null,
+                false, List.of(), false, null,
+                false, List.of(), false, List.of(), Map.of(),
+                false, List.of(), MemoryMode.NONE,
+                List.of("WRITE_ASSISTANT_MAIN_TEXT"), false,
+                false, null, null);
+        NodeRef out = new NodeRef("agent_ls_out_put_node", "GENERIC_AGENT", Map.of(), null, null,
+                null, null, null, outSpec, null);
+        GraphDefinition def = new GraphDefinition(
+                "as-with-main", "as", "1", "",
+                Map.of("agent_result", "replace", "step1", "replace", "final_out", "replace"),
+                List.of(saa, out), List.of(), null, null);
+
+        List<String> errors = new ArrayList<>();
+        SaaWorkflowValidator.collectAgentscopeRequireMainErrors(def, errors);
+        assertTrue(errors.isEmpty(), () -> String.join("; ", errors));
+    }
+
+    @Test
+    void dualMainSaaThenOutputLike_emitsWarning() {
+        SaaWorkflowSpec saaSpec = new SaaWorkflowSpec(
+                "SEQUENTIAL", "user_query", "agent_result", "BIZ",
+                null, null, null, null, null,
+                List.of(new SaaSubAgentRef("a", SaaSubAgentRefs.IMPL_GENERIC_AGENT,
+                        "generic:sql-gen", "{user_query}", "a")),
+                false, false, null, null, null, null, null,
+                null, List.of("WRITE_ASSISTANT_MAIN_TEXT"));
+        NodeRef saa = new NodeRef("saa_parent", "SAA_WORKFLOW", Map.of(), null, null,
+                null, null, null, null, saaSpec);
+
+        GenericAgentSpec outSpec = new GenericAgentSpec(
+                null, null, false, "m", null,
+                "agent_result", "final_out", "OUTPUT", null,
+                false, List.of(), false, null,
+                false, List.of(), false, List.of(), Map.of(),
+                false, List.of(), MemoryMode.NONE,
+                List.of("WRITE_ASSISTANT_MAIN_TEXT"), false,
+                false, null, null);
+        NodeRef out = new NodeRef("agent_ls_out_put_node", "GENERIC_AGENT", Map.of(), null, null,
+                null, null, null, outSpec, null);
+
+        GraphDefinition def = new GraphDefinition(
+                "dual-main-g", "dual", "1", "",
+                Map.of("agent_result", "replace", "a", "replace", "final_out", "replace"),
+                List.of(saa, out),
+                List.of(new GraphEdge("saa_parent", "agent_ls_out_put_node",
+                        GraphEdge.TYPE_NORMAL, null, null, null, null)),
+                null, null);
+
+        List<String> warnings = new ArrayList<>();
+        SaaWorkflowValidator.collectDualMainWarnings(def, warnings);
+        assertFalse(warnings.isEmpty(), "应有双 MAIN warning");
+        assertTrue(warnings.stream().anyMatch(w -> w.contains("双 MAIN")),
+                () -> String.join("; ", warnings));
     }
 
     private static NodeRef saaNode(SaaWorkflowSpec spec) {

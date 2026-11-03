@@ -16,10 +16,10 @@ import org.springframework.util.StringUtils;
 import java.util.Objects;
 
 /**
- * 默认 {@link AgentScopeModelFactory}：enableModel+modelConfigKey 走 {@link ModelMountResolver}，
- * 否则用 Spec 内联 baseUrl/apiKey/modelId 构造 AS 2.x {@link OpenAIChatModel}。
+ * 默认 {@link AgentScopeModelFactory}：enableModel+modelConfigKey 走 {@link ModelMountResolver}
+ *（须带运行时 {@code agentCode}），否则用 Spec 内联构造 AS 2.x {@link OpenAIChatModel}。
  *
- * <p>MVP：{@code stream(false)}（缺口 G-STREAM-INNER，不得永久化）。</p>
+ * <p>G-STREAM-INNER：{@code stream(true)}，由 Adapter 经 {@code ReActAgent.stream} 消费增量。</p>
  */
 public final class DefaultAgentScopeModelFactory implements AgentScopeModelFactory {
 
@@ -43,8 +43,14 @@ public final class DefaultAgentScopeModelFactory implements AgentScopeModelFacto
 
     @Override
     public Model create(String graphId, String nodeId, String agentId, GenericAgentSpec spec) {
+        return create(graphId, nodeId, agentId, spec, "");
+    }
+
+    @Override
+    public Model create(String graphId, String nodeId, String agentId, GenericAgentSpec spec,
+                        String agentCode) {
         Objects.requireNonNull(spec, "spec");
-        ModelEndpoint endpoint = resolveEndpoint(graphId, nodeId, agentId, spec);
+        ModelEndpoint endpoint = resolveEndpoint(graphId, nodeId, agentId, spec, agentCode);
         if (!StringUtils.hasText(endpoint.modelId())
                 || !StringUtils.hasText(endpoint.baseUrl())
                 || !StringUtils.hasText(endpoint.apiKey())) {
@@ -52,29 +58,38 @@ public final class DefaultAgentScopeModelFactory implements AgentScopeModelFacto
                     + ", nodeId=" + nodeId + ", agentId=" + agentId
                     + ", modelId=" + endpoint.modelId() + ", baseUrl=" + endpoint.baseUrl());
         }
-        log.info("AGENTSCOPE 模型就绪, bridge={}, graphId={}, nodeId={}, agentId={}, modelId={}, baseUrl={}, stream=false(MVP)",
-                AgentscopeBridgeArtifacts.BRIDGE_ARTIFACT, graphId, nodeId, agentId,
+        log.info("AGENTSCOPE 模型就绪, bridge={}, graphId={}, nodeId={}, agentId={}, agentCode={}, "
+                        + "modelId={}, baseUrl={}, stream=true",
+                AgentscopeBridgeArtifacts.BRIDGE_ARTIFACT, graphId, nodeId, agentId, agentCode,
                 endpoint.modelId(), endpoint.baseUrl());
-        // 以 agentscope-extensions-model-openai 2.0.4 实物为准；内层暂非流式（G-STREAM-INNER）
         return OpenAIChatModel.builder()
                 .apiKey(endpoint.apiKey())
                 .baseUrl(endpoint.baseUrl())
                 .modelName(endpoint.modelId())
-                .stream(false)
+                .stream(true)
                 .build();
     }
 
-    private ModelEndpoint resolveEndpoint(String graphId, String nodeId, String agentId, GenericAgentSpec spec) {
+    private ModelEndpoint resolveEndpoint(String graphId, String nodeId, String agentId,
+                                          GenericAgentSpec spec, String agentCode) {
         ResourceBinding binding = ResourceBindings.fromSpec(spec);
         if (binding.enableModel() && StringUtils.hasText(binding.modelConfigKey())) {
             if (mountResolver == null) {
                 throw new IllegalStateException("AGENTSCOPE 需要 ModelMountResolver 解析 modelConfigKey="
                         + binding.modelConfigKey() + ", agentId=" + agentId);
             }
-            LlmRequestContext ctx = new LlmRequestContext("", graphId, nodeId, "", null, binding);
-            ModelEndpoint ep = mountResolver.resolve(ctx, binding.modelConfigKey().trim());
-            log.info("AGENTSCOPE 按 modelConfigKey 解析端点, agentId={}, key={}", agentId, binding.modelConfigKey());
-            return ep;
+            if (!StringUtils.hasText(agentCode)) {
+                throw new IllegalStateException(
+                        "AGENTSCOPE modelConfigKey 须在运行时用执行入口 agentCode 解析，"
+                                + "禁止发布/编译期空 agentCode 挂载: key=" + binding.modelConfigKey()
+                                + ", agentId=" + agentId + ", graphId=" + graphId);
+            }
+            LlmRequestContext ctx = new LlmRequestContext(
+                    agentCode.trim(), graphId, nodeId, "", null, binding);
+            log.info("AGENTSCOPE 按 modelConfigKey 解析端点（运行时）, graphId={}, nodeId={}, agentId={}, "
+                            + "agentCode={}, key={}",
+                    graphId, nodeId, agentId, agentCode, binding.modelConfigKey());
+            return mountResolver.resolve(ctx, binding.modelConfigKey().trim());
         }
         String apiKey = spec.modelApiKey();
         if (spec.apiKeyMasked() && secretResolver != null) {

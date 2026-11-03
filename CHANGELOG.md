@@ -7,6 +7,68 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.28] — 2026-11-02
+
+### Added
+
+- **AGENTSCOPE 多轮历史 SPI**：`AgentScopeHistoryMsgAssembler`；Adapter
+  `buildInvokeMsgs` 组装真多轮 `List<Msg>`（无 Bean 仅本轮 + WARN）。
+- **`MediaRefsHydrator` SPI**（`ace-graph-dsl-ai`）：执行入口可回灌历史附件 URL。
+- **发布前 MAIN 校验**：含 AGENTSCOPE 的图在 `GraphRuntime.publish` 须有一处
+  `WRITE_ASSISTANT_MAIN_TEXT`；草稿校验不挡。
+
+### Fixed
+
+- **`MediaRefs.normalize(null)`**：空值返回空列表，避免 NPE。
+
+## [1.1.27] — 2026-10-30
+
+### Fixed
+
+- **SAA 内层会话隔离**：`FlowAgent`/`SequentialAgent` invoke 显式传入
+  `RunnableConfig.threadId`（优先 `ace.graph.dsl.runId`，与父图 Generic 对齐），
+  避免跨会话串子键（如旧 `step2`）污染出口。
+
+## [1.1.26] — 2026-10-30
+
+### Added
+
+- **SAA 父节点 memoryWrites**：`SaaWorkflowSpec` 对齐 Generic；`GraphNodeMemoryPersister` SPI；
+  `FlowAgentNodeAction` 按写意图即时落盘（不经 ChatClient Advisor）。
+- **校验 warnings**：`ValidationResult.warnings`；SAA→直接后继出口双 MAIN 仅 WARN。
+- **设计器**：`SaaWorkflowForm` 记忆区块 + 双 MAIN / 出口勿 WRITE_USER 提示。
+
+## [1.1.25] — 2026-10-29
+
+### Fixed
+
+- **SAA ROUTING 盲选**：`FlowAgentNodeAction` seed 在仅有 `input`/`user_query`、缺少
+  `messages` 时，补一条 `UserMessage`（`SaaFlowSeedSupport.ensureMessagesFromInput`）。
+  对齐官方 `RoutingNode` 只读 `state.messages` 的契约，避免路由器看不到用户话。
+
+## [1.1.24] — 2026-10-28
+
+### Fixed
+
+- **WebFlux dry-run**：`GraphDefinitionController` 试运行改为
+  `Mono.fromCallable(...).subscribeOn(boundedElastic())`，避免在
+  `reactor-http-nio-*` 上 `blockLast()` 触发
+  `block()/blockFirst()/blockLast() are blocking...`。
+  Servlet 模块路径不变。
+
+## [1.1.23] — 2026-10-28
+
+### Added
+
+- **G-STREAM-INNER（框架）**：`impl=AGENTSCOPE` 经 `ReActAgent.streamEvents` 推
+  `GraphStreamBridge` TokenChunk（挂父 SAA `nodeId` / `streamResponseKind` / attrs）；
+  无 bridge 或流失败时降级 `call` 写 `outputKey`。含媒体入参、
+  `AgentScopeGenerateOptionsCustomizer`、可见流会话与单测。
+- **SAA 父规格**：`applyDeepThinking` / bizParam 与 GENERIC 同级；ROUTING 可配
+  `routerSystemPrompt` / `routerInstruction` / `routerFallbackAgent`，
+  以及 `DeferredRouterChatModel` 延迟挂载。
+- **设计器**：SAA 表单同步上述字段；节点面板默认「当前图」，目录/节点面板可拖宽。
+
 ## [1.1.22] — 2026-10-23
 
 ### Added

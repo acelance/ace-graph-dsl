@@ -25,8 +25,11 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 import reactor.core.publisher.Flux;
+import reactor.core.publisher.Mono;
+import reactor.core.scheduler.Schedulers;
 
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -166,34 +169,60 @@ public class GraphDefinitionController {
         return def;
     }
 
+    /**
+     * 试运行：图编译/stream 偏同步阻塞，禁止在 {@code reactor-http-nio-*} 上 {@code block*}。
+     * 按双模块方案：同步逻辑放 {@code boundedElastic}，Controller 返回 {@link Mono}。
+     */
     @PostMapping("/{graphId}/dry-run")
-    public Map<String, Object> dryRun(@PathVariable String graphId, @RequestBody DryRunRequest req) {
-        GraphDefinition def = req.definition();
-        if (def == null) {
-            throw new IllegalArgumentException("definition 不能为空");
+    public Mono<Map<String, Object>> dryRun(@PathVariable String graphId, @RequestBody DryRunRequest req) {
+        if (req == null || req.definition() == null) {
+            return Mono.error(new IllegalArgumentException("definition 不能为空"));
         }
         DynamicGraphBuilder builder = builders.getIfAvailable();
         if (builder == null) {
-            return Map.of("error", "DynamicGraphBuilder 不可用");
+            return Mono.just(Map.of("error", "DynamicGraphBuilder 不可用"));
         }
+        log.info("dry-run 提交到 boundedElastic: graphId={}", graphId);
+        return Mono.fromCallable(() -> dryRunBlocking(graphId, req.definition(), req.inputs(), builder))
+                .subscribeOn(Schedulers.boundedElastic())
+                .doOnSuccess(r -> log.info("dry-run 完成: graphId={}, hasError={}",
+                        graphId, r != null && r.containsKey("error")))
+                .doOnError(e -> log.error("dry-run 失败: graphId={}, err={}", graphId, e.toString(), e));
+    }
+
+    /**
+     * 在 {@link Schedulers#boundedElastic()} 上执行；内部可 {@code blockLast()}。
+     */
+    private static Map<String, Object> dryRunBlocking(String graphId,
+                                                      GraphDefinition def,
+                                                      Map<String, Object> inputs,
+                                                      DynamicGraphBuilder builder) {
         try {
             CompiledGraph compiled = builder.build(def);
             String threadId = UUID.randomUUID().toString();
             RunnableConfig config = RunnableConfig.builder().threadId(threadId).build();
-            Map<String, Object> inputs = req.inputs() != null ? req.inputs() : Map.of();
+            Map<String, Object> in = inputs != null ? inputs : Map.of();
             List<Map<String, Object>> trace = new ArrayList<>();
-            Flux<NodeOutput> flux = compiled.stream(inputs, config);
+            Flux<NodeOutput> flux = compiled.stream(in, config);
             flux.doOnNext(out -> {
                 Map<String, Object> state = out.state() != null ? out.state().data() : Map.of();
-                trace.add(Map.of("node", out.node(), "state", state));
+                Map<String, Object> step = new LinkedHashMap<>(2);
+                step.put("node", out.node() != null ? out.node() : "");
+                step.put("state", state != null ? state : Map.of());
+                trace.add(step);
             }).blockLast();
             @SuppressWarnings("unchecked")
             Map<String, Object> finalState = trace.isEmpty()
                     ? Map.of()
                     : (Map<String, Object>) trace.get(trace.size() - 1).get("state");
-            return Map.of("trace", trace, "finalState", finalState);
+            log.info("dry-run stream 结束: graphId={}, threadId={}, steps={}", graphId, threadId, trace.size());
+            Map<String, Object> body = new LinkedHashMap<>(2);
+            body.put("trace", trace);
+            body.put("finalState", finalState != null ? finalState : Map.of());
+            return body;
         }
         catch (Exception e) {
+            log.warn("dry-run 执行异常: graphId={}, err={}", graphId, e.toString());
             return Map.of("error", e.getMessage() != null ? e.getMessage() : e.toString());
         }
     }

@@ -7,7 +7,7 @@
 | 分支 | 框架 `feature/as-b1-path-b-mvp`；宿主 `feature-agentscope-B-MVP` |
 | 方案 | [ACE-Graph-DSL-AgentScope-路径B-开发方案.md](./ACE-Graph-DSL-AgentScope-路径B-开发方案.md) |
 | 阶段 | 分阶段规划 **阶段 1**；估时 **约 8～15 人日**（框架为主） |
-| 下一阶段 | [G-MCP 方案/计划](./ACE-Graph-DSL-AgentScope-G-MCP-开发方案.md)（分支 `feature-as-b1-g-mcp`）；G-STREAM-INNER；Harness → `feature-as-h0-harness-entry` |
+| 下一阶段 | G-MCP 已验收；[G-STREAM-INNER](./ACE-Graph-DSL-AgentScope-G-STREAM-INNER-开发方案.md) 框架侧已落地（§0.5 全推；宿主 M4 进行中，分支 `feature-as-b1-g-stream-inner`）；Harness → `feature-as-h0-harness-entry` |
 
 ---
 
@@ -172,8 +172,8 @@ mvn -pl ace-graph-dsl-agentscope-agent -am "-Dtest=AgentScopeSequentialFactoryIn
 
 | 项 | 归属 | 备注 |
 |----|------|------|
-| 真实 MCP / 工具挂载（G-MCP） | Skill 宿主冒烟已过；MCP 环境待换可用 server；`1.1.22` deploy 待续 | [G-MCP 方案](./ACE-Graph-DSL-AgentScope-G-MCP-开发方案.md) §6.1 / [计划](./ACE-Graph-DSL-AgentScope-G-MCP-开发计划.md) |
-| 内层子 Agent 流式（G-STREAM-INNER） | MVP 后优先 | 禁止永久 `stream(false)` |
+| 真实 MCP / 工具挂载（G-MCP） | **能力已验收**（Skill + `translation` 真实调用，2026-10-26）；`1.1.22`；待 PR / 测环境跟版 | [G-MCP 方案](./ACE-Graph-DSL-AgentScope-G-MCP-开发方案.md) §6.1 / [计划](./ACE-Graph-DSL-AgentScope-G-MCP-开发计划.md) |
+| 内层子 Agent 流式（G-STREAM-INNER） | §0 已拍板；框架侧已落地（§0.5 全推）；宿主/发版=M4 | [方案](./ACE-Graph-DSL-AgentScope-G-STREAM-INNER-开发方案.md) / [计划](./ACE-Graph-DSL-AgentScope-G-STREAM-INNER-开发计划.md) |
 | HarnessAgent / Subagent / Plan（G-HARNESS） | 阶段 2+ | |
 | Memory 压缩进 ACE | 搁置 | |
 | Boot 4 / SAA 2.0 | 另立项 | |
@@ -188,3 +188,6 @@ mvn -pl ace-graph-dsl-agentscope-agent -am "-Dtest=AgentScopeSequentialFactoryIn
 | 2026-10-21 | 初稿：路径 B MVP 开发计划（分支 as-b1-path-b-mvp） |
 | 2026-10-22 | 对齐拍板 #2/#4/#6/#7/#8；任务与验收挂钩方案 §10 缺口表 |
 | 2026-10-23 | **`1.1.21` deploy mesrelease**；本地 AGENTSCOPE SEQUENTIAL 冒烟；测试环境业务回归通过；状态 → MVP 已验收（待 PR 合入） |
+| 2026-10-26 | G-MCP：宿主 `translation` MCP 真实桥接调用成功；§6 暂缓表状态回填 |
+| 2026-10-26 | G-STREAM-INNER：链独立方案/计划初稿；下一阶段指针更新 |
+| 2026-10-26 | G-STREAM-INNER：状态→框架主路径已落地；文档对齐 |

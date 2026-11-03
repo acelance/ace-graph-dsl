@@ -7,7 +7,15 @@ import { useNodeRegistryStore } from '../../stores/nodeRegistry'
 import { usePermissionStore, MENU } from '../../stores/permissions'
 import { useI18n } from '../../i18n'
 import { useAgentEditorBus } from '../../stores/agentEditorBus'
-import { deleteScriptNode, listReferringGraphs, deleteAgentNode, listAgentReferences } from '../../api/graph'
+import {
+  deleteScriptNode,
+  listReferringGraphs,
+  deleteAgentNode,
+  listAgentReferences,
+  getAgentDefinition,
+  createAgentNode,
+  validateAgentNode
+} from '../../api/graph'
 import { parseSubAgentRegisteredId } from '../../utils/saaWorkflow'
 import ScriptNodeEditor from './ScriptNodeEditor.vue'
 import AgentNodeEditor from './AgentNodeEditor.vue'
@@ -18,13 +26,23 @@ const perm = usePermissionStore()
 const { t } = useI18n()
 
 const keyword = ref('')
-const activeTab = ref('ALL')
+/** 默认落在「当前图」，优先展示本图已用节点 */
+const activeTab = ref('CURRENT')
 const showScriptEditor = ref(false)
 const editingNode = ref(null)
 const showAgentEditor = ref(false)
 const editingAgent = ref(null)
 /** 打开 Agent 编辑器时的 Catalog 会话（图入口 / 节点面板入口） */
 const agentCatalogSession = ref({ fromGraph: false })
+/** 复制注册式 GA：弹窗状态 */
+const showCopyDialog = ref(false)
+const copySubmitting = ref(false)
+const copySource = ref(null)
+const copyForm = ref({
+  nodeId: '',
+  displayName: '',
+  memoryNone: true
+})
 const props = defineProps({ embedded: { type: Boolean, default: false } })
 const emit = defineEmits(['node-drag', 'node-locate'])
 // P3 UX：节点面板可折叠为抽屉；默认不折叠（向后兼容既有页面）
@@ -216,6 +234,27 @@ function categoryTagType(c) {
   return { NORMAL: 'info', ROUTER: 'warning', MERGE: 'success', HITL: '', SUBGRAPH: 'primary', AGENT: 'success', GENERIC_AGENT: 'danger', SAA_WORKFLOW: '' }[c] || 'info'
 }
 
+/**
+ * 节点类型缩写（面板展示用；完整 category 仍用于逻辑）。
+ * @param {string|null|undefined} c
+ * @returns {string}
+ */
+function categoryAbbrev(c) {
+  const key = (c || '').toUpperCase()
+  return {
+    GENERIC_AGENT: 'GA',
+    SAA_WORKFLOW: 'SWF',
+    SUBGRAPH: 'SG',
+    AGENT: 'AG',
+    NORMAL: 'N',
+    ROUTER: 'RTR',
+    MERGE: 'MRG',
+    HITL: 'HITL',
+    SCRIPT: 'SCR',
+    AGENTSCOPE: 'AS'
+  }[key] || (key.length > 8 ? key.slice(0, 6) : (key || '?'))
+}
+
 function isHitlCategory(c) {
   return c === 'HITL'
 }
@@ -270,6 +309,87 @@ function onEdit(node) {
   } else {
     editingNode.value = node
     showScriptEditor.value = true
+  }
+}
+
+/**
+ * 建议复制后的 nodeId：在源 id 后追加 _copy（已有则加时间戳）。
+ * @param {string} sourceId
+ * @returns {string}
+ */
+function suggestCopyNodeId(sourceId) {
+  const raw = (sourceId || '').trim()
+  if (!raw) return `agent:copy_${Date.now()}`
+  const base = raw.endsWith('_copy') ? `${raw}_${Date.now()}` : `${raw}_copy`
+  return base
+}
+
+/**
+ * 打开注册式 GA 复制对话框。
+ * @param {object} node
+ */
+function onCopyAgent(node) {
+  if (!node || node.origin !== 'GENERIC_AGENT') return
+  copySource.value = node
+  copyForm.value = {
+    nodeId: suggestCopyNodeId(node.nodeId),
+    displayName: `${node.displayName || node.nodeId} 副本`,
+    memoryNone: true
+  }
+  showCopyDialog.value = true
+}
+
+/**
+ * 确认复制：拉取源定义 → 换 id/名 → 可选 memoryMode=NONE → create。
+ */
+async function onConfirmCopyAgent() {
+  const source = copySource.value
+  const nodeId = (copyForm.value.nodeId || '').trim()
+  const displayName = (copyForm.value.displayName || '').trim()
+  if (!source?.nodeId) {
+    ElMessage.error(t('nodePanel.copyMissingSource'))
+    return
+  }
+  if (!nodeId.startsWith('agent:')) {
+    ElMessage.error(t('agentEditor.nodeIdError'))
+    return
+  }
+  if (!displayName) {
+    ElMessage.error(t('nodePanel.copyDisplayNameRequired'))
+    return
+  }
+  if (nodeId === source.nodeId) {
+    ElMessage.error(t('nodePanel.copyNodeIdSame'))
+    return
+  }
+  copySubmitting.value = true
+  try {
+    const def = await getAgentDefinition(source.nodeId)
+    // 深拷贝 Spec，避免嵌套 whitelist 与源共享引用
+    const spec = JSON.parse(JSON.stringify(def.spec || {}))
+    if (copyForm.value.memoryNone) {
+      spec.memoryMode = 'NONE'
+      spec.memoryWrites = null
+    }
+    const body = {
+      nodeId,
+      displayName,
+      description: def.description || '',
+      version: def.version || '1.0.0',
+      spec,
+      permissionTags: Array.isArray(def.permissionTags) ? [...def.permissionTags] : [],
+      operator: 'designer'
+    }
+    await validateAgentNode(body)
+    await createAgentNode(body)
+    ElMessage.success(t('nodePanel.copyOk', { id: nodeId }))
+    showCopyDialog.value = false
+    copySource.value = null
+    await nodeStore.fetchNodes()
+  } catch (e) {
+    ElMessage.error(e.response?.data?.error || e.message || t('nodePanel.copyFailed'))
+  } finally {
+    copySubmitting.value = false
   }
 }
 
@@ -336,8 +456,13 @@ async function onDelete(node) {
       >
         <div class="node-row node-row--top">
           <div class="node-info">
+            <el-tag
+              size="small"
+              :type="categoryTagType(s.category)"
+              class="category-tag"
+              :title="s.category"
+            >{{ categoryAbbrev(s.category) }}</el-tag>
             <span class="node-name">{{ s.displayName }}</span>
-            <el-tag size="small" :type="categoryTagType(s.category)" style="margin-left: 4px;">{{ s.category }}</el-tag>
           </div>
         </div>
       </div>
@@ -383,25 +508,40 @@ async function onDelete(node) {
               <CaretRight v-else />
             </el-icon>
           </el-button>
-          <span class="node-name">{{ n.displayName }}</span>
-          <el-tag v-if="n.origin === 'SCRIPT'" size="small" type="success" style="margin-left: 4px;">SCRIPT</el-tag>
+          <el-tag
+            v-if="n.origin === 'SCRIPT'"
+            size="small"
+            type="success"
+            class="category-tag"
+            title="SCRIPT"
+          >{{ categoryAbbrev('SCRIPT') }}</el-tag>
           <el-tag
             size="small"
             :type="categoryTagType(n.category)"
+            class="category-tag"
             :class="{ 'hitl-tag': isHitlCategory(n.category) }"
-            style="margin-left: 4px;"
-          >{{ n.category }}</el-tag>
+            :title="n.category"
+          >{{ categoryAbbrev(n.category) }}</el-tag>
+          <span class="node-name">{{ n.displayName }}</span>
           <el-tag
             v-if="isCurrentGraphTab && isSaaWorkflowNode(n) && (n.saaSubAgents || []).length"
             size="small"
             type="info"
-            style="margin-left: 4px;"
+            class="category-tag category-tag--count"
+            :title="t('nodePanel.expandSaaSubs')"
           >{{ (n.saaSubAgents || []).length }}</el-tag>
         </div>
       </div>
       <div class="node-row node-row--bottom" v-if="canEdit(n)">
         <div class="node-actions">
           <el-button link size="small" type="primary" @click.stop="onEdit(n)">{{ t('nodePanel.edit') }}</el-button>
+          <el-button
+            v-if="n.origin === 'GENERIC_AGENT' && perm.can(MENU.AGENT_NODE_CREATE)"
+            link
+            size="small"
+            type="primary"
+            @click.stop="onCopyAgent(n)"
+          >{{ t('nodePanel.copy') }}</el-button>
           <el-button link size="small" type="danger" @click.stop="onDelete(n)">{{ t('nodePanel.delete') }}</el-button>
         </div>
       </div>
@@ -418,12 +558,13 @@ async function onDelete(node) {
         >
           <div class="node-row node-row--top">
             <div class="node-info">
-              <span class="node-name">{{ sub.displayName }}</span>
               <el-tag
                 size="small"
                 :type="categoryTagType(sub.category)"
-                style="margin-left: 4px;"
-              >{{ sub.category }}</el-tag>
+                class="category-tag"
+                :title="sub.category"
+              >{{ categoryAbbrev(sub.category) }}</el-tag>
+              <span class="node-name">{{ sub.displayName }}</span>
             </div>
           </div>
           <div class="node-row node-row--bottom" v-if="sub.origin === 'GENERIC_AGENT' || sub.origin === 'SCRIPT'">
@@ -453,6 +594,35 @@ async function onDelete(node) {
       :catalog-session="agentCatalogSession"
       @created="onAgentCreated"
     />
+    <el-dialog
+      v-model="showCopyDialog"
+      :title="t('nodePanel.copyTitle')"
+      width="480px"
+      destroy-on-close
+      @closed="copySource = null"
+    >
+      <el-form label-width="120px" size="small">
+        <el-form-item :label="t('nodePanel.copySource')">
+          <span class="hint">{{ copySource?.displayName || '' }}（{{ copySource?.nodeId || '' }}）</span>
+        </el-form-item>
+        <el-form-item :label="t('agentEditor.nodeId')" required>
+          <el-input v-model="copyForm.nodeId" :placeholder="t('agentEditor.nodeIdPlaceholder')" />
+        </el-form-item>
+        <el-form-item :label="t('nodePanel.copyDisplayName')" required>
+          <el-input v-model="copyForm.displayName" :placeholder="t('nodePanel.copyDisplayNamePlaceholder')" />
+        </el-form-item>
+        <el-form-item :label="t('nodePanel.copyMemoryNone')">
+          <el-switch v-model="copyForm.memoryNone" />
+          <span class="hint" style="display:block; margin-top:4px;">{{ t('nodePanel.copyMemoryNoneHint') }}</span>
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="showCopyDialog = false">{{ t('common.cancel') }}</el-button>
+        <el-button type="primary" :loading="copySubmitting" @click="onConfirmCopyAgent">
+          {{ t('nodePanel.copyConfirm') }}
+        </el-button>
+      </template>
+    </el-dialog>
     </div><!-- /.panel-content -->
   </div>
 </template>
@@ -519,8 +689,25 @@ async function onDelete(node) {
 }
 .node-row { display: flex; align-items: center; justify-content: space-between; }
 .node-row--bottom { margin-top: 6px; }
-.node-name { font-size: 13px; }
+.node-name {
+  font-size: 13px;
+  margin-left: 6px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .node-info { display: flex; align-items: center; flex: 1; min-width: 0; }
+.category-tag {
+  flex-shrink: 0;
+  margin-left: 0;
+}
+.category-tag--count {
+  margin-left: 6px;
+}
+.hint {
+  font-size: 12px;
+  color: var(--agd-color-text-secondary, #909399);
+}
 .node-actions { display: flex; gap: 4px; }
 :deep(.hitl-tag) {
   --el-tag-bg-color: #f3e8ff;

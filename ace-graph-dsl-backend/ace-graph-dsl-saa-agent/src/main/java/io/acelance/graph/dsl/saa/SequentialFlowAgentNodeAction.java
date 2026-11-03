@@ -1,6 +1,7 @@
 package io.acelance.graph.dsl.saa;
 
 import com.alibaba.cloud.ai.graph.OverAllState;
+import com.alibaba.cloud.ai.graph.RunnableConfig;
 import com.alibaba.cloud.ai.graph.action.NodeAction;
 import com.alibaba.cloud.ai.graph.agent.flow.agent.SequentialAgent;
 import org.slf4j.Logger;
@@ -76,11 +77,13 @@ public final class SequentialFlowAgentNodeAction implements NodeAction {
                 graphId, nodeId, inputKeys);
         try {
             Map<String, Object> seed = buildSeedInput(state);
-
-            var resultOpt = sequentialAgent.invoke(seed);
+            // 与父图 Generic 对齐：threadId ≡ runId，隔离 SequentialAgent 内层状态
+            RunnableConfig invokeConfig = SaaFlowInvokeSupport.buildInvokeConfig(state, graphId, nodeId);
+            var resultOpt = sequentialAgent.invoke(seed, invokeConfig);
             if (resultOpt.isEmpty()) {
                 throw new IllegalStateException("SAA SequentialAgent.invoke 返回空, graphId=" + graphId
-                        + ", nodeId=" + nodeId);
+                        + ", nodeId=" + nodeId
+                        + ", threadId=" + invokeConfig.threadId().orElse("?"));
             }
             OverAllState flowState = resultOpt.get();
 
@@ -96,8 +99,8 @@ public final class SequentialFlowAgentNodeAction implements NodeAction {
             }
 
             long costMs = (System.nanoTime() - start) / 1_000_000L;
-            log.info("SAA Sequential 节点执行成功, graphId={}, nodeId={}, costMs={}, keys={}",
-                    graphId, nodeId, costMs, out.keySet());
+            log.info("SAA Sequential 节点执行成功, graphId={}, nodeId={}, costMs={}, threadId={}, keys={}",
+                    graphId, nodeId, costMs, invokeConfig.threadId().orElse("?"), out.keySet());
             return out;
         } catch (Exception ex) {
             long costMs = (System.nanoTime() - start) / 1_000_000L;

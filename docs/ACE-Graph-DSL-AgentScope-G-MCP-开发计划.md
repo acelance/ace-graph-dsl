@@ -2,8 +2,8 @@
 
 | 项 | 内容 |
 |----|------|
-| 状态 | **Skill 冒烟已过；`1.1.22` 已 deploy mesrelease**（MCP 环境 404；PR / 测环境跟版待续） |
-| 日期 | 2026-10-23 |
+| 状态 | **能力已验收（Skill + MCP 真实调用）**；`1.1.22` mesrelease；待 PR / 测环境跟版 |
+| 日期 | 2026-10-23（进度更新 2026-10-26） |
 | 分支 | 框架 `feature-as-b1-g-mcp`；宿主跟版 `feature-agentscope-b-g-mcp` |
 | 方案 | [ACE-Graph-DSL-AgentScope-G-MCP-开发方案.md](./ACE-Graph-DSL-AgentScope-G-MCP-开发方案.md)（§0 已拍板） |
 | 前置 | 路径 B MVP `1.1.21` 已验收；建议主线已合入或从含 1.1.21 的基线拉分支 |
@@ -24,8 +24,8 @@
 | **M0** | 2.0.4 Toolkit API 探针 + 拉分支 | 0.5～1 | 实物 API 笔记落方案；分支已建 |
 | **M1** | ToolAssembly + Bridge + Resolver 接入 | 2～4 | stub tool：SEQUENTIAL 集成测绿；另三 pattern 至少各 1 条 stub 测 |
 | **M2** | Skill 对齐（L1 + SkillTools） | 1～2 | ✅ 宿主 SEQUENTIAL + `paddleocr`：`load_skill` 桥接成功 |
-| **M3** | MCP 挂载 + runId 透传 | 1～2 | ✅ 代码路径通；`time-mcp` HTTP 404 跳过且不挡 Skill |
-| **M4** | 样例 / 文档 / 宿主回归 / 发版 | 1～2 | 文档已跟；**`1.1.22` mesrelease ✅**；testdata / PR / 测环境跟版待续 |
+| **M3** | MCP 挂载 + runId 透传 | 1～2 | ✅ 代码路径通；**`translation` 真实桥接调用成功**（2026-10-26）；`time-mcp` 仍 404（环境） |
+| **M4** | 样例 / 文档 / 宿主回归 / 发版 | 1～2 | **`1.1.22` mesrelease ✅**；文档已回填 MCP 验收；testdata / PR / 测环境跟版待续 |
 | **缓冲** | 冲突 / CR | 0.5～1 | PR 可合 |
 
 **合计**：约 **6～12 人日**。
@@ -63,9 +63,12 @@
 ### 3.3 M3 — MCP（环境允许则过）
 
 - [x] `mcpKeys` + whitelist → `McpToolResolver` → Bridge（代码路径）
-- [x] 宿主联调：已走到 `LessoNacosMcpToolResolver` 打开 `time-mcp`；endpoint HTTP 404 → `tools=0` / `mcp=0`（环境，非桥接）
-- [x] 失败路径：MCP 异常跳过，不挡后续 Skill 装配（本轮 Skill 仍 `load_skill` 成功）
-- [ ] （可选）换可用 MCP 后再验 `mcp≥1` + `桥接工具开始, tool=ace__mcp__…`
+- [x] 失败路径：MCP 异常跳过，不挡后续 Skill（`time-mcp` 404 时同轮仍可 `load_skill`）
+- [x] **真实 MCP 调用验收（2026-10-26）**：宿主 `test-subagent-skill-graph`，`mcpKeys` 含 `time-mcp`+`translation`
+  - `time-mcp`：打开失败跳过（`Server Not Found` 404，环境）
+  - `translation`：打开成功 → `mcp__translation__translate_text` → `桥接工具成功`（costMs≈346）
+  - 装配：`mcp=1, skill=2`；子 Agent 成功写回 `step1`
+- [ ] （可选）鉴权 MCP：`alibaba-demo-mcp-nacos-auth-webflux-server`（本机 8094 已注册 Nacos）
 - [ ] （可选）localTools 同路径验证
 
 ### 3.4 M4 — 样例、文档、宿主跟测、发版
@@ -73,12 +76,13 @@
 - [ ] testdata：`saa-agentscope-sequential-with-skill`（主）+ README
 - [ ] 另三 pattern 样例或测试说明（可简）
 - [x] 更新 `ace-graph-dsl-agentscope-agent/README.md`
-- [x] 更新宿主 `ace-graph-agentscope-host.md` 冒烟项
+- [x] 更新宿主 `ace-graph-agentscope-host.md` 冒烟项（含 MCP 真实调用）
 - [x] 路径 B 方案 §10 **G-MCP** 状态更新
 - [x] 根 `CHANGELOG.md`；版本 bump（`1.1.22`）
 - [x] `mvn deploy` mesrelease（2026-10-23，含 `ace-graph-dsl-agentscope-agent-1.1.22`）
 - [ ] 宿主测环境镜像跟 `1.1.22` 部署（pom 已写 1.1.22，需 CI 重打）
-- [x] 门禁：Skill 冒烟已过；GENERIC/无工具 AS / 业务核对仍以既有回归为准
+- [x] 门禁：Skill + MCP 真实调用已过；GENERIC/无工具 AS / 业务核对仍以既有回归为准
+- [ ] 框架 / 宿主 PR 合入主线
 
 ### 3.5 明确不做（本计划）
 
@@ -149,3 +153,4 @@
 | 2026-10-23 | 同步 §0 拍板：Skill+MCP 同迭代；四 pattern 补测；宿主同迭代；状态→可开工 |
 | 2026-10-23 | M2 Skill 宿主冒烟通过；M3 MCP 打开失败（time-mcp 404）且不挡 Skill；文档/§10/host/CHANGELOG 已同步 |
 | 2026-10-23 | **`1.1.22` deploy mesrelease SUCCESS**（全模块含 agentscope-agent） |
+| 2026-10-26 | M3：**`translation` MCP 真实桥接调用成功**；`time-mcp` 仍环境 404；状态→能力已验收；待 PR / 测环境跟版；下一缺口 G-STREAM-INNER |

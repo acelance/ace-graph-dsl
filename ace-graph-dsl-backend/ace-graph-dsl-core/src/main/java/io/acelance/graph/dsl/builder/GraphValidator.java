@@ -10,7 +10,8 @@ import io.acelance.graph.dsl.registry.GraphNodeDescriptor;
 import io.acelance.graph.dsl.registry.GraphNodeRegistry;
 import io.acelance.graph.dsl.script.ScriptEdgeActionFactory;
 import io.acelance.graph.dsl.validation.SaaWorkflowValidator;
-import org.springframework.beans.factory.ObjectProvider;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
@@ -26,10 +27,14 @@ import java.util.Set;
 import java.util.stream.Collectors;
 
 /**
- * 图定义校验器：保存/发布前必跑，返回结构化错误列表。
+ * 图定义校验器：保存/发布前必跑，返回结构化错误与警告列表。
+ *
+ * <p>{@code warnings} 不挡通过（如 SAA↔出口双 MAIN）；仅 {@code errors} 决定 {@code ok}。</p>
  */
 @Component
 public class GraphValidator {
+
+    private static final Logger log = LoggerFactory.getLogger(GraphValidator.class);
 
     /** 子图最大嵌套深度（根图=0，子图递增；超过此值报错） */
     static final int MAX_SUBGRAPH_DEPTH = 3;
@@ -102,6 +107,7 @@ public class GraphValidator {
      */
     private ValidationResult validate(GraphDefinition def, int depth) {
         List<String> errors = new ArrayList<>();
+        List<String> warnings = new ArrayList<>();
 
         // 子图嵌套深度限制
         if (depth > MAX_SUBGRAPH_DEPTH) {
@@ -130,6 +136,11 @@ public class GraphValidator {
                     if (!subResult.ok()) {
                         errors.add("子图 '" + ref.nodeId() + "' 内部校验失败: "
                                 + String.join("; ", subResult.errors()));
+                    }
+                    if (subResult.hasWarnings()) {
+                        for (String w : subResult.warnings()) {
+                            warnings.add("子图 '" + ref.nodeId() + "': " + w);
+                        }
                     }
                 } else if (ref.subgraphRef() == null || ref.subgraphRef().isBlank()) {
                     errors.add("子图节点未定义（subgraph 与 subgraphRef 均为空）: " + ref.nodeId());
@@ -233,7 +244,15 @@ public class GraphValidator {
         // 6. 连线参数可达性（发布前置校验；保存草稿不经过此校验器）
         errors.addAll(reachabilityValidator.validate(def));
 
-        return errors.isEmpty() ? ValidationResult.pass() : ValidationResult.fail(errors);
+        // 7. SAA ↔ 直接后继出口双 MAIN → warnings（不挡发布）
+        SaaWorkflowValidator.collectDualMainWarnings(def, warnings);
+
+        if (!warnings.isEmpty()) {
+            log.warn("图校验有 warnings（不挡通过）, graphId={}, count={}, warnings={}",
+                    def.graphId(), warnings.size(), warnings);
+        }
+
+        return ValidationResult.of(errors, warnings);
     }
 
     /**

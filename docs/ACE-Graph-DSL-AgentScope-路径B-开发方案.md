@@ -240,8 +240,8 @@ AgentScopeSubAgentResolver
 
 | ID | 缺口 | 说明 | 建议时机 | 状态 |
 |----|------|------|----------|------|
-| **G-MCP** | AGENTSCOPE 子 Agent 挂真实工具 / MCP | 与 GENERIC 工具会话对齐；本 MVP 仅模型写 `outputKey` | MVP 合入后下一迭代 | **`1.1.22` mesrelease + Skill 冒烟已过**；MCP 环境 404；待 PR / 测环境跟版。[方案](./ACE-Graph-DSL-AgentScope-G-MCP-开发方案.md) / [计划](./ACE-Graph-DSL-AgentScope-G-MCP-开发计划.md) |
-| **G-STREAM-INNER** | 内层子 Agent 模型流式 → 接到图 SSE | 外层业务流已是硬指标；内层暂可非流，**禁止永久 `stream(false)`** | MVP 合入后优先补齐 | 待开 Issue |
+| **G-MCP** | AGENTSCOPE 子 Agent 挂真实工具 / MCP | 与 GENERIC 工具会话对齐；本 MVP 仅模型写 `outputKey` | MVP 合入后下一迭代 | **能力已验收**（`1.1.22`；Skill + `translation` MCP 真实调用，2026-10-26）；`time-mcp` 环境 404；待 PR / 测环境跟版。[方案](./ACE-Graph-DSL-AgentScope-G-MCP-开发方案.md) / [计划](./ACE-Graph-DSL-AgentScope-G-MCP-开发计划.md) |
+| **G-STREAM-INNER** | 内层子 Agent 模型流式 → 接到图 SSE；**含 SAA 父 applyDeepThinking/bizParam 补齐** | 外层业务流已是硬指标；**禁止永久 `stream(false)`** | 进行中 | **框架侧已落地**（§0.5 全推模型可见文本；宿主冒烟/发版=M4）：[方案](./ACE-Graph-DSL-AgentScope-G-STREAM-INNER-开发方案.md) / [计划](./ACE-Graph-DSL-AgentScope-G-STREAM-INNER-开发计划.md)；分支 `feature-as-b1-g-stream-inner` |
 | **G-API-DOC** | 方案伪代码 vs 2.0.4 实物差异回填 | 已对照：`OpenAIChatModel`→`extensions.model.openai`；Builder **无** `memory()`；`call` 返回 `Mono`（Adapter `.block()`） | M1-D0/D1 | **已回填** |
 | **G-HARNESS** | `agentscope-harness` / HarnessAgent / Subagent / Plan | 属阶段 2+，非本 MVP | 见分阶段分支规划 H0～ | 未开始 |
 
@@ -259,3 +259,6 @@ AgentScopeSubAgentResolver
 | 2026-10-23 | MVP 验收：`1.1.21` 私服 + 本地 AS SEQUENTIAL 冒烟 + 测试环境业务回归；状态更新 |
 | 2026-10-23 | §10 G-MCP：链独立[开发方案](./ACE-Graph-DSL-AgentScope-G-MCP-开发方案.md)/[计划](./ACE-Graph-DSL-AgentScope-G-MCP-开发计划.md) |
 | 2026-10-23 | §10 G-MCP：宿主 Skill 冒烟通过；MCP 环境阻挡记入方案 §6.1 |
+| 2026-10-26 | §10 G-MCP：**MCP 真实调用验收**（`translation`）；状态→能力已验收；下一优先 **G-STREAM-INNER** |
+| 2026-10-26 | §10 G-STREAM-INNER：链独立[开发方案](./ACE-Graph-DSL-AgentScope-G-STREAM-INNER-开发方案.md)/[计划](./ACE-Graph-DSL-AgentScope-G-STREAM-INNER-开发计划.md)（初稿，待拍板） |
+| 2026-10-26 | §10 G-STREAM-INNER：状态→框架侧主路径已落地；文档对齐 §0.5 / #8 |

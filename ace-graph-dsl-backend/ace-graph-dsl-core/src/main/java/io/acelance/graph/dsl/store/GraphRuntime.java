@@ -8,6 +8,7 @@ import io.acelance.graph.dsl.builder.DynamicGraphBuilder;
 import io.acelance.graph.dsl.builder.ValidationResult;
 import io.acelance.graph.dsl.definition.GraphDefinition;
 import io.acelance.graph.dsl.persistence.GraphDefinitionRepository;
+import io.acelance.graph.dsl.validation.SaaWorkflowValidator;
 import com.alibaba.cloud.ai.graph.CompiledGraph;
 import jakarta.annotation.PostConstruct;
 import org.slf4j.Logger;
@@ -16,6 +17,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.DependsOn;
 import org.springframework.stereotype.Component;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
@@ -164,6 +166,16 @@ public class GraphRuntime {
         ValidationResult validation = builder.validate(def);
         if (!validation.ok()) {
             return failPublish(graphId, version, operator, "校验失败: " + String.join("; ", validation.errors()));
+        }
+        // P0：含 AGENTSCOPE 子 Agent 时发布必须有 WRITE_ASSISTANT_MAIN_TEXT（草稿不校验）
+        List<String> mainErrors = new ArrayList<>();
+        SaaWorkflowValidator.collectAgentscopeRequireMainErrors(def, mainErrors);
+        if (!mainErrors.isEmpty()) {
+            return failPublish(graphId, version, operator, "校验失败: " + String.join("; ", mainErrors));
+        }
+        if (validation.hasWarnings()) {
+            log.warn("发布前校验有 warnings（不挡发布）, graphId={}, version={}, warnings={}",
+                    graphId, version, validation.warnings());
         }
         try {
             CompiledGraph compiled = builder.build(def);

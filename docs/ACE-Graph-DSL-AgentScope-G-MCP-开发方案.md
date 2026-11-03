@@ -2,8 +2,8 @@
 
 | 项 | 内容 |
 |----|------|
-| 状态 | **Skill 宿主冒烟已过；`1.1.22` 已 deploy mesrelease**（2026-10-23）；MCP 环境 404；待 PR / 测环境跟版 |
-| 日期 | 2026-10-23 |
+| 状态 | **能力已验收（Skill + MCP 真实调用）**；`1.1.22` mesrelease；待 PR / 测环境跟版 |
+| 日期 | 2026-10-23（进度更新 2026-10-26） |
 | 缺口 ID | **G-MCP**（路径 B 方案 §10） |
 | 分支 | 框架 `feature-as-b1-g-mcp`；宿主跟版 `feature-agentscope-b-g-mcp` |
 | 前置 | 路径 B MVP **1.1.21**（AS 2.0.4 + 自研 Adapter，无工具）已验收 |
@@ -159,7 +159,9 @@ AS 路径今日**未透传** → MCP `openToolSession` 可能无法按 run 回�
 7. 日志：装配数量、tool 开始/成功/失败、bridge 仍为路径 B 坐标。  
 8. 文档 / CHANGELOG / §10 G-MCP 状态更新。
 
-### 6.1 宿主冒烟证据（2026-10-23，本地 agent-server + `1.1.22` install）
+### 6.1 宿主冒烟证据
+
+#### 6.1.1 Skill（2026-10-23，本地 agent-server + `1.1.22`）
 
 图：`test-subagent-skill-graph`；子 Agent：`agent:test-subagent-skill-or-mcp`；口令 forceSkills=`paddleocr-text-recognition`。
 
@@ -167,11 +169,21 @@ AS 路径今日**未透传** → MCP `openToolSession` 可能无法按 run 回�
 |--------|------|----------|
 | Skill 挂载 | ✅ | `ResourceBindings … skill=true`；`Toolkit 装配完成, registered=2`；`ReActAgent 已挂 Toolkit, tools=2` |
 | Skill 调用 | ✅ | `桥接工具开始/成功, tool=ace__skill__load_skill`；`Skill L2 已加载: key=paddleocr-text-recognition` |
-| MCP 打开 | ⚠ 环境 | `打开 MCP: key=time-mcp` → `Server Not Found … 404` → `MCP open 失败已跳过`；`tools=0` / `mcp=0` |
-| MCP 不挡 Skill | ✅ | 同轮仍完成 `load_skill` 与子 Agent 成功 |
+| MCP 打开失败不挡 | ✅ | `time-mcp` 404 跳过；同轮仍 `load_skill` 成功 |
 | 旁路噪音 | 忽略 | Nacos `find-skills` 404、`weather-assistant` Prompt not found |
 
-> **说明**：本轮仅验证 ACE SkillTools 经 G-MCP 桥进入 AS ReAct；未要求 `read_skill_resource` 或 OCR 业务正文。MCP 真工具挂载待换可用 server 后再验。
+#### 6.1.2 MCP 真实调用（2026-10-26，本地 agent-server + `1.1.22`）
+
+图同上；`mcpKeys` 含 `time-mcp` + `translation`（Higress 网关路径）。
+
+| 验收项 | 结论 | 关键日志 |
+|--------|------|----------|
+| `time-mcp` | ⚠ 环境 | `打开 MCP: key=time-mcp` → `Server Not Found … 404` → `MCP open 失败已跳过` |
+| `translation` 打开 | ✅ | `打开 MCP: key=translation`；`MCP 工具: translate_text → mcp__translation__translate_text` |
+| MCP 桥接调用 | ✅ | `桥接工具开始/成功, tool=mcp__translation__translate_text, costMs=346` |
+| 装配汇总 | ✅ | `AgentScopeToolAssemblyResult{total=3, skill=2, mcp=1}`；子 Agent 写回 `step1` 成功 |
+
+> **说明**：G-MCP **Skill 必过 + MCP 尽力**均已满足。`time-mcp`（`/mcp-servers/time`）持续 404 属环境，勿当框架缺陷。可选再验本机鉴权 MCP：`alibaba-demo-mcp-nacos-auth-webflux-server`（`192.168.28.64:8094/mcp`）。
 
 ---
 
@@ -218,3 +230,4 @@ AS 路径今日**未透传** → MCP `openToolSession` 可能无法按 run 回�
 | 2026-10-23 | **§0 已拍板** #1～#7（Skill+MCP 同迭代；四 pattern 实现覆盖/SEQUENTIAL 必过；宿主同迭代跟测） |
 | 2026-10-23 | 代码落地：`AgentScopeToolAssembly` / `AceToolCallbackAgentscopeBridge` / Adapter 执行期挂 Toolkit；单测 5 绿 |
 | 2026-10-23 | **宿主 Skill 冒烟通过**（`test-subagent-skill-graph`）：挂载 Toolkit + `ace__skill__load_skill` 桥接 + L2 `paddleocr-text-recognition`；MCP 打开 `time-mcp` 遇 HTTP 404 跳过且不挡 Skill（见方案 §6.1） |
+| 2026-10-26 | **MCP 真实调用验收**：同图打开 `translation`，桥接 `mcp__translation__translate_text` 成功；`time-mcp` 仍环境 404；状态→能力已验收（见 §6.1.2） |
