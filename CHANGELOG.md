@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.30] — 2026-11-03
+
+### Changed
+
+- **发布物**：`ace-graph-dsl-backend` 编译 `debug=false` / `-g:none`（保留 `parameters`）；默认不
+  attach `-sources`/`-javadoc`，私服仅发业务 jar。
+
 ## [1.1.29] — 2026-11-03
 
 ### Fixed
