@@ -2,12 +2,13 @@
 
 | 项 | 内容 |
 |----|------|
-| 状态 | **P0+P1 设计器已完成（待联调/发版）**；分支 `feature-saa-memory-writes` / `feature-saa-memory-persister` |
-| 完成度 | **P0 ≈ 100%**（W1～W8）；**P1 设计器 W9 已完成**；**整体方案 ≈ 85%**（缺联调 W10；W11 非本阶段） |
-| 日期 | 2026-10-29（议题收口）；开工/收口代码 2026-10-30 |
+| 状态 | **P0+P1+真机联调已完成**；框架已发版（含 `1.1.26` memoryWrites，现网跟至 `1.1.30`）；分支曾用 `feature-saa-memory-writes` / `feature-saa-memory-persister` |
+| 完成度 | **P0 ≈ 100%**（W1～W8）；**P1 设计器 W9 已完成**；**W10 联调已过**；**整体方案 ≈ 95%**（余 W11 自动剥 WRITE_USER、M-业务改图、双 MAIN 真机可选） |
+| 日期 | 2026-10-29（议题收口）；开工/收口代码 2026-10-30；真机联调 2026-11-03 |
 | 范围 | `ace-graph-dsl-saa-agent` + 记忆 SPI（Lesso Provider / ChatMemory）+ 设计器字段 |
 | 相关约定 | `.cursor/rules/ace-graph-memory-persist.mdc`（按节点写意图即时落盘；**不对齐** Vertical「仅图尾 persist」时机） |
 | 典型图 | `bank-interest-fee-verifier-agentscope-graph`（ROUTING + AGENTSCOPE 子 Agent + 可选 `ls_out_put`） |
+| 联调样例图 | `test-saa-main-text-memory-persistence`（START→SAA→END，无出口；`memoryWrites` 三 flag 全开） |
 
 ---
 
@@ -61,7 +62,7 @@
 | SAA 父 Spec 支持 `memoryWrites`（USER / THINKING / MAIN） | **已完成**（Spec） | 100% |
 | 设计器支持配置 memoryWrites | **已完成**（`SaaWorkflowForm`） | 100% |
 | invoke 后按 flags 落盘（MAIN=outputKey；USER=SPI；仅 THINKING 不 drain） | **已完成** | 100% |
-| SAA 可作图尾、无需为落盘再挂 LLM 出口 | **代码能力具备**；真机联调未做 | ~90% |
+| SAA 可作图尾、无需为落盘再挂 LLM 出口 | **已完成**（真机联调 2026-11-03，见 §9.2） | 100% |
 | 现有 `ls_out_put` 图可继续用 | **兼容保留** | 100% |
 
 ### 3.2 非目标（本方案不做）
@@ -234,10 +235,23 @@ JSON 示例：
 
 | # | 项 | 状态 | 完成度 |
 |---|----|------|--------|
-| 1 | SAA 配 MAIN、无出口：remote 1 USER（若有）+ 1 ASSISTANT | **未做**（真机联调） | 0% |
-| 2 | 日志 `SAA memory persist ... writeAssistant=true` | **单测日志已有**；真机未验 | ~50% |
-| 3 | 深度思考 → ASSISTANT 带 thinking_content | **单测 drain 已有**；AS 流式真机未验 | ~70% |
-| 4 | 与 `ls_out_put` 双 MAIN：校验 WARN、运行可双条 | **校验单测已有**；真机运行未验 | ~50% |
+| 1 | SAA 配 MAIN、无出口：remote 1 USER（若有）+ 1 ASSISTANT | **已通过**（真机 2026-11-03） | 100% |
+| 2 | 日志 `SAA memory persist ... writeAssistant=true` | **已通过**（真机有 persist + Persister 日志） | 100% |
+| 3 | 深度思考 → ASSISTANT 带 thinking_content | **已通过**（真机 `thinkingChars>0`，SSE 有思考气泡） | 100% |
+| 4 | 与 `ls_out_put` 双 MAIN：校验 WARN、运行可双条 | **校验单测已有**；真机运行未验（可选） | ~50% |
+
+#### 9.2.1 联调证据（2026-11-03）
+
+| 项 | 内容 |
+|----|------|
+| 环境 | 测环境 `lesso-ai-platform-agent`；框架跟版含 SAA Persister（`1.1.26+`，当时宿主侧已跟高版本） |
+| graphId | `test-saa-main-text-memory-persistence` v1.0.1 |
+| 拓扑 | `START → saa_workflow_1793692846899（ROUTING）→ END`；**无** `ls_out_put` |
+| memoryWrites | `WRITE_USER` + `WRITE_ASSISTANT_THINKING` + `WRITE_ASSISTANT_MAIN_TEXT`；`outputKey=agent_result` |
+| conversationId | `63a552b8e4cd4799a9a8a136e1fe2087` |
+| 第 1 轮 | 16:32 `writeUser=true` → Persister 已写 USER；16:37 `writeAssistant=true` → 已写 ASSISTANT（`chars=10653`，`thinkingChars>0`） |
+| 第 2 轮（追问） | 16:53 再写 1 USER + 1 ASSISTANT；续轮 extras 媒体为空（双键，不串历史附件） |
+| 结论 | **M-P0 真机通过**；利费现网是否删出口属 **M-业务**，不挡本条 |
 
 ---
 
@@ -245,8 +259,8 @@ JSON 示例：
 
 | 阶段 | 交付 | 估计 | 状态 | 完成度 |
 |------|------|------|------|--------|
-| P0 | Spec + FlowAgentNodeAction 钩子 + Lesso Persister + **双 MAIN 校验 WARN** + 单测 | 核心 | **代码完成**（待联调/发版） | ~95% |
-| P1 | 设计器字段 + 样例图/文档（WARN 文案可加强） | 可用 | **设计器已完成**；样例图仍缺 | ~70% |
+| P0 | Spec + FlowAgentNodeAction 钩子 + Lesso Persister + **双 MAIN 校验 WARN** + 单测 | 核心 | **已完成**（含真机联调；已发版） | 100% |
+| P1 | 设计器字段 + 样例图/文档（WARN 文案可加强） | 可用 | **设计器已完成**；联调样例图 `test-saa-main-text-memory-persistence` 已建 | ~95% |
 | P2 | （业务侧可选）图改造 + 回归；**非**框架必达 | 业务 | **未开始** | 0% |
 
 ---
@@ -368,10 +382,10 @@ start → 业务1(MAIN) → 业务2(MAIN) → 业务3(MAIN) → 业务4(MAIN) �
 
 | 档位 | 人天（1 人熟悉本仓库） | 说明 | 状态 | 完成度 |
 |------|------------------------|------|------|--------|
-| **P0 框架可落盘** | **4～6.5** | Spec + 钩子 + SPI + Lesso + **GraphValidator warnings** + 双 MAIN WARN + 单测（**不含**自动剥 WRITE_USER） | **代码完成** | ~95% |
+| **P0 框架可落盘** | **4～6.5** | Spec + 钩子 + SPI + Lesso + **GraphValidator warnings** + 双 MAIN WARN + 单测（**不含**自动剥 WRITE_USER） | **已完成** | 100% |
 | **P1 设计器** | **1.5～2.5** | `SaaWorkflowForm` 记忆 UI + 出口勿 WRITE_USER 提示 | **已完成** | 100% |
-| **联调 / 回归** | **1～2** | 样例图（可选）+ 记忆条数 / thinking 合并 | **未开始** | 0% |
-| **合计** | **约 6.5～11** | 不含业务改图、不含 READ_ONLY 读历史、不含 O2 自动剥离 | **整体约 85%**（缺联调） | ~85% |
+| **联调 / 回归** | **1～2** | 样例图（可选）+ 记忆条数 / thinking 合并 | **已完成**（2026-11-03，见 §9.2.1） | 100% |
+| **合计** | **约 6.5～11** | 不含业务改图、不含 READ_ONLY 读历史、不含 O2 自动剥离 | **整体约 95%**（余 W11 / M-业务） | ~95% |
 
 相对复杂度：**中等**——写路径可复用现有 ChatMemory / Buffer / Display SPI；主要成本在 **record 改字段波及面**、**SPI 分层**、以及 **校验 WARN 通道**（均已落地）。
 
@@ -389,10 +403,10 @@ start → 业务1(MAIN) → 业务2(MAIN) → 业务3(MAIN) → 业务4(MAIN) �
 | W7b | 双 MAIN：拓扑检测 → **warnings**（非 errors） | `SaaWorkflowValidator` / GraphValidator | 0.5 | P0 | W1, W7a | **已完成** | 100% |
 | W8 | 单测：Spec / NodeAction mock Persister / 双 MAIN → warnings / Q5 回归 | 各模块 | 0.5～1 | P0 | W4～W7b | **已完成**（单测绿；未跑全仓 CI） | 100% |
 | W9 | 设计器：`SaaWorkflowForm` 记忆区块 + 提示「出口勿 WRITE_USER」 | `ace-graph-dsl-ui` | 1.5～2.5 | P1 | W1 | **已完成** | 100% |
-| W10 | 样例/文档 + 可选联调 | docs / agent-server | 1～2 | P1～P2 | W6 | **部分**（方案 MD 已更新；样例图/联调未做） | ~20% |
+| W10 | 样例/文档 + 可选联调 | docs / agent-server | 1～2 | P1～P2 | W6 | **已完成**（样例图 + 真机联调 2026-11-03） | 100% |
 | W11 | （可选后续）出口形态自动剥 WRITE_USER，对齐 Generic | saa + lesso | 0.5～1 | 非 P0 | W4 | **暂缓** | 0% |
 
-**汇总：** P0（W1～W8）**8/8**；P1 设计器 W9 **已完成**；W10 联调/样例仍缺；W11 非本里程碑。
+**汇总：** P0（W1～W8）**8/8**；P1 设计器 W9 **已完成**；W10 联调/样例 **已完成**；W11 非本里程碑。
 
 **建议排期（日历，单人）：**
 
@@ -410,8 +424,8 @@ D8     联调（可选）
 
 | 里程碑 | 完成标准 | 状态 | 完成度 |
 |--------|----------|------|--------|
-| **M-P0** | **含** Lesso `GraphNodeMemoryPersister` 实现并在 agent-server 装配；JSON 配 SAA `WRITE_ASSISTANT_MAIN_TEXT` 后无 `ls_out_put` 也能 remote 出现 1 条 ASSISTANT；日志有 `SAA memory persist`；**warnings** 含双 MAIN；单测绿；**不要求**自动剥 WRITE_USER | **代码侧达标**（单元测绿；**真机 remote 联调未做**） | ~95% |
-| **M-P1** | 设计器可配 SAA 记忆；文案提示与出口双 MAIN | **设计器达标**（样例图可选） | ~90% |
+| **M-P0** | **含** Lesso `GraphNodeMemoryPersister` 实现并在 agent-server 装配；JSON 配 SAA `WRITE_ASSISTANT_MAIN_TEXT` 后无 `ls_out_put` 也能 remote 出现 1 条 ASSISTANT；日志有 `SAA memory persist`；**warnings** 含双 MAIN；单测绿；**不要求**自动剥 WRITE_USER | **已达标**（单测绿 + 真机联调通过，见 §9.2.1） | 100% |
+| **M-P1** | 设计器可配 SAA 记忆；文案提示与出口双 MAIN | **已达标**（设计器 + 联调样例图） | 100% |
 | **M-业务**（非框架必达） | 利费图是否改拓扑由业务定 | **未开始** | 0% |
 
 ### 14.4 难点与阻塞点
@@ -424,7 +438,7 @@ D8     联调（可选）
 | D2 | **框架 vs Lesso 分层**：drain Buffer / extras 键不能写进 saa-agent | 易踩依赖 | 必须走 **SPI**；Lesso 实现内 drain+add | **已化解**（`GraphNodeMemoryPersister` + `LessoGraphNodeMemoryPersister`） | 100% |
 | D3 | **USER 正文从哪来**：无 ChatClient Request，只有 state | 与 Advisor before 不完全同构 | 复用 `MemoryDisplayUserTextResolver` + state（user_query 等），与现有 SPI 对齐 | **已化解**（Persister 走 Display/Persist SPI + stateVariables） | 100% |
 | D4 | ~~出口剥 WRITE_USER~~ | — | **P0 不做**；配置纪律（O2 修订）。后续见 W11 | **P0 刻意不做**（暂缓→W11） | N/A（非本阶段） |
-| D5 | **Thinking 归属**：AS 流式思考挂 conversationId，MAIN 在 SAA 结束 drain | 若键不一致则 thinking 丢 | 联调确认与 SSE Buffer 键一致 | **代码就绪、联调待证**（单测已 drain；真机 AS 流式未验） | ~70% |
+| D5 | **Thinking 归属**：AS 流式思考挂 conversationId，MAIN 在 SAA 结束 drain | 若键不一致则 thinking 丢 | 联调确认与 SSE Buffer 键一致 | **已化解**（真机 `thinkingChars>0` + SSE 思考气泡；MAIN 由 Persister drain） | 100% |
 | D6 | **仅 THINKING / 空 outputKey**：易误测 | 行为要与 Advisor 一致 | 单测覆盖跳过路径 | **已化解**（`FlowAgentNodeActionMemoryPersistTest` 覆盖 THINKING-only / 无 cid / 空 writes） | 100% |
 | D7 | **warnings 通道** retrofitted 进现有 validate API | 调用方要兼容 | 新增 `List<String> warnings`；`ok` 仍只看 errors | **已化解**（`ValidationResult` 三元；发布仅 log warnings） | 100% |
 
@@ -434,7 +448,7 @@ D8     联调（可选）
 |---|----|------------|------|------|--------|
 | **B1** | `GraphValidator` 无 warnings | **已决策：P0 扩展 warnings（W7a）** | 双 MAIN 进 warnings；**不**当 errors，不挡编译/发布 | **已解除**（warnings 通道 + 双 MAIN WARN 已落地） | 100% |
 | **B2** | **Persister 实现 + agent-server 装配（P0 必做）** | **非可选** | 必须有 SPI + Lesso Bean；无 Bean 仅降级 WARN **不算**功能交付 | **已解除**（`LessoGraphNodeMemoryPersister` 已注册；单测绿） | 100% |
-| **B3** | 多模块版本发布（ace-graph + lesso-ai） | 发布阻塞，非设计阻塞 | 先框架 SPI，再 Lesso 实现，再 agent-server | **未发版**（代码在 feature 分支，未 push/发版） | 0%（发布维度） |
+| **B3** | 多模块版本发布（ace-graph + lesso-ai） | 发布阻塞，非设计阻塞 | 先框架 SPI，再 Lesso 实现，再 agent-server | **已解除**（`1.1.26` 起含 memoryWrites；测环境已跟版并联调） | 100% |
 | **B4** | SAA `READ_ONLY` 读历史 | **不阻塞** | §13.4 非 P0 | **非本阶段** | N/A |
 | **B5** | O2 自动剥 WRITE_USER | **不阻塞 P0** | 已暂缓；用户配置保证 | **非本阶段**（同 D4/W11） | N/A |
 
@@ -453,7 +467,7 @@ D8     联调（可选）
 |------|------|------|------|------|--------|
 | 双 MAIN WARN 仅日志、设计器无感 | 中 | 产品以为「没做校验」 | P0 warnings + 设计器双 MAIN / 出口提示 | **已缓解**（表单 warning alert） | ~90% |
 | ASSISTANT 与出口脱敏稿重复 | 中 | 业务误配 | WARN + 文档；不做硬拒 | **WARN 已落地**；业务配图自查 | ~70% |
-| Persister 与 Advisor 写 USER 格式不一致 | 低～中 | 历史脏数据 | 复用同一 Display/Persist SPI；Persister 单测 | **代码对齐 SPI**；真机对比未做 | ~80% |
+| Persister 与 Advisor 写 USER 格式不一致 | 低～中 | 历史脏数据 | 复用同一 Display/Persist SPI；Persister 单测 | **已缓解**（真机 USER metaKeys=`display_content/images/files/guide`；续轮双键不串附件） | ~95% |
 | record 漏改测试 | 中 | CI 红 | W2 已修相关构造；本模块单测绿 | **已缓解** | 100% |
 
 ### 14.6 建议开工顺序（执行清单）
@@ -465,6 +479,6 @@ D8     联调（可选）
 | 3 | W4/W5 钩子 + 无 Persister 降级 | **已完成** | 100% |
 | 4 | W6 Lesso 实现 + agent-server 装配 | **已完成** | 100% |
 | 5 | W7a warnings → W7b 双 MAIN | **已完成** | 100% |
-| 6 | W8 单测绿灯 → **M-P0** | **单测绿**；真机联调未做 → M-P0 ~95% | ~95% |
+| 6 | W8 单测绿灯 → **M-P0** | **已完成**（单测绿 + 真机联调 2026-11-03） | 100% |
 | 7 | W9 设计器 → **M-P1** | **已完成** | 100% |
 | 8 | W11 自动剥 WRITE_USER | **暂缓** | 0% |

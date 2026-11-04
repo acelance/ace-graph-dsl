@@ -87,6 +87,7 @@ public class DynamicGraphBuilder {
             LlmRequestContext.ACE_FORCE_SKILL_LABELS_KEY,
             LlmRequestContext.ACE_CONVERSATION_ID_KEY,
             LlmRequestContext.ACE_DEEP_THINKING_KEY,
+            LlmRequestContext.ACE_REQUEST_MEDIA_REFS_KEY,
             ModelOverrideSpec.ACE_RUN_ID_KEY,
             ModelOverrideSpec.ACE_MODEL_OVERRIDES_KEY,
             SaaWorkflowKeys.SUB_STEPS_KEY,

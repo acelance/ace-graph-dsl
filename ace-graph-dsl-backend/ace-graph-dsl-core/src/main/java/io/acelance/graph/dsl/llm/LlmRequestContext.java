@@ -45,6 +45,14 @@ public record LlmRequestContext(
      */
     public static final String ACE_DEEP_THINKING_KEY = "ace.graph.dsl.deepThinking";
 
+    /**
+     * state 保留键：<b>仅本轮请求</b>附件快照（{@link io.acelance.graph.dsl.media.MediaRef} 列表）。
+     *
+     * <p>与运行时 {@code media_refs}（可含 Hydrator 回灌的历史 URL）分离：USER 记忆 extras
+     * 只读本键，避免续轮纯文本把历史附件再次写入 extras。</p>
+     */
+    public static final String ACE_REQUEST_MEDIA_REFS_KEY = "ace.graph.dsl.requestMediaRefs";
+
     public LlmRequestContext {
         Objects.requireNonNull(binding, "ResourceBinding 不能为空");
         agentCode = agentCode == null ? "" : agentCode;

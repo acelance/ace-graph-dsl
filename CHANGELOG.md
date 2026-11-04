@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Docs
+
+- **SAA memoryWrites 方案**：回填 2026-11-03 真机联调证据（样例图
+  `test-saa-main-text-memory-persistence`；M-P0 / W10 勾选完成）。
+- **G-STREAM-INNER 计划**：M4 宿主/存量抽测回填（利费 Generic + AS 图续轮深思，2026-11-03）。
+
+## [1.1.30] — 2026-11-03
+
+### Changed
+
+- **发布物**：`ace-graph-dsl-backend` 编译 `debug=false` / `-g:none`（保留 `parameters`）；默认不
+  attach `-sources`/`-javadoc`，私服仅发业务 jar。
+
+## [1.1.29] — 2026-11-03
+
+### Fixed
+
+- **USER 落盘媒体与运行时 media_refs 分离**：新增保留键
+  `ace.graph.dsl.requestMediaRefs`（仅本轮请求附件）。
+  `StreamingLlmTemplate` 写记忆 extras 只读该键，**禁止**回退运行时
+  `media_refs`（可含 Hydrator 历史），避免续轮纯文本把历史附件再次写入 extras。
+
 ## [1.1.28] — 2026-11-02
 
 ### Added
