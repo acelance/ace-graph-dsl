@@ -21,6 +21,8 @@ export const useGraphEditorStore = defineStore('aceGraphEditor', () => {
   const edges = ref([])
   const interruptBefore = ref([])
   const saver = ref('memory')
+  /** 图级 HITL 中断提示文案（compile.interruptContent） */
+  const interruptContent = ref('')
   const validationErrors = ref([])
   const edgeParamIssues = ref([])
   const plantUmlContent = ref('')
@@ -217,6 +219,7 @@ export const useGraphEditorStore = defineStore('aceGraphEditor', () => {
     edges.value = normalized.edges || []
     interruptBefore.value = normalized.compile?.interruptBefore || []
     saver.value = normalized.compile?.saver || 'memory'
+    interruptContent.value = normalized.compile?.interruptContent || ''
     snapshotBaseline(normalized)
     return normalized
   }
@@ -357,7 +360,11 @@ export const useGraphEditorStore = defineStore('aceGraphEditor', () => {
       keyStrategies: { ...keyStrategies },
       nodes: nodes.value,
       edges: edges.value,
-      compile: { interruptBefore: interruptBefore.value, saver: saver.value }
+      compile: {
+        interruptBefore: interruptBefore.value,
+        saver: saver.value,
+        interruptContent: interruptContent.value || ''
+      }
     })
   }
 
@@ -538,6 +545,7 @@ export const useGraphEditorStore = defineStore('aceGraphEditor', () => {
     edges.value = []
     interruptBefore.value = meta.interruptBefore || []
     saver.value = meta.saver || 'memory'
+    interruptContent.value = meta.interruptContent || ''
     scopeStack.value = []
     Object.keys(keyStrategies).forEach(k => delete keyStrategies[k])
     snapshotBaseline(buildDefinition())
@@ -552,6 +560,7 @@ export const useGraphEditorStore = defineStore('aceGraphEditor', () => {
     edges.value = []
     interruptBefore.value = []
     saver.value = 'memory'
+    interruptContent.value = ''
     validationErrors.value = []
     edgeParamIssues.value = []
     plantUmlContent.value = ''
@@ -711,6 +720,7 @@ export const useGraphEditorStore = defineStore('aceGraphEditor', () => {
       edges: edges.value,
       interruptBefore: interruptBefore.value,
       saver: saver.value,
+      interruptContent: interruptContent.value,
       baselineVersion: baselineVersion.value,
       baselineCanonical: baselineCanonical.value,
       kind, owningNodeId, subgraphRef, label
@@ -728,6 +738,7 @@ export const useGraphEditorStore = defineStore('aceGraphEditor', () => {
     edges.value = f.edges
     interruptBefore.value = f.interruptBefore
     saver.value = f.saver
+    interruptContent.value = f.interruptContent || ''
     baselineVersion.value = f.baselineVersion
     baselineCanonical.value = f.baselineCanonical
   }
@@ -744,6 +755,7 @@ export const useGraphEditorStore = defineStore('aceGraphEditor', () => {
     edges.value = normalized.edges || []
     interruptBefore.value = normalized.compile?.interruptBefore || []
     saver.value = normalized.compile?.saver || 'memory'
+    interruptContent.value = normalized.compile?.interruptContent || ''
     clearSelectedNode()
     clearSelectedEdge()
   }
@@ -894,7 +906,11 @@ export const useGraphEditorStore = defineStore('aceGraphEditor', () => {
         keyStrategies: frame.keyStrategies || {},
         nodes: frame.nodes,
         edges: frame.edges,
-        compile: { interruptBefore: frame.interruptBefore, saver: frame.saver }
+        compile: {
+          interruptBefore: frame.interruptBefore,
+          saver: frame.saver,
+          interruptContent: frame.interruptContent || ''
+        }
       })
       curOwningNodeId = frame.owningNodeId
     }
@@ -1014,7 +1030,7 @@ export const useGraphEditorStore = defineStore('aceGraphEditor', () => {
 
   return {
     graphId, version, displayName, description, keyStrategies,
-    nodes, edges, interruptBefore, saver,
+    nodes, edges, interruptBefore, saver, interruptContent,
     validationErrors, edgeParamIssues, plantUmlContent, versions, enabledVersion, baselineVersion,
     savedGraphNodes,
     saving, publishing,     selectedNode, selectedLfNodeId, selectedEdge, edgeEditCommand, edgeConvertCommand,

@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **`compile.interruptContent`**：`CompileConfigDto` 增加图级 HITL 中断提示文案；
+  设计器 Compile 页签可编辑；空/缺省不强制，宿主 SSE 可 fallback。
+
 ### Docs
 
 - **SAA memoryWrites 方案**：回填 2026-11-03 真机联调证据（样例图

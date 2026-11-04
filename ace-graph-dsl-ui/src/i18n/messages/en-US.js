@@ -277,6 +277,8 @@ export default {
     saver: 'Saver',
     interruptBefore: 'Interrupt before',
     interruptPlaceholder: 'Select HITL nodes',
+    interruptContent: 'Interrupt message',
+    interruptContentPlaceholder: 'Shown when HITL pauses; leave empty for host default',
     stateKey: 'State Key',
     strategy: 'Strategy',
     addKey: 'Add key',

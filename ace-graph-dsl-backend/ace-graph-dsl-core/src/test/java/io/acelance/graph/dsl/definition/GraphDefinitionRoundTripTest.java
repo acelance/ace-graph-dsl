@@ -99,7 +99,7 @@ class GraphDefinitionRoundTripTest {
                 Map.of(),
                 List.of(new NodeRef("s1", Map.of(), null, null)),
                 List.of(),
-                new CompileConfigDto(List.of(), "memory"), null);
+                new CompileConfigDto(List.of(), "memory", null), null);
 
         NodeRef subRef = new NodeRef("subA", "SUBGRAPH", Map.of(), null, null, inner, null, null, null, null);
         NodeRef agentRef = new NodeRef("agentX", "AGENT", Map.of(), null, null, null, null, null, null, null);
@@ -115,7 +115,7 @@ class GraphDefinitionRoundTripTest {
                 Map.of("k1", "REPLACE"),
                 List.of(normalRef, subRef, agentRef),
                 List.of(parallel1, parallel2, errorEdge),
-                new CompileConfigDto(List.of(), "memory"), null);
+                new CompileConfigDto(List.of(), "memory", null), null);
 
         String json = objectMapper.writeValueAsString(def);
         GraphDefinition restored = objectMapper.readValue(json, GraphDefinition.class);

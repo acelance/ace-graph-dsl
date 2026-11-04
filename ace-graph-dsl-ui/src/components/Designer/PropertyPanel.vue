@@ -1259,6 +1259,14 @@ function onStreamingChange(val) {
               <el-option v-for="n in editor.nodes" :key="n.nodeId" :label="n.nodeId" :value="n.nodeId" />
             </el-select>
           </el-form-item>
+          <el-form-item :label="t('propertyPanel.interruptContent')">
+            <el-input
+              v-model="editor.interruptContent"
+              type="textarea"
+              :rows="3"
+              :placeholder="t('propertyPanel.interruptContentPlaceholder')"
+            />
+          </el-form-item>
         </el-form>
       </el-tab-pane>
 
