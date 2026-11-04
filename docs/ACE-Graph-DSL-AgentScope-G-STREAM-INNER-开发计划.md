@@ -2,7 +2,7 @@
 
 | 项 | 内容 |
 |----|------|
-| 状态 | **§0 已拍板；M0～M3 框架侧已落地；`1.1.23` 已 deploy mesrelease（2026-10-28）；下一站 M4 宿主冒烟/测环境跟版** |
+| 状态 | **§0 已拍板；M0～M3 框架侧已落地；`1.1.23` 已 deploy；M4 宿主/存量抽测 2026-11-03 已过**（余 PR 标题勾选 / 可选 PARALLEL 补测） |
 | 日期 | 2026-10-26 |
 | 分支 | 框架 `feature-as-b1-g-stream-inner`；宿主跟版 `feature-agentscope-b-g-stream-inner` |
 | 方案 | [ACE-Graph-DSL-AgentScope-G-STREAM-INNER-开发方案.md](./ACE-Graph-DSL-AgentScope-G-STREAM-INNER-开发方案.md)（§0 已拍板） |
@@ -64,17 +64,17 @@
 - [x] 可见流（方案 §0.5）：有无工具均全推 REASONING/SUMMARY/AGENT_RESULT；TOOL/HINT 仅日志；终答不得空
 - [x] 回归：G-MCP Skill/MCP 单测不坏（`AgentScopeToolAssemblyTest` / Bridge 测试绿）
 - [x] **顺带**：ROUTING `routerSystemPrompt` / `routerInstruction` / `routerFallbackAgent` → Factory/`LlmRoutingAgent` + 设计器（旧 JSON 缺省兼容）
-- [ ] 宿主：父配 `{"thinking":true,…}` + 解释器 → 思考小气泡；未配 → 正文（→ M4 平台冒烟）
+- [x] 宿主：父配 `{"thinking":true,…}` + 解释器 → 思考小气泡；未配 → 正文（→ M4 平台冒烟；2026-11-03 测环境可见「深度思考」）
 - [ ] （可选）PARALLEL/ROUTING/LOOP 补测
 
 ### 3.4 M4 — 宿主、文档、发版
 
-- [ ] 平台 `chat/stream`：AS 增量 + 父通道策略
-- [ ] GENERIC / 业务 / **存量 SAA 图**抽测不回归
-- [x] 方案/计划文档对齐当前实现与 §0.5 口径（2026-10-26）
-- [ ] agentscope README / host.md / 路径 B §10 / CHANGELOG 发版勾选（跟版时再勾）
-- [x] CHANGELOG；版本 bump + `deploy` mesrelease（`1.1.23`，2026-10-28）
-- [ ] PR：标题含 `as-b1-g-stream-inner` / G-STREAM-INNER
+- [x] 平台 `chat/stream`：AS 增量 + 父通道策略（测环境 SSE `text/event-stream` 200；思考+正文可见）
+- [x] GENERIC / 业务 / **存量 SAA 图**抽测不回归（2026-11-03：`bank-interest-fee-verifier-graph` + `bank-interest-fee-verifier-agentscope-graph` 续轮字段追问可用）
+- [x] 方案/计划文档对齐当前实现与 §0.5 口径（2026-10-26；M4 抽测回填 2026-11-03）
+- [x] agentscope README / host.md / 路径 B §10 / CHANGELOG 发版勾选（跟版时再勾；host 进度 2026-11-03 回填）
+- [x] CHANGELOG；版本 bump + `deploy` mesrelease（`1.1.23`，2026-10-28；现网已跟更高版本）
+- [ ] PR：标题含 `as-b1-g-stream-inner` / G-STREAM-INNER（过程合入可补记）
 
 ### 3.5 明确不做（本计划）
 

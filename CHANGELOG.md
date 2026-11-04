@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Docs
+
+- **SAA memoryWrites 方案**：回填 2026-11-03 真机联调证据（样例图
+  `test-saa-main-text-memory-persistence`；M-P0 / W10 勾选完成）。
+- **G-STREAM-INNER 计划**：M4 宿主/存量抽测回填（利费 Generic + AS 图续轮深思，2026-11-03）。
+
 ## [1.1.30] — 2026-11-03
 
 ### Changed
