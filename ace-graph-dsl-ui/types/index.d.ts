@@ -305,6 +305,8 @@ export function useGraphEditorStore(): {
   edges: Ref<{ from: string; to?: string; type: 'normal' | 'conditional'; dispatcher?: string; mapping?: Record<string, string> }[]>
   interruptBefore: Ref<string[]>
   saver: Ref<string>
+  /** 图级 HITL 中断提示文案（compile.interruptContent） */
+  interruptContent: Ref<string>
   validationErrors: Ref<any[]>
   plantUmlContent: Ref<string>
   versions: Ref<{ version: string; status: string; createdAt: string }[]>

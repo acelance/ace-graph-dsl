@@ -302,7 +302,8 @@ ace:
   ],
   "compile": {
     "interruptBefore": ["human_review"],
-    "saver": "memory"
+    "saver": "memory",
+    "interruptContent": "流程已暂停，请人工确认后再继续。"
   }
 }
 ```
@@ -316,7 +317,7 @@ ace:
 | `keyStrategies` | State key 合并策略：`REPLACE`（覆盖）/ `APPEND`（追加） |
 | `nodes` | 节点引用列表，引用已注册的 `nodeId` 并可携带 `config` |
 | `edges` | 边列表，支持普通边（`normal`）和条件边（`conditional`） |
-| `compile` | 编译配置：`interruptBefore`（HITL 中断点）、`saver`（checkpoint 存储） |
+| `compile` | 编译配置：`interruptBefore`（HITL 中断点）、`saver`（checkpoint 存储）、`interruptContent`（可选，图级人工中断提示文案） |
 
 ### 保留字
 

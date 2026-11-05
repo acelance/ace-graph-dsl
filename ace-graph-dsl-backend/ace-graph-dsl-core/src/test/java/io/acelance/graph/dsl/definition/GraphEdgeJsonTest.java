@@ -23,7 +23,7 @@ class GraphEdgeJsonTest {
                 List.of(new NodeRef("a", Map.of(), null, null)),
                 List.of(new GraphEdge("a", null, GraphEdge.TYPE_CONDITIONAL, "disp",
                         Map.of("k", "b"), null, null)),
-                new CompileConfigDto(List.of(), "memory"), null);
+                new CompileConfigDto(List.of(), "memory", null), null);
 
         String json = objectMapper.writeValueAsString(def);
         JsonNode edge = objectMapper.readTree(json).get("edges").get(0);

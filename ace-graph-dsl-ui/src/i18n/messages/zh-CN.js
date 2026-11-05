@@ -278,6 +278,8 @@ export default {
     saver: 'Saver',
     interruptBefore: '中断点',
     interruptPlaceholder: '选择 HITL 节点',
+    interruptContent: '中断提示文案',
+    interruptContentPlaceholder: 'HITL 暂停时展示给用户；留空则宿主使用默认提示',
     stateKey: 'State Key',
     strategy: '策略',
     addKey: '新增 Key',

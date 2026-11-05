@@ -13,6 +13,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `test-saa-main-text-memory-persistence`；M-P0 / W10 勾选完成）。
 - **G-STREAM-INNER 计划**：M4 宿主/存量抽测回填（利费 Generic + AS 图续轮深思，2026-11-03）。
 
+## [1.1.31] — 2026-11-04
+
+### Added
+
+- **`compile.interruptContent`**：`CompileConfigDto` 增加图级 HITL 中断提示文案；
+  设计器 Compile 页签可编辑；空/缺省不强制，宿主 SSE 可 fallback。
+
 ## [1.1.30] — 2026-11-03
 
 ### Changed

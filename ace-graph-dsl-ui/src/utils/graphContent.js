@@ -18,7 +18,7 @@ export function contentSnapshot(def) {
     keyStrategies: def.keyStrategies || {},
     nodes,
     edges: def.edges || [],
-    compile: def.compile || { interruptBefore: [], saver: 'memory' }
+    compile: def.compile || { interruptBefore: [], saver: 'memory', interruptContent: '' }
   }
 }
 

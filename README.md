@@ -195,7 +195,11 @@ npm run dev    # 默认 http://127.0.0.1:5173
       "mapping": { "handle_inquiry": "handle_inquiry", "__END__": "__END__" }
     }
   ],
-  "compile": { "interruptBefore": ["human_review"], "saver": "memory" }
+  "compile": {
+    "interruptBefore": ["human_review"],
+    "saver": "memory",
+    "interruptContent": "流程已暂停，请人工确认后再继续。"
+  }
 }
 ```
 

@@ -138,7 +138,7 @@ public record GraphDefinition(
         return new GraphDefinition(graphId, displayName, version, description,
                 extractKeyStrategies(stateGraph),
                 List.copyOf(nodeRefs), List.copyOf(graphEdges),
-                new CompileConfigDto(interruptBefore, saver), true);
+                new CompileConfigDto(interruptBefore, saver, null), true);
     }
 
     @SuppressWarnings("unchecked")
