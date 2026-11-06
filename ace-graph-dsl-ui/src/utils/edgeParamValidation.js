@@ -57,6 +57,9 @@ function outputKeysOf(nodeId, descMap, refMap) {
   const desc = descMap.get(nodeId)
   for (const k of desc?.outputKeys || []) keys.add(k)
   const ref = refMap.get(nodeId)
+  if (ref?.hitlSpec || ref?.category === 'HITL') {
+    for (const k of splitKeys(ref.hitlSpec?.injectKeys)) keys.add(k)
+  }
   if (ref?.saaSpec || ref?.category === 'SAA_WORKFLOW') {
     for (const k of saaOutputKeys(ref.saaSpec)) keys.add(k)
   } else if (ref?.agentSpec) {
@@ -67,9 +70,11 @@ function outputKeysOf(nodeId, descMap, refMap) {
 }
 
 /** START / ERROR 出边、目标为 HITL 的入边不做可达性校验 */
-function shouldSkipEdgeValidation(from, to, descMap) {
+function shouldSkipEdgeValidation(from, to, descMap, refMap) {
   if (from === START || from === ERROR) return true
-  return descMap.get(to)?.category === 'HITL'
+  if (descMap.get(to)?.category === 'HITL') return true
+  const ref = refMap?.get(to)
+  return !!(ref && (ref.category === 'HITL' || ref.hitlSpec))
 }
 
 function collectNodes(definition) {
@@ -170,7 +175,7 @@ export function validateEdgeParamReachability(definition, nodeDescriptors) {
 
   function reportEdge(from, to) {
     if (!to || to === END) return
-    if (shouldSkipEdgeValidation(from, to, descMap)) return
+    if (shouldSkipEdgeValidation(from, to, descMap, refMap)) return
     const required = inputKeysOf(to, descMap, refMap)
     if (!required.size) return
     const available = entryKeys.get(to) || new Set()

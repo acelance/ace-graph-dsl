@@ -2,10 +2,11 @@
 
 | 项 | 内容 |
 |---|---|
-| 状态 | **方案评审结论已齐**（对应后续 Issue 1；**未开工**）；§9 议题 **#1～#6 已拍板** |
+| 状态 | **框架已落地 + 本地验收通过**（Issue 1）；§9 **#1～#6 已拍板**；后端 **1.1.32 已 deploy mesrelease**；待 **UI npm 1.0.6** 与宿主跟版合码；**测环境证据待补** |
 | Issue 标题（建议） | `[HITL] 可拖 HITL 节点工厂：人工注入 key + 与 interruptBefore/连线校验对齐` |
 | 框架仓库 | `ace-graph-dsl` |
 | 框架分支 | `feature-hitl-node-factory` |
+| 框架版本 | 后端 **`1.1.32`**；UI **`@acelance/graph-dsl-ui@1.0.6`**（npm 已有 1.0.5，HITL 工厂递增；由人工发 npm） |
 | 业务仓库 | `lesso-ai-project`（`lesso-ai-platform-agent-server` + 设计器跟版） |
 | 业务分支 | `feature-hitl-node-factory-host-bump`（**仅跟版/样例**，不对位做新协议） |
 | 前置已落地 | 顶层 `interruptBefore` + 宿主 resume + 平台结束帧 interrupt（见宿主 `HITL-resume-WebFlux缺口与方案.md`，**已落地**） |
@@ -386,22 +387,45 @@ ace-graph-dsl-ui
 
 ### 7.1 框架
 
-1. 可拖 HITL 节点；`injectKeys` 保存/发布/拉回不丢。  
-2. `起草→HITL→定稿` 连线校验通过；定稿 `inputKeys` 含 `approved_text`，起草仅 `draft`。  
-3. 缺少 HITL 于 `interruptBefore` → **publish/validate 失败**（文案明确）。  
-4. `injectKeys` 空 → 校验失败。  
-5. 自动补 `keyStrategies` REPLACE（或等价可测行为）。  
-6. 单测覆盖可达性豁免与产出键。
+| # | 项 | 本地（2026-11-06） | 测环境 |
+|---|---|---|---|
+| 1 | 可拖 HITL；`injectKeys` 保存/发布/拉回不丢 | ✅ | 待补 |
+| 2 | `起草→HITL→定稿` 连线校验通过；定稿 `inputKeys` 含 `approved_text` | ✅（样例节点已改为 `approved_text,draft`） | 待补 |
+| 3 | HITL 未进 `interruptBefore` → validate/publish 失败 | ✅（单测 + 保存自动并入） | 待补 |
+| 4 | `injectKeys` 空 → 校验失败 | ✅ | 待补 |
+| 5 | 自动补 `keyStrategies` REPLACE | ✅ | 待补 |
+| 6 | 单测：可达性豁免、HITL 跳过「节点未注册」、回声 | ✅ | — |
 
 ### 7.2 业务跟版
 
-1. 升版后设计器可见 HITL 节点。  
-2. （可选强验收）`test-HITL-graph` 改为 §4.2 拓扑；stream 断在 HITL → resume 写 `approved_text` → END；定稿 Prompt 能读到占位值。
+| # | 项 | 本地 | 测环境 |
+|---|---|---|---|
+| 1 | 升版后设计器可见 HITL 节点 | ✅（`file:` 联调；正式须 npm `1.0.6`） | 待跟版部署 |
+| 2 | `test-HITL-graph`：stream 断在 HITL → resume 写 `approved_text` → END；定稿读到占位值 | ✅（见 §7.4） | 待补 |
 
 ### 7.3 回归
 
 - 无 HITL 节点的旧图（仅 Agent + `interruptBefore`）行为不变。  
-- 顶层 resume、平台结束帧 interrupt 回归不破坏。
+- 顶层 resume、平台结束帧 interrupt 回归不破坏（本地续跑未改宿主协议）。
+
+### 7.4 本地联调证据（2026-11-06，非测环境）
+
+| 项 | 内容 |
+|---|---|
+| 图 | `test-HITL-graph`：`draft_reply → HITL(injectKeys=[approved_text]) → final_reply`；`interruptBefore=[hitl_…]` |
+| 通路 | stream 断在 HITL → `POST .../resume` + `updates.approved_text` → `__END__` |
+| 定稿配置（关键） | 注册节点 `agent:final_reply`：`inputKeys=approved_text,draft`；Prompt 使用 `{{approved_text}}` / `{{draft}}`（**勿**只写「请读 state」） |
+| 结果 | END `approved_text` = 人工稿；`final_reply` 以人工稿为主（可微调标点） |
+| 踩坑 | ① `GraphValidator` 曾对 HITL 报「节点未注册」→ 已豁免结构节点；② resume/HITL 已写 state 但定稿未配 inputKeys/占位 → 模型口头「缺字段」——属节点配置，非 resume 失败 |
+
+### 7.5 发版收口（本刀剩余）
+
+```
+1. 框架：后端 1.1.32 → **已 deploy mesrelease**（2026-11-06）
+2. 框架：UI **1.0.6** → **人工 npm publish**（本刀不代发；勿再发 1.0.5）
+3. 宿主 feature-hitl-node-factory-host-bump：pom 1.1.32；设计器 npm **1.0.6**（撤掉临时 file:）
+4. MR/PR 合入 → 测环境部署 → 回填 §7.1/§7.2「测环境」列
+```
 
 ---
 
@@ -428,7 +452,7 @@ ace-graph-dsl-ui
 | 5 | 业务侧 | **仅** `feature-hitl-node-factory-host-bump` 跟版（升依赖/可选改样例）；不对位大 Issue | **§5.7** |
 | 6 | 宿主代码 | **默认不改** resume / 平台 SSE 等逻辑。若出现不改宿主则无法完成验收的**阻塞点** → **停刀并重新评审本条**，禁止静默扩宿主 scope | **§5.7** |
 
-拍板已齐：建 GitLab Issue（标题用文首）→ 拉 `feature-hitl-node-factory` → 按 §5 动刀。
+拍板已齐；框架实现与本地验收见文首状态与 §7.4；剩余发版见 §7.5。
 
 ---
 
@@ -436,7 +460,7 @@ ace-graph-dsl-ui
 
 | 文档 | 关系 |
 |---|---|
-| 宿主 `HITL-resume-WebFlux缺口与方案.md` | 顶层断点/resume/**已落地**；其 §11.1「HITL 类型节点工厂」= **本文** |
+| 宿主 `HITL-resume-WebFlux缺口与方案.md` | 顶层断点/resume/**已落地**；其 §11.1「HITL 类型节点工厂」= **本文**（本地已验，待发版合码） |
 | 本文 | 补齐**可拖节点 + 注入键 + 校验**产品化；依赖前者，不重做 resume |
 
 ---

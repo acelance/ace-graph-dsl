@@ -245,6 +245,7 @@ export const useGraphEditorStore = defineStore('aceGraphEditor', () => {
           subgraph: n.properties?.subgraph || null,
           agentSpec: n.properties?.agentSpec || null,
           saaSpec: n.properties?.saaSpec || null,
+          hitlSpec: n.properties?.hitlSpec || null,
           config: n.properties?.config || {},
           x: n.x,
           y: n.y
@@ -309,6 +310,7 @@ export const useGraphEditorStore = defineStore('aceGraphEditor', () => {
       if (!keyStrategies[k]) keyStrategies[k] = 'REPLACE'
     }
     ensureSaaKeyStrategies()
+    ensureHitlNormalize()
     refreshEdgeParamValidation(nodeDescriptors)
   }
 
@@ -350,8 +352,31 @@ export const useGraphEditorStore = defineStore('aceGraphEditor', () => {
   }
 
   /** 构建完整的 GraphDefinition 对象 */
+  /**
+   * HITL：injectKeys 补 keyStrategies；全部 HITL nodeId 并入 interruptBefore（方案 §5.3 / §5.4）。
+   */
+  function ensureHitlNormalize() {
+    const hitlIds = []
+    for (const n of nodes.value || []) {
+      if (!(n.category === 'HITL' || n.hitlSpec)) continue
+      if (n.nodeId) hitlIds.push(n.nodeId)
+      const keys = Array.isArray(n.hitlSpec?.injectKeys)
+        ? n.hitlSpec.injectKeys
+        : String(n.hitlSpec?.injectKeys || '').split(/[,\s]+/)
+      for (const raw of keys) {
+        const k = String(raw || '').trim()
+        if (k && !keyStrategies[k]) keyStrategies[k] = 'REPLACE'
+      }
+    }
+    if (!hitlIds.length) return
+    const merged = new Set((interruptBefore.value || []).filter(Boolean))
+    for (const id of hitlIds) merged.add(id)
+    interruptBefore.value = [...merged]
+  }
+
   function buildDefinition() {
     ensureSaaKeyStrategies()
+    ensureHitlNormalize()
     return normalizeDefinition({
       graphId: graphId.value,
       displayName: displayName.value,
@@ -675,6 +700,18 @@ export const useGraphEditorStore = defineStore('aceGraphEditor', () => {
     const current = nodes.value[idx]
     const next = { ...current, saaSpec: spec ? { ...spec } : null }
     nodes.value.splice(idx, 1, next)
+  }
+
+  /** 将属性面板编辑的 hitlSpec 写回选中节点（store 层）。 */
+  function updateSelectedHitlSpec(spec) {
+    const target = selectedNode.value
+    if (!target) return
+    const idx = nodes.value.findIndex(n => n.nodeId === target.nodeId)
+    if (idx < 0) return
+    const current = nodes.value[idx]
+    const next = { ...current, hitlSpec: spec ? { ...spec } : null }
+    nodes.value.splice(idx, 1, next)
+    ensureHitlNormalize()
   }
 
   function loadVersionAsBaseline(def) {
@@ -1048,6 +1085,7 @@ export const useGraphEditorStore = defineStore('aceGraphEditor', () => {
     publishCurrent, loadLatest, loadEnabledVersion, fetchVersions, selectGraph, initNewGraph, resetEditor,
     setSelectedNode, clearSelectedNode, updateSelectedNodeConfig, updateSelectedAgentSpec,
     updateSelectedSaaSpec,
+    updateSelectedHitlSpec,
     setSelectedEdge, clearSelectedEdge, updateSelectedEdgeParallel, updateSelectedEdgeAggregation, requestEdgeEdit, requestEdgeConvert, clearEdgeCommands,
     enterSubgraph, exitSubgraph, goToBreadcrumb, updateSubgraphNodeMeta, renameSelectedNode, requestRerender, loadGraphIds,
     openSubgraphPreview, closeSubgraphPreview,

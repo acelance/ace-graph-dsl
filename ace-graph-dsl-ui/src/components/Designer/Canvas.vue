@@ -99,6 +99,24 @@ watch(() => {
   }
 }, { deep: true })
 
+/** 属性面板编辑 hitlSpec 后同步到 lf 节点 properties */
+watch(() => {
+  const sel = editor.selectedNode
+  if (!sel) return null
+  const meta = editor.nodes.find(n => n.nodeId === sel.nodeId)
+  return meta?.hitlSpec
+}, (spec) => {
+  if (!lf || !editor.selectedLfNodeId) return
+  const model = lf.getNodeModelById(editor.selectedLfNodeId)
+  if (!model) return
+  suppressSync = true
+  try {
+    lf.setProperties(editor.selectedLfNodeId, { ...model.properties, hitlSpec: spec ? { ...spec } : null })
+  } finally {
+    suppressSync = false
+  }
+}, { deep: true })
+
 /** 就地更新 LF 节点文案（避免整图重渲染丢选中） */
 function patchSelectedLfText(text) {
   const id = editor.selectedLfNodeId
@@ -596,7 +614,8 @@ function onNodeDrag(descriptor) {
     const base = category === 'SUBGRAPH' ? 'subgraph'
       : category === 'AGENT' ? 'agent'
         : category === 'SAA_WORKFLOW' ? 'saa_workflow'
-          : category.toLowerCase()
+          : category === 'HITL' ? 'hitl'
+            : category.toLowerCase()
     nodeId = `${base}_${Date.now()}`
     displayName = descriptor.displayName || nodeId
   }
@@ -620,7 +639,8 @@ function onNodeDrag(descriptor) {
       // 由编译期 DynamicGraphBuilder 从 GraphNodeRegistry 按 nodeId 解析。
       // 注：内联通道（结构型 GENERIC_AGENT 拖入）已从面板移除，此分支保留仅为向后兼容旧图数据。
       agentSpec: (category === 'GENERIC_AGENT' && descriptor.isStructural) ? { modelBaseUrl: '', modelApiKey: '', apiKeyMasked: false, modelId: '', prompt: '', inputKeys: '', outputKey: 'agent_result', mediaInputKey: '', enablePrompt: false, promptKeys: [], enableModel: false, modelConfigKey: '', enableMcp: false, mcpKeys: [], mcpToolWhitelist: {}, enableSkill: false, skillKeys: [], enableLocalTools: false, localToolKeys: [], streamResponseKind: '', memoryMode: 'NONE', applyDeepThinking: false, enableBizParams: false, bizParamInterpreterId: '', bizParamRaw: '' } : null,
-      saaSpec: category === 'SAA_WORKFLOW' ? defaultSaaSpec() : null
+      saaSpec: category === 'SAA_WORKFLOW' ? defaultSaaSpec() : null,
+      hitlSpec: category === 'HITL' ? { injectKeys: [] } : null
     })
   })
 }
@@ -662,7 +682,8 @@ function renderFromDefinition(def) {
         subgraphRef: n.subgraphRef || '',
         subgraph: n.subgraph || null,
         agentSpec: n.agentSpec || null,
-        saaSpec: normalizeSaaSpec(n.saaSpec)
+        saaSpec: normalizeSaaSpec(n.saaSpec),
+        hitlSpec: n.hitlSpec || null
       })
     })
   })
@@ -1231,7 +1252,8 @@ function extractSelectionToSubgraph() {
     subgraphRef: n.properties?.subgraphRef || '',
     subgraph: n.properties?.subgraph || null,
     agentSpec: n.properties?.agentSpec || null,
-    saaSpec: n.properties?.saaSpec || null
+    saaSpec: n.properties?.saaSpec || null,
+    hitlSpec: n.properties?.hitlSpec || null
   }))
 
   // 内部边（两端都在选中集合）

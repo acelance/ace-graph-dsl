@@ -70,7 +70,7 @@ public class EdgeParamReachabilityValidator {
         if (to == null || GraphDefinition.END.equals(to)) {
             return;
         }
-        if (shouldSkipEdgeValidation(from, to)) {
+        if (shouldSkipEdgeValidation(from, to, nodeRefs)) {
             return;
         }
         Set<String> required = inputKeysOf(to, nodeRefs);
@@ -97,17 +97,23 @@ public class EdgeParamReachabilityValidator {
      * 2. 错误边（ERROR 出边）：目标为错误处理器，入参来自框架注入的错误状态，非前驱产出；
      * 3. 目标为 HITL：入参来自 interrupt/resume 注入，非直接前驱产出。
      */
-    private boolean shouldSkipEdgeValidation(String from, String to) {
+    private boolean shouldSkipEdgeValidation(String from, String to, Map<String, NodeRef> nodeRefs) {
         if (GraphDefinition.START.equals(from)) {
             return true;
         }
         if (GraphDefinition.ERROR.equals(from)) {
             return true;
         }
-        return isHitlNode(to);
+        return isHitlNode(to, nodeRefs);
     }
 
-    private boolean isHitlNode(String nodeId) {
+    /** 注册表 CATEGORY_HITL 或 NodeRef.hitlSpec / category=HITL。 */
+    private boolean isHitlNode(String nodeId, Map<String, NodeRef> nodeRefs) {
+        NodeRef ref = nodeRefs == null ? null : nodeRefs.get(nodeId);
+        if (ref != null && (ref.hasHitlSpec()
+                || GraphNodeDescriptor.CATEGORY_HITL.equals(ref.category()))) {
+            return true;
+        }
         if (!nodeRegistry.contains(nodeId)) {
             return false;
         }
@@ -246,6 +252,9 @@ public class EdgeParamReachabilityValidator {
             keys.addAll(nodeRegistry.get(nodeId).descriptor().outputKeys());
         }
         NodeRef ref = nodeRefs.get(nodeId);
+        if (ref != null && ref.hasHitlSpec()) {
+            keys.addAll(io.acelance.graph.dsl.hitl.HitlGraphSupport.injectKeysOf(ref));
+        }
         if (ref != null && ref.hasSaaSpec() && ref.saaSpec() != null) {
             keys.addAll(saaOutputKeys(ref.saaSpec()));
         } else if (ref != null && ref.hasAgentSpec() && ref.agentSpec() != null

@@ -1,8 +1,10 @@
 package io.acelance.graph.dsl.builder;
 
 import com.alibaba.cloud.ai.graph.action.NodeAction;
+import io.acelance.graph.dsl.definition.CompileConfigDto;
 import io.acelance.graph.dsl.definition.GraphDefinition;
 import io.acelance.graph.dsl.definition.GraphEdge;
+import io.acelance.graph.dsl.definition.HitlNodeSpec;
 import io.acelance.graph.dsl.definition.NodeRef;
 import io.acelance.graph.dsl.registry.EdgeDispatcherRegistry;
 import io.acelance.graph.dsl.registry.GraphNodeDescriptor;
@@ -101,6 +103,34 @@ class GraphValidatorTest {
         assertFalse(result.ok());
         assertTrue(result.errors().stream().anyMatch(e -> e.contains("脚本引擎不可用")),
                 () -> "错误: " + result.errors());
+    }
+
+    /** HITL 结构节点不进注册表，不应报「节点未注册」。 */
+    @Test
+    void hitlStructuralNodeSkipsRegistryCheck() {
+        String hitlId = "hitl_1703025035037";
+        NodeRef hitl = new NodeRef(
+                hitlId, GraphNodeDescriptor.CATEGORY_HITL, Map.of(), null, null,
+                null, null, null, null, null,
+                new HitlNodeSpec(List.of("approved_text")));
+        GraphDefinition def = new GraphDefinition(
+                "g-hitl", "HITL图", "1.0.0", "",
+                Map.of("approved_text", "REPLACE"),
+                List.of(
+                        new NodeRef("a", Map.of(), null, null),
+                        hitl),
+                List.of(
+                        new GraphEdge(GraphDefinition.START, "a", GraphEdge.TYPE_NORMAL, null, null, null, null),
+                        new GraphEdge("a", hitlId, GraphEdge.TYPE_NORMAL, null, null, null, null),
+                        new GraphEdge(hitlId, GraphDefinition.END, GraphEdge.TYPE_NORMAL, null, null, null, null)),
+                new CompileConfigDto(List.of(hitlId), "memory", null),
+                null);
+
+        ValidationResult result = validator.validate(def);
+
+        assertTrue(result.ok(), () -> "应通过但有错误: " + result.errors());
+        assertTrue(result.errors().stream().noneMatch(e -> e.contains("节点未注册")),
+                () -> "不应报节点未注册: " + result.errors());
     }
 
     private static GraphDefinition graphWith(GraphEdge conditional) {
