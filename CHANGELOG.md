@@ -12,6 +12,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **SAA memoryWrites 方案**：回填 2026-11-03 真机联调证据（样例图
   `test-saa-main-text-memory-persistence`；M-P0 / W10 勾选完成）。
 - **G-STREAM-INNER 计划**：M4 宿主/存量抽测回填（利费 Generic + AS 图续轮深思，2026-11-03）。
+- **HITL 节点工厂方案**：§9 #1～#6 拍板与编码中状态。
+
+## [1.1.32] — 2026-11-06
+
+### Added
+
+- **HITL 结构节点（`hitlSpec`）**：可拖「人工审核」节点；`injectKeys` 入边豁免 / 出边可达；
+  保存与编译路径自动并入 `interruptBefore`、补 `keyStrategies=REPLACE`；运行时回声缺键不抛错。
+  方案见 `docs/HITL-节点工厂-方案.md`。
+
+### Fixed
+
+- **`GraphValidator`**：HITL 结构节点（`category=HITL` / `hitlSpec`）跳过「节点未注册」检查，与 AGENT/SAA 一致。
+
+### Release
+
+- 已 **deploy mesrelease**（2026-11-06）。UI `@acelance/graph-dsl-ui@1.0.6`（HITL 工厂；npm 已有 1.0.5，故递增）由人工 npm publish。
 
 ## [1.1.31] — 2026-11-04
 

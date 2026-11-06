@@ -205,7 +205,8 @@ const emptyDescription = computed(() =>
  * 后端代码保留但面板不暴露入口。 */
 const structuralNodes = computed(() => ([
   { nodeId: '', category: 'SUBGRAPH', displayName: t('nodePanel.subgraph'), isStructural: true, inputKeys: [], outputKeys: [] },
-  { nodeId: '', category: 'SAA_WORKFLOW', displayName: t('nodePanel.saaWorkflow'), isStructural: true, inputKeys: [], outputKeys: [] }
+  { nodeId: '', category: 'SAA_WORKFLOW', displayName: t('nodePanel.saaWorkflow'), isStructural: true, inputKeys: [], outputKeys: [] },
+  { nodeId: '', category: 'HITL', displayName: t('nodePanel.hitlReview'), isStructural: true, inputKeys: [], outputKeys: [] }
 ]))
 
 function onDragStart(e, n) {

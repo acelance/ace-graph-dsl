@@ -127,7 +127,7 @@ public class GraphValidator {
             return ValidationResult.fail(errors);
         }
 
-        // 1. 节点存在性（子图 / Agent 节点不走普通注册表）
+        // 1. 节点存在性（子图 / Agent / SAA / HITL 结构节点不走普通注册表）
         for (NodeRef ref : def.nodes()) {
             if (ref.hasSubgraph()) {
                 // 子图节点：校验其指向的子图定义（内嵌则递归校验；引用型由构建期解析）
@@ -176,6 +176,10 @@ public class GraphValidator {
                 }
                 continue;
             }
+            // HITL 结构节点：靠 hitlSpec / category=HITL，由 HitlGraphSupport 校验，不进注册表
+            if (io.acelance.graph.dsl.hitl.HitlGraphSupport.isHitlNode(ref)) {
+                continue;
+            }
             if (!nodeRegistry.contains(ref.nodeId())) {
                 errors.add("节点未注册: " + ref.nodeId());
             }
@@ -218,6 +222,10 @@ public class GraphValidator {
                 .filter(SaaWorkflowValidator::isSaaWorkflowNode)
                 .flatMap(ref -> SaaWorkflowValidator.collectNeededKeys(ref).stream())
                 .forEach(neededKeys::add);
+        // HITL 人工注入键
+        def.nodes().stream()
+                .flatMap(ref -> io.acelance.graph.dsl.hitl.HitlGraphSupport.injectKeysOf(ref).stream())
+                .forEach(neededKeys::add);
         for (String key : neededKeys) {
             if (!declaredKeys.contains(key)) {
                 errors.add("KeyStrategy 缺失: " + key);
@@ -232,6 +240,9 @@ public class GraphValidator {
                 }
             }
         }
+
+        // 4.5 HITL：injectKeys 非空且须在 interruptBefore 中
+        errors.addAll(io.acelance.graph.dsl.hitl.HitlGraphSupport.validateHitlNodes(def));
 
         // 5. 环检测（HITL resume 外不允许成环）
         if (hasCycle(def)) {

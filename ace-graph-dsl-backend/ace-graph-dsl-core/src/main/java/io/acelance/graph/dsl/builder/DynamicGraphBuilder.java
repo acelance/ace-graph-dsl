@@ -171,11 +171,12 @@ public class DynamicGraphBuilder {
      * @throws GraphStateException StateGraph 构建或编译异常时
      */
     public CompiledGraph build(GraphDefinition def) throws GraphStateException {
-        ValidationResult validation = validator.validate(def);
+        GraphDefinition normalized = io.acelance.graph.dsl.hitl.HitlGraphSupport.normalize(def);
+        ValidationResult validation = validator.validate(normalized);
         if (!validation.ok()) {
             throw new IllegalArgumentException("图定义校验失败: " + String.join("; ", validation.errors()));
         }
-        return doBuild(def, new HashSet<>(), 0);
+        return doBuild(normalized, new HashSet<>(), 0);
     }
 
     /**
@@ -185,7 +186,7 @@ public class DynamicGraphBuilder {
      * @return 校验结果
      */
     public ValidationResult validate(GraphDefinition def) {
-        return validator.validate(def);
+        return validator.validate(io.acelance.graph.dsl.hitl.HitlGraphSupport.normalize(def));
     }
 
     /**
@@ -194,11 +195,12 @@ public class DynamicGraphBuilder {
      * @throws GraphStateException StateGraph 构建异常时
      */
     public StateGraph buildStateGraph(GraphDefinition def) throws GraphStateException {
-        ValidationResult validation = validator.validate(def);
+        GraphDefinition normalized = io.acelance.graph.dsl.hitl.HitlGraphSupport.normalize(def);
+        ValidationResult validation = validator.validate(normalized);
         if (!validation.ok()) {
             throw new IllegalArgumentException("图定义校验失败: " + String.join("; ", validation.errors()));
         }
-        return doBuildStateGraph(def, new HashSet<>(), 0);
+        return doBuildStateGraph(normalized, new HashSet<>(), 0);
     }
 
     private CompiledGraph doBuild(GraphDefinition def, Set<String> visiting, int depth) throws GraphStateException {
@@ -571,16 +573,19 @@ public class DynamicGraphBuilder {
             // SAA 子/父输出键：未声明时自动补 REPLACE，便于中间键透传
             if (def.nodes() != null) {
                 for (NodeRef ref : def.nodes()) {
-                    if (!SaaWorkflowValidator.isSaaWorkflowNode(ref)) {
-                        continue;
-                    }
-                    for (String key : SaaWorkflowValidator.collectNeededKeys(ref)) {
-                        strategies.putIfAbsent(key, new ReplaceStrategy());
-                    }
-                    if (ref.saaSpec() != null) {
-                        for (String in : ref.saaSpec().inputKeyList()) {
-                            strategies.putIfAbsent(in, new ReplaceStrategy());
+                    if (SaaWorkflowValidator.isSaaWorkflowNode(ref)) {
+                        for (String key : SaaWorkflowValidator.collectNeededKeys(ref)) {
+                            strategies.putIfAbsent(key, new ReplaceStrategy());
                         }
+                        if (ref.saaSpec() != null) {
+                            for (String in : ref.saaSpec().inputKeyList()) {
+                                strategies.putIfAbsent(in, new ReplaceStrategy());
+                            }
+                        }
+                    }
+                    // HITL 人工注入键：未声明时补 REPLACE，避免 resume updates 丢键
+                    for (String key : io.acelance.graph.dsl.hitl.HitlGraphSupport.injectKeysOf(ref)) {
+                        strategies.putIfAbsent(key, new ReplaceStrategy());
                     }
                 }
             }
@@ -594,6 +599,13 @@ public class DynamicGraphBuilder {
      */
     private AsyncNodeAction buildSingleNodeAction(GraphDefinition def, NodeRef ref,
             NodeRuntimeContext nodeCtx, Set<String> visiting, int depth) throws GraphStateException {
+        if (ref.hasHitlSpec() || GraphNodeDescriptor.CATEGORY_HITL.equals(ref.category())) {
+            log.info("挂载 HITL 闸门节点: graphId={}, nodeId={}, injectKeys={}",
+                    def.graphId(), ref.nodeId(),
+                    ref.hitlSpec() == null ? List.of() : ref.hitlSpec().injectKeys());
+            return node_async(new io.acelance.graph.dsl.hitl.HitlReviewNodeAction(
+                    def.graphId(), ref.nodeId(), ref.hitlSpec()));
+        }
         if (ref.hasAgentSpec() || GraphNodeDescriptor.CATEGORY_GENERIC_AGENT.equals(ref.category())) {
             return node_async(resolveGenericAgent(def, ref).toAction(nodeCtx));
         }

@@ -163,6 +163,8 @@ public class GraphRuntime {
         if (def == null) {
             return failPublish(graphId, version, operator, "版本不存在: " + graphId + "@" + version);
         }
+        // HITL：并入 interruptBefore + 补 injectKeys 的 KeyStrategy（与设计器保存规范化对齐）
+        def = io.acelance.graph.dsl.hitl.HitlGraphSupport.normalize(def);
         ValidationResult validation = builder.validate(def);
         if (!validation.ok()) {
             return failPublish(graphId, version, operator, "校验失败: " + String.join("; ", validation.errors()));

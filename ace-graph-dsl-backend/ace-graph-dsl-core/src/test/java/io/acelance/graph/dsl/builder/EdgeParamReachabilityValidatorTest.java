@@ -111,6 +111,36 @@ class EdgeParamReachabilityValidatorTest {
     }
 
     @Test
+    void hitlSpecInjectKeysReachDownstream() {
+        NodeRef hitl = new NodeRef(
+                "hitl:review",
+                GraphNodeDescriptor.CATEGORY_HITL,
+                Map.of(),
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                new io.acelance.graph.dsl.definition.HitlNodeSpec(List.of("approved_text")));
+        GraphDefinition def = new GraphDefinition(
+                "g-hitl-spec", "test", "1.0.0", "",
+                Map.of("reply_draft", "REPLACE", "approved_text", "REPLACE"),
+                List.of(
+                        new NodeRef("draft", Map.of(), null, null),
+                        hitl),
+                List.of(
+                        new GraphEdge(GraphDefinition.START, "draft", GraphEdge.TYPE_NORMAL, null, null, null, null),
+                        new GraphEdge("draft", "hitl:review", GraphEdge.TYPE_NORMAL, null, null, null, null),
+                        new GraphEdge("hitl:review", GraphDefinition.END, GraphEdge.TYPE_NORMAL, null, null, null, null)),
+                null, null);
+
+        List<String> errors = validator.validate(def);
+        assertTrue(errors.isEmpty(), () -> "hitlSpec 入边应豁免: " + errors);
+    }
+
+    @Test
     void saaWorkflowOutputKeyReachesDownstream() {
         SaaWorkflowSpec saa = SaaWorkflowSpec.of(
                 "SEQUENTIAL",

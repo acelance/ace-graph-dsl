@@ -27,6 +27,7 @@ import {
 import MermaidPreview from './MermaidPreview.vue'
 import SaaWorkflowForm from './SaaWorkflowForm.vue'
 import { normalizeSaaSpec } from '../../utils/saaWorkflow'
+import { normalizeHitlSpec } from '../../utils/hitlNode'
 import {
   MEMORY_WRITE_FLAGS,
   isMemoryWritesConfigured,
@@ -73,7 +74,8 @@ const STRUCTURAL_DESCRIPTORS = {
   SUBGRAPH: { nodeId: '', displayName: 'Subgraph', category: 'SUBGRAPH', origin: 'STRUCTURAL', inputKeys: [], outputKeys: [], configurableProps: {} },
   AGENT: { nodeId: '', displayName: 'Agent', category: 'AGENT', origin: 'STRUCTURAL', inputKeys: [], outputKeys: [], configurableProps: {} },
   GENERIC_AGENT: { nodeId: '', displayName: 'Generic Agent', category: 'GENERIC_AGENT', origin: 'STRUCTURAL', inputKeys: [], outputKeys: [], configurableProps: {} },
-  SAA_WORKFLOW: { nodeId: '', displayName: 'SAA Workflow', category: 'SAA_WORKFLOW', origin: 'STRUCTURAL', inputKeys: [], outputKeys: [], configurableProps: {} }
+  SAA_WORKFLOW: { nodeId: '', displayName: 'SAA Workflow', category: 'SAA_WORKFLOW', origin: 'STRUCTURAL', inputKeys: [], outputKeys: [], configurableProps: {} },
+  HITL: { nodeId: '', displayName: 'HITL', category: 'HITL', origin: 'STRUCTURAL', inputKeys: [], outputKeys: [], configurableProps: {} }
 }
 
 const selectedDescriptor = computed(() => {
@@ -81,7 +83,7 @@ const selectedDescriptor = computed(() => {
   const d = nodeStore.nodes.find(n => n.nodeId === editor.selectedNode.nodeId)
   if (d) return d
   const cat = editor.selectedNode.category
-  if (cat === 'SUBGRAPH' || cat === 'AGENT' || cat === 'GENERIC_AGENT' || cat === 'SAA_WORKFLOW') {
+  if (cat === 'SUBGRAPH' || cat === 'AGENT' || cat === 'GENERIC_AGENT' || cat === 'SAA_WORKFLOW' || cat === 'HITL') {
     return STRUCTURAL_DESCRIPTORS[cat]
   }
   return null
@@ -98,11 +100,13 @@ const isStructuralSelected = computed(() =>
   || editor.selectedNode?.category === 'AGENT'
   || editor.selectedNode?.category === 'GENERIC_AGENT'
   || editor.selectedNode?.category === 'SAA_WORKFLOW'
+  || editor.selectedNode?.category === 'HITL'
 )
 const isSubgraphSelected = computed(() => editor.selectedNode?.category === 'SUBGRAPH')
 const isAgentSelected = computed(() => editor.selectedNode?.category === 'AGENT')
 const isGenericAgentSelected = computed(() => editor.selectedNode?.category === 'GENERIC_AGENT')
 const isSaaWorkflowSelected = computed(() => editor.selectedNode?.category === 'SAA_WORKFLOW')
+const isHitlSelected = computed(() => editor.selectedNode?.category === 'HITL')
 /** 注册式（引用型）通用 Agent：无内联 agentSpec，元数据集中在节点面板管理 */
 const isGenericAgentRegistered = computed(() => isGenericAgentSelected.value && !currentAgentSpec.value)
 
@@ -130,6 +134,12 @@ const currentSaaSpec = computed(() => normalizeSaaSpec(selectedNodeMeta.value?.s
 
 function onSaaSpecChange(next) {
   editor.updateSelectedSaaSpec(normalizeSaaSpec(next))
+}
+
+const currentHitlSpec = computed(() => normalizeHitlSpec(selectedNodeMeta.value?.hitlSpec))
+
+function onHitlInjectKeysChange(keys) {
+  editor.updateSelectedHitlSpec(normalizeHitlSpec({ injectKeys: keys }))
 }
 
 /** 注册式节点：跳转到「节点面板 → 通用 Agent」进行元数据编辑（图入口带 Catalog 上下文） */
@@ -729,6 +739,26 @@ function onStreamingChange(val) {
                 :agentscope-enabled="agentscopeEnabled"
                 @update:model-value="onSaaSpecChange"
               />
+            </template>
+
+            <!-- HITL 人工审核 -->
+            <template v-if="isHitlSelected">
+              <el-alert :title="t('propertyPanel.hitlHint')" type="info" :closable="false" style="margin-bottom: 8px;" />
+              <el-form-item :label="t('propertyPanel.hitlInjectKeys')">
+                <el-select
+                  :model-value="currentHitlSpec.injectKeys"
+                  multiple
+                  filterable
+                  allow-create
+                  default-first-option
+                  :placeholder="t('propertyPanel.hitlInjectKeysPlaceholder')"
+                  style="width: 100%;"
+                  @update:model-value="onHitlInjectKeysChange"
+                />
+                <span class="hint" style="display:block; margin-top:4px;">
+                  {{ t('propertyPanel.hitlInjectKeysHint') }}
+                </span>
+              </el-form-item>
             </template>
 
             <template v-if="isSubgraphSelected">
